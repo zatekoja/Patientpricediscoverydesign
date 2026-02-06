@@ -10,23 +10,25 @@ import (
 
 // Router holds all route handlers
 type Router struct {
-	mux             *http.ServeMux
-	facilityHandler *handlers.FacilityHandler
-	metrics         *observability.Metrics
+       mux                *http.ServeMux
+       facilityHandler    *handlers.FacilityHandler
+       appointmentHandler *handlers.AppointmentHandler
+       metrics            *observability.Metrics
 }
 
 // NewRouter creates a new router
 func NewRouter(
-	facilityHandler *handlers.FacilityHandler,
-	metrics *observability.Metrics,
+       facilityHandler *handlers.FacilityHandler,
+       appointmentHandler *handlers.AppointmentHandler,
+       metrics *observability.Metrics,
 ) *Router {
-	return &Router{
-		mux:             http.NewServeMux(),
-		facilityHandler: facilityHandler,
-		metrics:         metrics,
-	}
+       return &Router{
+               mux:                http.NewServeMux(),
+               facilityHandler:    facilityHandler,
+               appointmentHandler: appointmentHandler,
+               metrics:            metrics,
+       }
 }
-
 // SetupRoutes configures all application routes
 func (r *Router) SetupRoutes() http.Handler {
 	// Health check endpoint
@@ -37,10 +39,15 @@ func (r *Router) SetupRoutes() http.Handler {
 
 	// Facility endpoints
 	r.mux.HandleFunc("GET /api/facilities", r.facilityHandler.ListFacilities)
-	r.mux.HandleFunc("GET /api/facilities/search", r.facilityHandler.SearchFacilities)
-	r.mux.HandleFunc("GET /api/facilities/{id}", r.facilityHandler.GetFacility)
-
-	// Apply middleware in reverse order (last middleware wraps first)
+	       r.mux.HandleFunc("GET /api/facilities/search", r.facilityHandler.SearchFacilities)
+	       r.mux.HandleFunc("GET /api/facilities/{id}", r.facilityHandler.GetFacility)
+	
+	       // Appointment endpoints
+	       r.mux.HandleFunc("POST /api/appointments", r.appointmentHandler.BookAppointment)
+	       r.mux.HandleFunc("GET /api/facilities/{id}/availability", r.appointmentHandler.GetAvailability)
+	
+	       // Apply middleware in reverse order (last middleware wraps first)
+	
 	var handler http.Handler = r.mux
 	handler = middleware.CORSMiddleware(handler)
 	handler = middleware.LoggingMiddleware(handler)

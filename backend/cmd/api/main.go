@@ -136,18 +136,31 @@ import (
 		                     geolocationProvider := geolocation.NewMockGeolocationProvider()
 		                     appointmentProvider := scheduling.NewCalendlyAdapter(os.Getenv("CALENDLY_API_KEY"))
 		              
-		                     // Initialize services
-		                     facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
-		                     // Note: In Phase 2, we will implement real AppointmentRepository
-		                     // For now, AppointmentService is initialized but not fully used in handlers yet
-		                     _ = services.NewAppointmentService(nil, appointmentProvider)
+		                            // Initialize services
 		              
-		                     // Initialize handlers
-		                     facilityHandler := handlers.NewFacilityHandler(facilityService)
+		                            facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
 		              
-		
-		       // Set up router
-		       router := routes.NewRouter(facilityHandler, metrics)
+		                            // Note: In Phase 2, we will implement real AppointmentRepository
+		              
+		                            // For now, AppointmentService is initialized but not fully used in handlers yet
+		              
+		                            appointmentService := services.NewAppointmentService(database.NewAppointmentAdapter(pgClient), appointmentProvider)
+		              
+		                     
+		              
+		                            // Initialize handlers
+		              
+		                            facilityHandler := handlers.NewFacilityHandler(facilityService)
+		              
+		                            appointmentHandler := handlers.NewAppointmentHandler(appointmentService)
+		              
+		                     
+		              
+		                            // Set up router
+		              
+		                            router := routes.NewRouter(facilityHandler, appointmentHandler, metrics)
+		              
+		                     
 		
 	handler := router.SetupRoutes()
 

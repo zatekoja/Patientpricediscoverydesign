@@ -26,6 +26,7 @@ func NewClient(cfg *config.TypesenseConfig) (*Client, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Use Health endpoint or Retrieve Collection to test connection
 	if _, err := client.Health(ctx, 2*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to connect to Typesense: %w", err)
 	}
