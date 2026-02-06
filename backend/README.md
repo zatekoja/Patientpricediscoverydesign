@@ -75,18 +75,19 @@ backend/
 
 ## Tech Stack
 
-- **Language**: Go 1.21+
+- **Language**: Go 1.22+
 - **Database**: PostgreSQL (with spatial queries support)
 - **Cache**: Redis
 - **Observability**: OpenTelemetry (OTEL)
 - **Testing**: testify, mockery
 - **Geolocation**: Mock provider (can be replaced with Google Maps, Mapbox, etc.)
+- **Query Builder**: goqu for type-safe SQL generation
 
 ## Getting Started
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.22 or higher (required for ServeMux pattern matching)
 - PostgreSQL 13+
 - Redis 6+
 - Docker (optional, for local development)

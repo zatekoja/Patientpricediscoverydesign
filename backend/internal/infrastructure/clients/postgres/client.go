@@ -32,6 +32,7 @@ func NewClient(cfg *config.DatabaseConfig) (*Client, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
+		db.Close() // Close the database connection on ping failure
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 

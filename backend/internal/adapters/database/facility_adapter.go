@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
@@ -15,48 +17,47 @@ import (
 // FacilityAdapter implements the FacilityRepository interface
 type FacilityAdapter struct {
 	client *postgres.Client
+	db     *goqu.Database
 }
 
 // NewFacilityAdapter creates a new facility adapter
 func NewFacilityAdapter(client *postgres.Client) repositories.FacilityRepository {
 	return &FacilityAdapter{
 		client: client,
+		db:     goqu.New("postgres", client.DB()),
 	}
 }
 
 // Create creates a new facility
 func (a *FacilityAdapter) Create(ctx context.Context, facility *entities.Facility) error {
-	query := `
-		INSERT INTO facilities (
-			id, name, street, city, state, zip_code, country,
-			latitude, longitude, phone_number, email, website,
-			description, facility_type, rating, review_count,
-			is_active, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-	`
+	record := goqu.Record{
+		"id":           facility.ID,
+		"name":         facility.Name,
+		"street":       sql.NullString{String: facility.Address.Street, Valid: facility.Address.Street != ""},
+		"city":         sql.NullString{String: facility.Address.City, Valid: facility.Address.City != ""},
+		"state":        sql.NullString{String: facility.Address.State, Valid: facility.Address.State != ""},
+		"zip_code":     sql.NullString{String: facility.Address.ZipCode, Valid: facility.Address.ZipCode != ""},
+		"country":      sql.NullString{String: facility.Address.Country, Valid: facility.Address.Country != ""},
+		"latitude":     facility.Location.Latitude,
+		"longitude":    facility.Location.Longitude,
+		"phone_number": sql.NullString{String: facility.PhoneNumber, Valid: facility.PhoneNumber != ""},
+		"email":        sql.NullString{String: facility.Email, Valid: facility.Email != ""},
+		"website":      sql.NullString{String: facility.Website, Valid: facility.Website != ""},
+		"description":  sql.NullString{String: facility.Description, Valid: facility.Description != ""},
+		"facility_type": sql.NullString{String: facility.FacilityType, Valid: facility.FacilityType != ""},
+		"rating":       facility.Rating,
+		"review_count": facility.ReviewCount,
+		"is_active":    facility.IsActive,
+		"created_at":   facility.CreatedAt,
+		"updated_at":   facility.UpdatedAt,
+	}
 
-	_, err := a.client.DB().ExecContext(ctx, query,
-		facility.ID,
-		facility.Name,
-		facility.Address.Street,
-		facility.Address.City,
-		facility.Address.State,
-		facility.Address.ZipCode,
-		facility.Address.Country,
-		facility.Location.Latitude,
-		facility.Location.Longitude,
-		facility.PhoneNumber,
-		facility.Email,
-		facility.Website,
-		facility.Description,
-		facility.FacilityType,
-		facility.Rating,
-		facility.ReviewCount,
-		facility.IsActive,
-		facility.CreatedAt,
-		facility.UpdatedAt,
-	)
+	query, args, err := a.db.Insert("facilities").Rows(record).ToSQL()
+	if err != nil {
+		return apperrors.NewInternalError("failed to build insert query", err)
+	}
 
+	_, err = a.client.DB().ExecContext(ctx, query, args...)
 	if err != nil {
 		return apperrors.NewInternalError("failed to create facility", err)
 	}
@@ -66,32 +67,38 @@ func (a *FacilityAdapter) Create(ctx context.Context, facility *entities.Facilit
 
 // GetByID retrieves a facility by ID
 func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Facility, error) {
-	query := `
-		SELECT 
-			id, name, street, city, state, zip_code, country,
-			latitude, longitude, phone_number, email, website,
-			description, facility_type, rating, review_count,
-			is_active, created_at, updated_at
-		FROM facilities
-		WHERE id = $1 AND is_active = true
-	`
+	query, args, err := a.db.Select(
+		"id", "name", "street", "city", "state", "zip_code", "country",
+		"latitude", "longitude", "phone_number", "email", "website",
+		"description", "facility_type", "rating", "review_count",
+		"is_active", "created_at", "updated_at",
+	).From("facilities").
+		Where(goqu.Ex{"id": id, "is_active": true}).
+		ToSQL()
+
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to build query", err)
+	}
 
 	facility := &entities.Facility{}
-	err := a.client.DB().QueryRowContext(ctx, query, id).Scan(
+	var street, city, state, zipCode, country sql.NullString
+	var phoneNumber, email, website, description, facilityType sql.NullString
+
+	err = a.client.DB().QueryRowContext(ctx, query, args...).Scan(
 		&facility.ID,
 		&facility.Name,
-		&facility.Address.Street,
-		&facility.Address.City,
-		&facility.Address.State,
-		&facility.Address.ZipCode,
-		&facility.Address.Country,
+		&street,
+		&city,
+		&state,
+		&zipCode,
+		&country,
 		&facility.Location.Latitude,
 		&facility.Location.Longitude,
-		&facility.PhoneNumber,
-		&facility.Email,
-		&facility.Website,
-		&facility.Description,
-		&facility.FacilityType,
+		&phoneNumber,
+		&email,
+		&website,
+		&description,
+		&facilityType,
 		&facility.Rating,
 		&facility.ReviewCount,
 		&facility.IsActive,
@@ -106,43 +113,55 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 		return nil, apperrors.NewInternalError("failed to get facility", err)
 	}
 
+	// Map nullable fields
+	facility.Address.Street = street.String
+	facility.Address.City = city.String
+	facility.Address.State = state.String
+	facility.Address.ZipCode = zipCode.String
+	facility.Address.Country = country.String
+	facility.PhoneNumber = phoneNumber.String
+	facility.Email = email.String
+	facility.Website = website.String
+	facility.Description = description.String
+	facility.FacilityType = facilityType.String
+
 	return facility, nil
 }
 
 // Update updates a facility
 func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facility) error {
-	query := `
-		UPDATE facilities SET
-			name = $2, street = $3, city = $4, state = $5, zip_code = $6, country = $7,
-			latitude = $8, longitude = $9, phone_number = $10, email = $11, website = $12,
-			description = $13, facility_type = $14, rating = $15, review_count = $16,
-			is_active = $17, updated_at = $18
-		WHERE id = $1
-	`
-
 	facility.UpdatedAt = time.Now()
 
-	result, err := a.client.DB().ExecContext(ctx, query,
-		facility.ID,
-		facility.Name,
-		facility.Address.Street,
-		facility.Address.City,
-		facility.Address.State,
-		facility.Address.ZipCode,
-		facility.Address.Country,
-		facility.Location.Latitude,
-		facility.Location.Longitude,
-		facility.PhoneNumber,
-		facility.Email,
-		facility.Website,
-		facility.Description,
-		facility.FacilityType,
-		facility.Rating,
-		facility.ReviewCount,
-		facility.IsActive,
-		facility.UpdatedAt,
-	)
+	record := goqu.Record{
+		"name":         facility.Name,
+		"street":       sql.NullString{String: facility.Address.Street, Valid: facility.Address.Street != ""},
+		"city":         sql.NullString{String: facility.Address.City, Valid: facility.Address.City != ""},
+		"state":        sql.NullString{String: facility.Address.State, Valid: facility.Address.State != ""},
+		"zip_code":     sql.NullString{String: facility.Address.ZipCode, Valid: facility.Address.ZipCode != ""},
+		"country":      sql.NullString{String: facility.Address.Country, Valid: facility.Address.Country != ""},
+		"latitude":     facility.Location.Latitude,
+		"longitude":    facility.Location.Longitude,
+		"phone_number": sql.NullString{String: facility.PhoneNumber, Valid: facility.PhoneNumber != ""},
+		"email":        sql.NullString{String: facility.Email, Valid: facility.Email != ""},
+		"website":      sql.NullString{String: facility.Website, Valid: facility.Website != ""},
+		"description":  sql.NullString{String: facility.Description, Valid: facility.Description != ""},
+		"facility_type": sql.NullString{String: facility.FacilityType, Valid: facility.FacilityType != ""},
+		"rating":       facility.Rating,
+		"review_count": facility.ReviewCount,
+		"is_active":    facility.IsActive,
+		"updated_at":   facility.UpdatedAt,
+	}
 
+	query, args, err := a.db.Update("facilities").
+		Set(record).
+		Where(goqu.Ex{"id": facility.ID}).
+		ToSQL()
+
+	if err != nil {
+		return apperrors.NewInternalError("failed to build update query", err)
+	}
+
+	result, err := a.client.DB().ExecContext(ctx, query, args...)
 	if err != nil {
 		return apperrors.NewInternalError("failed to update facility", err)
 	}
@@ -161,9 +180,16 @@ func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facilit
 
 // Delete deletes a facility (soft delete)
 func (a *FacilityAdapter) Delete(ctx context.Context, id string) error {
-	query := `UPDATE facilities SET is_active = false, updated_at = $2 WHERE id = $1`
+	query, args, err := a.db.Update("facilities").
+		Set(goqu.Record{"is_active": false, "updated_at": time.Now()}).
+		Where(goqu.Ex{"id": id}).
+		ToSQL()
 
-	result, err := a.client.DB().ExecContext(ctx, query, id, time.Now())
+	if err != nil {
+		return apperrors.NewInternalError("failed to build delete query", err)
+	}
+
+	result, err := a.client.DB().ExecContext(ctx, query, args...)
 	if err != nil {
 		return apperrors.NewInternalError("failed to delete facility", err)
 	}
@@ -182,42 +208,34 @@ func (a *FacilityAdapter) Delete(ctx context.Context, id string) error {
 
 // List retrieves facilities with filters
 func (a *FacilityAdapter) List(ctx context.Context, filter repositories.FacilityFilter) ([]*entities.Facility, error) {
-	query := `
-		SELECT 
-			id, name, street, city, state, zip_code, country,
-			latitude, longitude, phone_number, email, website,
-			description, facility_type, rating, review_count,
-			is_active, created_at, updated_at
-		FROM facilities
-		WHERE 1=1
-	`
-
-	args := []interface{}{}
-	argCount := 1
+	ds := a.db.Select(
+		"id", "name", "street", "city", "state", "zip_code", "country",
+		"latitude", "longitude", "phone_number", "email", "website",
+		"description", "facility_type", "rating", "review_count",
+		"is_active", "created_at", "updated_at",
+	).From("facilities")
 
 	if filter.FacilityType != "" {
-		query += fmt.Sprintf(" AND facility_type = $%d", argCount)
-		args = append(args, filter.FacilityType)
-		argCount++
+		ds = ds.Where(goqu.Ex{"facility_type": filter.FacilityType})
 	}
 
 	if filter.IsActive != nil {
-		query += fmt.Sprintf(" AND is_active = $%d", argCount)
-		args = append(args, *filter.IsActive)
-		argCount++
+		ds = ds.Where(goqu.Ex{"is_active": *filter.IsActive})
 	}
 
-	query += " ORDER BY created_at DESC"
+	ds = ds.Order(goqu.I("created_at").Desc())
 
 	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", argCount)
-		args = append(args, filter.Limit)
-		argCount++
+		ds = ds.Limit(uint(filter.Limit))
 	}
 
 	if filter.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", argCount)
-		args = append(args, filter.Offset)
+		ds = ds.Offset(uint(filter.Offset))
+	}
+
+	query, args, err := ds.ToSQL()
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to build list query", err)
 	}
 
 	rows, err := a.client.DB().QueryContext(ctx, query, args...)
@@ -229,21 +247,24 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 	facilities := []*entities.Facility{}
 	for rows.Next() {
 		facility := &entities.Facility{}
+		var street, city, state, zipCode, country sql.NullString
+		var phoneNumber, email, website, description, facilityType sql.NullString
+
 		err := rows.Scan(
 			&facility.ID,
 			&facility.Name,
-			&facility.Address.Street,
-			&facility.Address.City,
-			&facility.Address.State,
-			&facility.Address.ZipCode,
-			&facility.Address.Country,
+			&street,
+			&city,
+			&state,
+			&zipCode,
+			&country,
 			&facility.Location.Latitude,
 			&facility.Location.Longitude,
-			&facility.PhoneNumber,
-			&facility.Email,
-			&facility.Website,
-			&facility.Description,
-			&facility.FacilityType,
+			&phoneNumber,
+			&email,
+			&website,
+			&description,
+			&facilityType,
 			&facility.Rating,
 			&facility.ReviewCount,
 			&facility.IsActive,
@@ -253,6 +274,19 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 		if err != nil {
 			return nil, apperrors.NewInternalError("failed to scan facility", err)
 		}
+
+		// Map nullable fields
+		facility.Address.Street = street.String
+		facility.Address.City = city.String
+		facility.Address.State = state.String
+		facility.Address.ZipCode = zipCode.String
+		facility.Address.Country = country.String
+		facility.PhoneNumber = phoneNumber.String
+		facility.Email = email.String
+		facility.Website = website.String
+		facility.Description = description.String
+		facility.FacilityType = facilityType.String
+
 		facilities = append(facilities, facility)
 	}
 
@@ -265,34 +299,35 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 
 // Search searches facilities by location and criteria
 func (a *FacilityAdapter) Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error) {
-	// This is a simplified version. In production, you'd use PostGIS for spatial queries
-	query := `
-		SELECT 
-			id, name, street, city, state, zip_code, country,
-			latitude, longitude, phone_number, email, website,
-			description, facility_type, rating, review_count,
-			is_active, created_at, updated_at,
-			(6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
-			cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
-			sin(radians(latitude)))) AS distance
-		FROM facilities
-		WHERE is_active = true
-		HAVING distance <= $3
-		ORDER BY distance
-	`
+	// Use a subquery to calculate distance, then filter in outer WHERE clause
+	// This avoids the HAVING issue and is more efficient
+	distanceExpr := goqu.L(
+		"(6371 * acos(cos(radians(?)) * cos(radians(latitude)) * cos(radians(longitude) - radians(?)) + sin(radians(?)) * sin(radians(latitude))))",
+		params.Latitude, params.Longitude, params.Latitude,
+	)
 
-	args := []interface{}{params.Latitude, params.Longitude, params.RadiusKm}
-	argCount := 4
+	ds := a.db.Select(
+		"id", "name", "street", "city", "state", "zip_code", "country",
+		"latitude", "longitude", "phone_number", "email", "website",
+		"description", "facility_type", "rating", "review_count",
+		"is_active", "created_at", "updated_at",
+		distanceExpr.As("distance"),
+	).From("facilities").
+		Where(goqu.Ex{"is_active": true}).
+		Where(distanceExpr.Lte(params.RadiusKm)).
+		Order(goqu.I("distance").Asc())
 
 	if params.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", argCount)
-		args = append(args, params.Limit)
-		argCount++
+		ds = ds.Limit(uint(params.Limit))
 	}
 
 	if params.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", argCount)
-		args = append(args, params.Offset)
+		ds = ds.Offset(uint(params.Offset))
+	}
+
+	query, args, err := ds.ToSQL()
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to build search query", err)
 	}
 
 	rows, err := a.client.DB().QueryContext(ctx, query, args...)
@@ -304,22 +339,25 @@ func (a *FacilityAdapter) Search(ctx context.Context, params repositories.Search
 	facilities := []*entities.Facility{}
 	for rows.Next() {
 		facility := &entities.Facility{}
+		var street, city, state, zipCode, country sql.NullString
+		var phoneNumber, email, website, description, facilityType sql.NullString
 		var distance float64
+
 		err := rows.Scan(
 			&facility.ID,
 			&facility.Name,
-			&facility.Address.Street,
-			&facility.Address.City,
-			&facility.Address.State,
-			&facility.Address.ZipCode,
-			&facility.Address.Country,
+			&street,
+			&city,
+			&state,
+			&zipCode,
+			&country,
 			&facility.Location.Latitude,
 			&facility.Location.Longitude,
-			&facility.PhoneNumber,
-			&facility.Email,
-			&facility.Website,
-			&facility.Description,
-			&facility.FacilityType,
+			&phoneNumber,
+			&email,
+			&website,
+			&description,
+			&facilityType,
 			&facility.Rating,
 			&facility.ReviewCount,
 			&facility.IsActive,
@@ -330,6 +368,19 @@ func (a *FacilityAdapter) Search(ctx context.Context, params repositories.Search
 		if err != nil {
 			return nil, apperrors.NewInternalError("failed to scan facility", err)
 		}
+
+		// Map nullable fields
+		facility.Address.Street = street.String
+		facility.Address.City = city.String
+		facility.Address.State = state.String
+		facility.Address.ZipCode = zipCode.String
+		facility.Address.Country = country.String
+		facility.PhoneNumber = phoneNumber.String
+		facility.Email = email.String
+		facility.Website = website.String
+		facility.Description = description.String
+		facility.FacilityType = facilityType.String
+
 		facilities = append(facilities, facility)
 	}
 

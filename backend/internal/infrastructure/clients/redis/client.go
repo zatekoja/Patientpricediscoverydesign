@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
@@ -21,9 +22,12 @@ func NewClient(cfg *config.RedisConfig) (*Client, error) {
 		DB:       cfg.DB,
 	})
 
-	// Test the connection
-	ctx := context.Background()
+	// Test the connection with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	if err := client.Ping(ctx).Err(); err != nil {
+		client.Close() // Close the client on ping failure
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 

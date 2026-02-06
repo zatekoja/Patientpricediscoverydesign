@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     user_id VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
     facility_id VARCHAR(255) NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
     procedure_id VARCHAR(255) NOT NULL REFERENCES procedures(id) ON DELETE CASCADE,
-    scheduled_at TIMESTAMP NOT NULL,
+    scheduled_at TIMESTAMPTZ NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     patient_name VARCHAR(255) NOT NULL,
     patient_email VARCHAR(255) NOT NULL,
@@ -113,8 +113,8 @@ CREATE TABLE IF NOT EXISTS appointments (
     insurance_provider VARCHAR(255),
     insurance_policy_number VARCHAR(100),
     notes TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_appointments_user ON appointments(user_id);

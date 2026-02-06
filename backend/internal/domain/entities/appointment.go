@@ -17,7 +17,7 @@ const (
 // Appointment represents a scheduled appointment
 type Appointment struct {
 	ID                  string            `json:"id" db:"id"`
-	UserID              string            `json:"user_id" db:"user_id"`
+	UserID              *string           `json:"user_id,omitempty" db:"user_id"`
 	FacilityID          string            `json:"facility_id" db:"facility_id"`
 	ProcedureID         string            `json:"procedure_id" db:"procedure_id"`
 	ScheduledAt         time.Time         `json:"scheduled_at" db:"scheduled_at"`

@@ -3,6 +3,7 @@ module github.com/zatekoja/Patientpricediscoverydesign/backend
 go 1.24.12
 
 require (
+	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/lib/pq v1.11.1
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
