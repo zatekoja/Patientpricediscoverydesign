@@ -48,9 +48,15 @@ export class DataProviderAPI {
   private setupMiddleware(): void {
     this.app.use(express.json());
     
-    // CORS middleware
+    // CORS middleware - configure allowed origins for production
     this.app.use((req, res, next) => {
-      res.header('Access-Control-Allow-Origin', '*');
+      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['*'];
+      const origin = req.headers.origin || '';
+      
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', allowedOrigins.includes('*') ? '*' : origin);
+      }
+      
       res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Content-Type');
       next();
@@ -271,7 +277,7 @@ export class DataProviderAPI {
   listen(port: number = 3000): void {
     this.app.listen(port, () => {
       console.log(`Data Provider API server listening on port ${port}`);
-      console.log(`OpenAPI documentation available at: http://localhost:${port}/api/v1/docs`);
+      console.log(`API available at: http://localhost:${port}/api/v1`);
       console.log(`Registered providers: ${Object.keys(this.providers).join(', ') || 'none'}`);
     });
   }

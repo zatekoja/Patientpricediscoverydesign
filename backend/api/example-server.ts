@@ -1,6 +1,9 @@
 /**
  * Example API Server Setup
  * Demonstrates how to start the HTTP API server with configured providers
+ * 
+ * NOTE: This is an example for development/testing.
+ * For production, ensure all environment variables are properly configured.
  */
 
 import { DataProviderAPI } from './server';
@@ -13,6 +16,16 @@ import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
  * Initialize and start the API server
  */
 async function startServer() {
+  // Validate required environment variables
+  const requiredEnvVars = ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_PROJECT_ID', 'SPREADSHEET_IDS'];
+  const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+  
+  if (missingVars.length > 0 && process.env.NODE_ENV === 'production') {
+    console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    console.error('Please configure these variables before starting the server in production.');
+    process.exit(1);
+  }
+
   // 1. Create the API server
   const api = new DataProviderAPI();
 
@@ -22,16 +35,14 @@ async function startServer() {
   // 3. Create and configure the Google Sheets provider
   const megalekProvider = new MegalekAteruHelper(documentStore);
 
-  // Example configuration (replace with actual credentials)
+  // Configuration (use environment variables or provide defaults for development)
   const config: GoogleSheetsConfig = {
     credentials: {
-      clientEmail: process.env.GOOGLE_CLIENT_EMAIL || 'service-account@project.iam.gserviceaccount.com',
-      privateKey: process.env.GOOGLE_PRIVATE_KEY || '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----',
-      projectId: process.env.GOOGLE_PROJECT_ID || 'my-project-id',
+      clientEmail: process.env.GOOGLE_CLIENT_EMAIL || '',
+      privateKey: process.env.GOOGLE_PRIVATE_KEY || '',
+      projectId: process.env.GOOGLE_PROJECT_ID || '',
     },
-    spreadsheetIds: (process.env.SPREADSHEET_IDS || '').split(',').filter(Boolean) || [
-      '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
-    ],
+    spreadsheetIds: (process.env.SPREADSHEET_IDS || '').split(',').filter(Boolean),
     sheetNames: ['Price Data'],
     columnMapping: {
       facilityName: 'Facility Name',
@@ -48,7 +59,11 @@ async function startServer() {
     console.log('✓ Provider initialized successfully');
   } catch (error) {
     console.error('✗ Failed to initialize provider:', error);
-    process.exit(1);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    } else {
+      console.warn('Continuing in development mode with uninitialized provider');
+    }
   }
 
   // 5. Register the provider with the API
