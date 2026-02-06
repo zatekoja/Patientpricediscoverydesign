@@ -1,0 +1,17 @@
+with-expecter: true
+dir: "tests/mocks"
+packages:
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories:
+    interfaces:
+      FacilityRepository:
+      ProcedureRepository:
+      FacilityProcedureRepository:
+      AppointmentRepository:
+      AvailabilityRepository:
+      InsuranceRepository:
+      UserRepository:
+      ReviewRepository:
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers:
+    interfaces:
+      GeolocationProvider:
+      CacheProvider:
