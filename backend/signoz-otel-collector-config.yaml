@@ -1,0 +1,34 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  clickhousetraces:
+    datasource: tcp://clickhouse:9000/?database=signoz_traces
+    docker_multi_node_cluster: false
+    low_cardinal_exception_grouping: false
+  
+  clickhousemetricswrite:
+    endpoint: tcp://clickhouse:9000/?database=signoz_metrics
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [clickhousetraces]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [clickhousemetricswrite]
