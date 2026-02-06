@@ -211,8 +211,9 @@ async function runIngestionWorkflowManually() {
   
   // Step 3: Index in Typesense
   console.log('\n[Step 3] Indexing in Typesense...');
-  if (llmProvider['documentStore']) {
-    await indexInTypesense(llmProvider['documentStore'] as InMemoryDocumentStore<TaggedPriceData>);
+  const taggedStore = llmProvider.getDocumentStore();
+  if (taggedStore) {
+    await indexInTypesense(taggedStore as InMemoryDocumentStore<TaggedPriceData>);
   }
   
   console.log('\n✓ Complete ingestion workflow finished successfully');

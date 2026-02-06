@@ -386,6 +386,10 @@ Return ONLY a comma-separated list of tags, no explanations.`;
     
     console.log(`Generating tags for prompt (placeholder): ${prompt.substring(0, 100)}...`);
     
+    // WARNING: This is a placeholder implementation
+    // In production, implement actual LLM API calls
+    console.warn('LLM API not implemented - returning empty tags. Implement callLLMAPI() for production use.');
+    
     // Return empty array for now - implement with actual LLM API
     return [];
   }
@@ -404,7 +408,7 @@ Tags should be concise, specific, and relevant to both medical professionals and
    * Generate unique key for tagged price data
    */
   protected generateKey(data: TaggedPriceData, index: number): string {
-    const facilityKey = data.facilityId || data.facilityName.replace(/\s+/g, '_').toLowerCase();
+    const facilityKey = data.facilityId || (data.facilityName || 'unknown').replace(/\s+/g, '_').toLowerCase();
     const effectiveDate = data.effectiveDate instanceof Date 
       ? data.effectiveDate.toISOString().split('T')[0]
       : new Date(data.effectiveDate).toISOString().split('T')[0];
@@ -425,5 +429,12 @@ Tags should be concise, specific, and relevant to both medical professionals and
    */
   setSourceProvider(provider: BaseDataProvider<PriceData>): void {
     this.sourceProvider = provider;
+  }
+  
+  /**
+   * Get the document store (for workflow integration)
+   */
+  getDocumentStore(): IDocumentStore<TaggedPriceData> | undefined {
+    return this.documentStore;
   }
 }
