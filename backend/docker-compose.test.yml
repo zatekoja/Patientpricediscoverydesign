@@ -37,3 +37,57 @@ services:
       retries: 5
     tmpfs:
       - /data
+
+  clickhouse-test:
+    image: clickhouse/clickhouse-server:23.11-alpine
+    container_name: ppd_clickhouse_test
+    environment:
+      CLICKHOUSE_DB: signoz_metrics
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/clickhouse
+
+  signoz-otel-collector-test:
+    image: signoz/signoz-otel-collector:0.88.11
+    container_name: ppd_signoz_otel_collector_test
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    ports:
+      - "4319:4318"
+    environment:
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=patient-price-discovery-provider
+    depends_on:
+      - clickhouse-test
+    volumes:
+      - ./signoz-otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:13133"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  provider-api-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.provider
+    container_name: ppd_provider_api_test
+    ports:
+      - "3002:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - OTEL_ENABLED=true
+      - OTEL_SERVICE_NAME=patient-price-discovery-provider
+      - OTEL_SERVICE_VERSION=1.0.0
+      - OTEL_ENDPOINT=http://signoz-otel-collector-test:4318
+      - GOOGLE_CLIENT_EMAIL=
+      - GOOGLE_PRIVATE_KEY=
+      - GOOGLE_PROJECT_ID=
+      - SPREADSHEET_IDS=
+    depends_on:
+      - signoz-otel-collector-test

@@ -1,0 +1,18 @@
+# Provider API (Node/TypeScript) for external data providers
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json ./
+RUN npm install
+
+# Copy source
+COPY . .
+
+ENV NODE_ENV=development
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start"]
