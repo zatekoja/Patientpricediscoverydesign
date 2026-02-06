@@ -35,6 +35,7 @@ export interface SyncJobConfig {
 export class DataSyncScheduler {
   private jobs: Map<string, NodeJS.Timeout> = new Map();
   private jobConfigs: Map<string, SyncJobConfig> = new Map();
+  private runningJobs: Set<string> = new Set();
   
   /**
    * Schedule a sync job
@@ -113,6 +114,12 @@ export class DataSyncScheduler {
    * Run a sync job
    */
   private async runSyncJob(config: SyncJobConfig): Promise<void> {
+    if (this.runningJobs.has(config.name)) {
+      console.warn(`Sync job '${config.name}' skipped (previous run still in progress).`);
+      return;
+    }
+
+    this.runningJobs.add(config.name);
     console.log(`Running sync job '${config.name}'...`);
     
     try {
@@ -142,6 +149,8 @@ export class DataSyncScheduler {
         timestamp: new Date(),
         error: errorObj.message,
       });
+    } finally {
+      this.runningJobs.delete(config.name);
     }
   }
   

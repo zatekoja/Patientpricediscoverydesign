@@ -175,12 +175,57 @@ export class DataProviderAPI {
         return;
       }
 
+      if (timeWindow && !/^\d+[dmy]$/.test(timeWindow as string)) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid timeWindow format. Use <number><unit> like "30d", "6m", "1y".',
+        });
+        return;
+      }
+
+      const parsedStartDate = startDate ? new Date(startDate as string) : undefined;
+      const parsedEndDate = endDate ? new Date(endDate as string) : undefined;
+
+      if (startDate && isNaN(parsedStartDate!.getTime())) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid startDate format.',
+        });
+        return;
+      }
+
+      if (endDate && isNaN(parsedEndDate!.getTime())) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid endDate format.',
+        });
+        return;
+      }
+
+      if (parsedStartDate && parsedEndDate && parsedEndDate < parsedStartDate) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'endDate must be greater than or equal to startDate.',
+        });
+        return;
+      }
+
+      const parsedLimit = limit ? parseInt(limit as string, 10) : 1000;
+      const parsedOffset = offset ? parseInt(offset as string, 10) : 0;
+      if (Number.isNaN(parsedLimit) || Number.isNaN(parsedOffset)) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'limit and offset must be valid integers.',
+        });
+        return;
+      }
+
       const options: DataProviderOptions = {
         timeWindow: timeWindow as string,
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
-        limit: limit ? parseInt(limit as string, 10) : 1000,
-        offset: offset ? parseInt(offset as string, 10) : 0,
+        startDate: parsedStartDate,
+        endDate: parsedEndDate,
+        limit: parsedLimit,
+        offset: parsedOffset,
       };
 
       const data = await provider.getHistoricalData(options);

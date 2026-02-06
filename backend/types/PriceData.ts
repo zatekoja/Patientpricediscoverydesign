@@ -54,6 +54,12 @@ export interface PriceData {
   
   /** Date when this price record was last updated */
   lastUpdated: Date;
+
+  /** Sync batch identifier for provider syncs */
+  batchId?: string;
+
+  /** Timestamp of the sync that ingested this record (ISO string) */
+  syncTimestamp?: string;
   
   /** Source of the data */
   source: string;

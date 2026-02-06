@@ -90,17 +90,32 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
     if (!this.documentStore) {
       throw new Error('Document store not configured');
     }
+
+    if (!this.previousBatchId) {
+      return {
+        data: [],
+        timestamp: new Date(),
+        metadata: {
+          source: this.name,
+          count: 0,
+          type: 'previous',
+          message: 'No previous batch available',
+        },
+      };
+    }
     
     try {
       // Query for data from the previous sync
       const previousData = await this.documentStore.query(
         { 
           source: this.name,
-          // Filter for data from previous sync (implementation depends on store)
+          batchId: this.previousBatchId,
         },
         {
           limit: options?.limit || 100,
-
+          offset: options?.offset || 0,
+          sortBy: 'effectiveDate',
+          sortOrder: 'desc',
         }
       );
       

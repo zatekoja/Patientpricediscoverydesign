@@ -142,9 +142,22 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
     if (!this.documentStore) {
       throw new Error('Document store not configured');
     }
+
+    if (!this.previousBatchId) {
+      return {
+        data: [],
+        timestamp: new Date(),
+        metadata: {
+          source: this.name,
+          count: 0,
+          type: 'previous',
+          message: 'No previous batch available',
+        },
+      };
+    }
     
     const previousData = await this.documentStore.query(
-      { source: this.name },
+      { source: this.name, batchId: this.previousBatchId },
       {
         limit: options?.limit || 100,
         sortBy: 'lastUpdated',
@@ -223,6 +236,7 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
     error?: string;
   }> {
     const timestamp = new Date();
+    const batchId = timestamp.toISOString();
     
     try {
       if (!this.sourceProvider) {
@@ -234,27 +248,33 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       
       // Enrich with LLM-generated tags
       const enrichedData = await this.enrichWithTags(sourceData.data);
+      const dataWithSync = enrichedData.map((data) =>
+        this.attachSyncMetadata(data, batchId, timestamp)
+      );
       
       // Store in document store if available
-      if (this.documentStore && enrichedData.length > 0) {
-        const items = enrichedData.map((data, index) => ({
+      if (this.documentStore && dataWithSync.length > 0) {
+        const items = dataWithSync.map((data, index) => ({
           key: this.generateKey(data, index),
           data,
           metadata: {
             syncTimestamp: timestamp,
             source: this.name,
             upstreamSource: sourceData.metadata?.source,
+            batchId,
           },
         }));
         
         await this.documentStore.batchPut(items);
       }
       
+      this.previousBatchId = this.lastBatchId;
+      this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
       
       return {
         success: true,
-        recordsProcessed: enrichedData.length,
+        recordsProcessed: dataWithSync.length,
         timestamp,
       };
     } catch (error) {
@@ -304,10 +324,16 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       
       return {
         ...item,
+        source: this.name,
+        lastUpdated: new Date(),
         tags,
         tagMetadata: {
           generatedAt: new Date(),
           model: this.llmConfig.model,
+        },
+        metadata: {
+          ...(item.metadata ?? {}),
+          upstreamSource: item.source,
         },
       };
     } catch (error) {
@@ -315,10 +341,16 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       // Return item without tags on error
       return {
         ...item,
+        source: this.name,
+        lastUpdated: new Date(),
         tags: [],
         tagMetadata: {
           generatedAt: new Date(),
           model: this.llmConfig.model,
+        },
+        metadata: {
+          ...(item.metadata ?? {}),
+          upstreamSource: item.source,
         },
       };
     }

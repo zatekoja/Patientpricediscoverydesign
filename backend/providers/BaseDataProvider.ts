@@ -9,6 +9,8 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
   protected config: Record<string, any> = {};
   protected documentStore?: IDocumentStore<T>;
   protected lastSyncDate?: Date;
+  protected lastBatchId?: string;
+  protected previousBatchId?: string;
   protected isInitialized: boolean = false;
   
   constructor(
@@ -45,30 +47,37 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
     error?: string;
   }> {
     const timestamp = new Date();
+    const batchId = timestamp.toISOString();
     
     try {
       // Get current data from external source
       const response = await this.getCurrentData();
+      const dataWithSync = response.data.map((data) =>
+        this.attachSyncMetadata(data, batchId, timestamp)
+      );
       
       // Store in document store if available
-      if (this.documentStore && response.data.length > 0) {
-        const items = response.data.map((data, index) => ({
+      if (this.documentStore && dataWithSync.length > 0) {
+        const items = dataWithSync.map((data, index) => ({
           key: this.generateKey(data, index),
           data,
           metadata: {
             syncTimestamp: timestamp,
             source: this.name,
+            batchId,
           },
         }));
         
         await this.documentStore.batchPut(items);
       }
       
+      this.previousBatchId = this.lastBatchId;
+      this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
       
       return {
         success: true,
-        recordsProcessed: response.data.length,
+        recordsProcessed: dataWithSync.length,
         timestamp,
       };
     } catch (error) {
@@ -138,5 +147,29 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
     }
     
     return { startDate, endDate };
+  }
+
+  /**
+   * Attach sync metadata to a record for storage/querying.
+   * For non-object data types, returns the original value.
+   */
+  protected attachSyncMetadata(data: T, batchId: string, timestamp: Date): T {
+    if (!data || typeof data !== 'object') {
+      return data;
+    }
+
+    const record = data as Record<string, any>;
+    return {
+      ...record,
+      batchId,
+      syncTimestamp: timestamp.toISOString(),
+      source: record.source ?? this.name,
+      metadata: {
+        ...(record.metadata ?? {}),
+        batchId,
+        syncTimestamp: timestamp.toISOString(),
+        source: this.name,
+      },
+    } as T;
   }
 }
