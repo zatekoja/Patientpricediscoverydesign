@@ -9,15 +9,15 @@ This backend follows a clean architecture with strict separation of responsibili
 ```
 API Layer → Application Layer → Domain Layer → Infrastructure Layer
      ↓           ↓                   ↓              ↓
- Handlers    Use Cases          Entities        Clients
- Routes      Services           Repositories    Adapters
+ Handlers    Services           Entities        Clients
+ Routes      Use Cases          Repositories    Adapters
  Middleware                     Providers
 ```
 
 ### Data Flow
 
 ```
-HTTP Request → API Handler → Internal Provider → Adapter → Database Client / External Provider
+HTTP Request → API Handler → Application Service → Adapter → Client → External System
 ```
 
 ## Project Structure
@@ -32,11 +32,12 @@ backend/
 │   │   ├── repositories/       # Repository interfaces (ports)
 │   │   └── providers/          # External service interfaces
 │   ├── application/            # Application layer
-│   │   ├── services/           # Business services
+│   │   ├── services/           # Business services (e.g., FacilityService)
 │   │   └── usecases/           # Use case implementations
 │   ├── adapters/               # Adapters layer (data access)
-│   │   ├── database/           # Database adapters
-│   │   ├── cache/              # Cache adapters
+│   │   ├── database/           # Database adapters (PostgreSQL)
+│   │   ├── search/             # Search adapters (Typesense)
+│   │   ├── cache/              # Cache adapters (Redis)
 │   │   └── providers/          # External provider implementations
 │   ├── infrastructure/         # Infrastructure layer
 │   │   ├── clients/            # Database and external service clients
@@ -77,6 +78,7 @@ backend/
 
 - **Language**: Go 1.22+
 - **Database**: PostgreSQL (with spatial queries support)
+- **Search Engine**: Typesense
 - **Cache**: Redis
 - **Observability**: OpenTelemetry (OTEL)
 - **Testing**: testify, mockery

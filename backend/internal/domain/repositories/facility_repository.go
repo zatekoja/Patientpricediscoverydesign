@@ -23,11 +23,41 @@ type FacilityRepository interface {
 	// List retrieves facilities with filters
 	List(ctx context.Context, filter FacilityFilter) ([]*entities.Facility, error)
 
-	// Search searches facilities by location and criteria
-	Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
-}
+	       // Search searches facilities by location and criteria
 
-// FacilityFilter defines filters for listing facilities
+	       Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
+
+	}
+
+	
+
+	// FacilitySearchRepository defines the interface for facility search operations (e.g. Typesense)
+
+	type FacilitySearchRepository interface {
+
+	       // Search searches facilities
+
+	       Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
+
+	       
+
+	       // Index indexes a facility
+
+	       Index(ctx context.Context, facility *entities.Facility) error
+
+	       
+
+	       // Delete removes a facility from index
+
+	       Delete(ctx context.Context, id string) error
+
+	}
+
+	
+
+	// FacilityFilter defines filters for listing facilities
+
+	
 type FacilityFilter struct {
 	FacilityType string
 	IsActive     *bool

@@ -10,36 +10,44 @@ import (
 type Config struct {
 	Server     ServerConfig
 	Database   DatabaseConfig
-	Redis      RedisConfig
-	Geolocation GeolocationConfig
-	OTEL       OTELConfig
-}
-
-// ServerConfig holds server configuration
-type ServerConfig struct {
-	Host string
-	Port int
-}
-
-// DatabaseConfig holds database configuration
-type DatabaseConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	Database string
-	SSLMode  string
-}
-
-// RedisConfig holds Redis configuration
-type RedisConfig struct {
-	Host     string
-	Port     int
-	Password string
-	DB       int
-}
-
-// GeolocationConfig holds geolocation provider configuration
+	       Redis      RedisConfig
+	       Typesense  TypesenseConfig
+	       Geolocation GeolocationConfig
+	       OTEL       OTELConfig
+	}
+	
+	// ServerConfig holds server configuration
+	type ServerConfig struct {
+	       Host string
+	       Port int
+	}
+	
+	// DatabaseConfig holds database configuration
+	type DatabaseConfig struct {
+	       Host     string
+	       Port     int
+	       User     string
+	       Password string
+	       Database string
+	       SSLMode  string
+	}
+	
+	// RedisConfig holds Redis configuration
+	type RedisConfig struct {
+	       Host     string
+	       Port     int
+	       Password string
+	       DB       int
+	}
+	
+	// TypesenseConfig holds Typesense configuration
+	type TypesenseConfig struct {
+	       URL    string
+	       APIKey string
+	}
+	
+	// GeolocationConfig holds geolocation provider configuration
+	
 type GeolocationConfig struct {
 	Provider string
 	APIKey   string
@@ -68,14 +76,19 @@ func Load() (*Config, error) {
 			Database: getEnv("DB_NAME", "patient_price_discovery"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
-		Redis: RedisConfig{
-			Host:     getEnv("REDIS_HOST", "localhost"),
-			Port:     getEnvAsInt("REDIS_PORT", 6379),
-			Password: getEnv("REDIS_PASSWORD", ""),
-			DB:       getEnvAsInt("REDIS_DB", 0),
-		},
-		Geolocation: GeolocationConfig{
-			Provider: getEnv("GEOLOCATION_PROVIDER", "mock"),
+		               Redis: RedisConfig{
+		                       Host:     getEnv("REDIS_HOST", "localhost"),
+		                       Port:     getEnvAsInt("REDIS_PORT", 6379),
+		                       Password: getEnv("REDIS_PASSWORD", ""),
+		                       DB:       getEnvAsInt("REDIS_DB", 0),
+		               },
+		               Typesense: TypesenseConfig{
+		                       URL:    getEnv("TYPESENSE_URL", "http://localhost:8108"),
+		                       APIKey: getEnv("TYPESENSE_API_KEY", "xyz"),
+		               },
+		               Geolocation: GeolocationConfig{
+		                       Provider: getEnv("GEOLOCATION_PROVIDER", "mock"),
+		
 			APIKey:   getEnv("GEOLOCATION_API_KEY", ""),
 		},
 		OTEL: OTELConfig{
