@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { IExternalDataProvider, DataProviderOptions } from '../interfaces/IExternalDataProvider';
+import { recordApiRequest } from '../observability/metrics';
 
 /**
  * API Router for External Data Provider
@@ -55,6 +56,22 @@ export class DataProviderAPI {
    */
   private setupMiddleware(): void {
     this.app.use(express.json());
+
+    // API request metrics
+    this.app.use((req, res, next) => {
+      const start = process.hrtime.bigint();
+      res.on('finish', () => {
+        const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+        const routePath = `${req.baseUrl || ''}${req.route?.path || req.path}`;
+        recordApiRequest({
+          method: req.method,
+          path: routePath,
+          status: res.statusCode,
+          durationMs,
+        });
+      });
+      next();
+    });
     
     // CORS middleware - configure allowed origins for production
     this.app.use((req, res, next) => {

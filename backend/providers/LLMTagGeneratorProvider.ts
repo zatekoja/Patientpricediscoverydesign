@@ -2,6 +2,7 @@ import { BaseDataProvider } from './BaseDataProvider';
 import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { PriceData } from '../types/PriceData';
+import { recordProviderSyncMetrics, recordTagGeneration } from '../observability/metrics';
 
 /**
  * Configuration for LLM Tag Generator Provider
@@ -235,6 +236,7 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
     timestamp: Date;
     error?: string;
   }> {
+    const startTime = Date.now();
     const timestamp = new Date();
     const batchId = timestamp.toISOString();
     
@@ -271,6 +273,12 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       this.previousBatchId = this.lastBatchId;
       this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: true,
+        recordsProcessed: dataWithSync.length,
+        durationMs: Date.now() - startTime,
+      });
       
       return {
         success: true,
@@ -278,6 +286,12 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
         timestamp,
       };
     } catch (error) {
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: false,
+        recordsProcessed: 0,
+        durationMs: Date.now() - startTime,
+      });
       return {
         success: false,
         recordsProcessed: 0,
@@ -318,9 +332,16 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       throw new Error('LLM configuration not initialized');
     }
     
+    const startTime = Date.now();
     try {
       const prompt = this.buildTagGenerationPrompt(item);
       const tags = await this.callLLMAPI(prompt);
+      recordTagGeneration({
+        provider: this.name,
+        durationMs: Date.now() - startTime,
+        tags: tags.length,
+        success: true,
+      });
       
       return {
         ...item,
@@ -338,6 +359,12 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       };
     } catch (error) {
       console.error(`Failed to generate tags for item ${item.id}:`, error);
+      recordTagGeneration({
+        provider: this.name,
+        durationMs: Date.now() - startTime,
+        tags: 0,
+        success: false,
+      });
       // Return item without tags on error
       return {
         ...item,

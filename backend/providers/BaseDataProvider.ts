@@ -1,5 +1,6 @@
 import { IExternalDataProvider, DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { recordProviderSyncMetrics } from '../observability/metrics';
 
 /**
  * Base abstract class for external data providers
@@ -46,6 +47,7 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
     timestamp: Date;
     error?: string;
   }> {
+    const startTime = Date.now();
     const timestamp = new Date();
     const batchId = timestamp.toISOString();
     
@@ -74,6 +76,12 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
       this.previousBatchId = this.lastBatchId;
       this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: true,
+        recordsProcessed: dataWithSync.length,
+        durationMs: Date.now() - startTime,
+      });
       
       return {
         success: true,
@@ -81,6 +89,12 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
         timestamp,
       };
     } catch (error) {
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: false,
+        recordsProcessed: 0,
+        durationMs: Date.now() - startTime,
+      });
       return {
         success: false,
         recordsProcessed: 0,

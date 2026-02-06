@@ -509,6 +509,29 @@ if (!health.healthy) {
 }
 ```
 
+### Observability (OTEL + SigNoz)
+
+The provider system emits OpenTelemetry traces and metrics when `OTEL_ENABLED=true`.
+It exports via OTLP/HTTP so SigNoz can ingest both traces and metrics.
+
+```bash
+# Enable OTEL
+OTEL_ENABLED=true
+
+# Service identity
+OTEL_SERVICE_NAME=patient-price-discovery-provider
+OTEL_SERVICE_VERSION=1.0.0
+
+# OTLP endpoint for SigNoz (HTTP)
+OTEL_ENDPOINT=http://localhost:4318
+```
+
+Custom metrics include:
+- `provider.sync.count`, `provider.sync.duration_ms`, `provider.records.processed`
+- `scheduler.job.run`, `scheduler.job.duration_ms`, `scheduler.job.skipped`
+- `provider.tag_generation.count`, `provider.tag_generation.duration_ms`, `provider.tags.generated`
+- `api.request.count`, `api.request.duration_ms`
+
 ### Production Deployment
 
 #### Google Sheets API Setup

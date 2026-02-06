@@ -8,6 +8,7 @@
  * 4. Querying current, previous, and historical data
  */
 
+import './observability/otel';
 import { MegalekAteruHelper } from './providers/MegalekAteruHelper';
 import { InMemoryDocumentStore } from './stores/InMemoryDocumentStore';
 import { DataSyncScheduler, SyncIntervals } from './config/DataSyncScheduler';

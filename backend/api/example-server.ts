@@ -6,6 +6,7 @@
  * For production, ensure all environment variables are properly configured.
  */
 
+import '../observability/otel';
 import { DataProviderAPI } from './server';
 import { MegalekAteruHelper } from '../providers/MegalekAteruHelper';
 import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';

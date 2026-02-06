@@ -10,6 +10,7 @@
  * 4. Tagged data is indexed in Typesense for search
  */
 
+import '../observability/otel';
 import { MegalekAteruHelper } from '../providers/MegalekAteruHelper';
 import { LLMTagGeneratorProvider } from '../providers/LLMTagGeneratorProvider';
 import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';

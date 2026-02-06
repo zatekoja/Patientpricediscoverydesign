@@ -1,4 +1,5 @@
 import { IExternalDataProvider } from '../interfaces/IExternalDataProvider';
+import { recordSchedulerRun, recordSchedulerSkip } from '../observability/metrics';
 
 /**
  * Configuration for scheduled sync jobs
@@ -116,10 +117,12 @@ export class DataSyncScheduler {
   private async runSyncJob(config: SyncJobConfig): Promise<void> {
     if (this.runningJobs.has(config.name)) {
       console.warn(`Sync job '${config.name}' skipped (previous run still in progress).`);
+      recordSchedulerSkip(config.name);
       return;
     }
 
     this.runningJobs.add(config.name);
+    const startTime = Date.now();
     console.log(`Running sync job '${config.name}'...`);
     
     try {
@@ -132,6 +135,11 @@ export class DataSyncScheduler {
       });
       
       config.onComplete?.(result);
+      recordSchedulerRun({
+        job: config.name,
+        success: result.success,
+        durationMs: Date.now() - startTime,
+      });
       
       if (!result.success) {
         console.error(`Sync job '${config.name}' failed:`, result.error);
@@ -148,6 +156,11 @@ export class DataSyncScheduler {
         recordsProcessed: 0,
         timestamp: new Date(),
         error: errorObj.message,
+      });
+      recordSchedulerRun({
+        job: config.name,
+        success: false,
+        durationMs: Date.now() - startTime,
       });
     } finally {
       this.runningJobs.delete(config.name);
