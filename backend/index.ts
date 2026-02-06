@@ -21,3 +21,7 @@ export { DataSyncScheduler, SyncJobConfig, SyncIntervals } from './config/DataSy
 
 // Types
 export { PriceData, GoogleSheetsConfig } from './types/PriceData';
+
+// API
+export { DataProviderAPI, ProviderRegistry } from './api/server';
+export { startServer } from './api/example-server';

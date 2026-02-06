@@ -1,0 +1,562 @@
+openapi: 3.0.3
+info:
+  title: Patient Price Discovery - External Data Provider API
+  description: |
+    REST API for accessing healthcare price data from external providers.
+    
+    This API provides endpoints to query current, previous, and historical price data
+    from external sources like Google Sheets. All data is synchronized on a schedule
+    and stored in a document store for fast retrieval.
+    
+    ## Features
+    - Query current price data
+    - Query previous price data
+    - Query historical price data with time windows
+    - Provider health monitoring
+    - Manual sync triggering
+    
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@ateruhealth.com
+  license:
+    name: MIT
+    
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development server
+  - url: https://api.ateruhealth.com/v1
+    description: Production server
+
+tags:
+  - name: Data
+    description: Price data retrieval endpoints
+  - name: Provider
+    description: Provider management and health endpoints
+  - name: Sync
+    description: Data synchronization endpoints
+
+paths:
+  /data/current:
+    get:
+      tags:
+        - Data
+      summary: Get current price data
+      description: Retrieves the most recent price data from the provider
+      operationId: getCurrentData
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: offset
+          in: query
+          description: Number of records to skip (for pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: providerId
+          in: query
+          description: Specific provider ID to query (defaults to primary provider)
+          required: false
+          schema:
+            type: string
+            example: megalek_ateru_helper
+      responses:
+        '200':
+          description: Successfully retrieved current data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /data/previous:
+    get:
+      tags:
+        - Data
+      summary: Get previous price data
+      description: Retrieves the previous batch of price data (the last sync before current)
+      operationId: getPreviousData
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: offset
+          in: query
+          description: Number of records to skip (for pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: providerId
+          in: query
+          description: Specific provider ID to query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved previous data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /data/historical:
+    get:
+      tags:
+        - Data
+      summary: Get historical price data
+      description: Retrieves historical price data within a specified time range
+      operationId: getHistoricalData
+      parameters:
+        - name: timeWindow
+          in: query
+          description: Time window for data retrieval (e.g., "30d", "6m", "1y")
+          required: false
+          schema:
+            type: string
+            pattern: '^\d+[dmy]$'
+            example: 30d
+        - name: startDate
+          in: query
+          description: Start date for date range query (ISO 8601 format)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: '2024-01-01T00:00:00Z'
+        - name: endDate
+          in: query
+          description: End date for date range query (ISO 8601 format)
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: '2024-12-31T23:59:59Z'
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 1000
+        - name: offset
+          in: query
+          description: Number of records to skip (for pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: providerId
+          in: query
+          description: Specific provider ID to query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved historical data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataResponse'
+        '400':
+          description: Invalid request parameters (must provide either timeWindow or startDate/endDate)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /provider/health:
+    get:
+      tags:
+        - Provider
+      summary: Get provider health status
+      description: Returns the health status of the data provider
+      operationId: getProviderHealth
+      parameters:
+        - name: providerId
+          in: query
+          description: Specific provider ID to check
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Provider health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /provider/list:
+    get:
+      tags:
+        - Provider
+      summary: List available providers
+      description: Returns a list of all configured data providers
+      operationId: listProviders
+      responses:
+        '200':
+          description: List of providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          example: megalek_ateru_helper
+                        name:
+                          type: string
+                          example: MegalekAteruHelper
+                        type:
+                          type: string
+                          example: GoogleSheets
+                        healthy:
+                          type: boolean
+                        lastSync:
+                          type: string
+                          format: date-time
+                          nullable: true
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /sync/trigger:
+    post:
+      tags:
+        - Sync
+      summary: Trigger manual data sync
+      description: Manually triggers a data synchronization from the external source
+      operationId: triggerSync
+      parameters:
+        - name: providerId
+          in: query
+          description: Specific provider ID to sync
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync triggered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /sync/status:
+    get:
+      tags:
+        - Sync
+      summary: Get sync status
+      description: Returns the status of the last sync operation
+      operationId: getSyncStatus
+      parameters:
+        - name: providerId
+          in: query
+          description: Specific provider ID to check
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    PriceData:
+      type: object
+      required:
+        - id
+        - facilityName
+        - procedureCode
+        - procedureDescription
+        - price
+        - currency
+        - effectiveDate
+        - lastUpdated
+        - source
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the price record
+          example: megalek_ateru_helper_12345
+        facilityName:
+          type: string
+          description: Name of the healthcare facility
+          example: General Hospital
+        facilityId:
+          type: string
+          description: Facility identifier
+          nullable: true
+          example: FAC-001
+        procedureCode:
+          type: string
+          description: CPT or procedure code
+          example: 70450
+        procedureDescription:
+          type: string
+          description: Description of the procedure
+          example: CT Scan - Head without contrast
+        price:
+          type: number
+          format: float
+          description: Price amount
+          example: 1250.00
+        currency:
+          type: string
+          description: Currency code
+          example: USD
+        insurance:
+          type: object
+          nullable: true
+          properties:
+            provider:
+              type: string
+              example: Blue Cross Blue Shield
+            plan:
+              type: string
+              example: PPO
+            coveredAmount:
+              type: number
+              format: float
+              example: 1000.00
+            outOfPocket:
+              type: number
+              format: float
+              example: 250.00
+        location:
+          type: object
+          nullable: true
+          properties:
+            address:
+              type: string
+              example: 123 Main St
+            city:
+              type: string
+              example: Springfield
+            state:
+              type: string
+              example: IL
+            zipCode:
+              type: string
+              example: 62701
+            coordinates:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                  format: double
+                  example: 39.7817
+                longitude:
+                  type: number
+                  format: double
+                  example: -89.6501
+        availability:
+          type: object
+          nullable: true
+          properties:
+            nextAvailable:
+              type: string
+              format: date-time
+              example: '2024-03-15T09:00:00Z'
+            timeSlots:
+              type: array
+              items:
+                type: string
+                example: '09:00-10:00'
+        effectiveDate:
+          type: string
+          format: date-time
+          description: Date when this price became effective
+          example: '2024-01-01T00:00:00Z'
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Date when this record was last updated
+          example: '2024-01-15T10:30:00Z'
+        source:
+          type: string
+          description: Source of the data
+          example: megalek_ateru_helper
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Additional metadata
+          
+    DataResponse:
+      type: object
+      required:
+        - data
+        - timestamp
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceData'
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when data was retrieved
+          example: '2024-01-15T10:30:00Z'
+        metadata:
+          type: object
+          properties:
+            source:
+              type: string
+              example: megalek_ateru_helper
+            count:
+              type: integer
+              example: 100
+            hasMore:
+              type: boolean
+              example: true
+            totalCount:
+              type: integer
+              example: 1500
+              
+    HealthResponse:
+      type: object
+      required:
+        - healthy
+      properties:
+        healthy:
+          type: boolean
+          description: Whether the provider is healthy
+          example: true
+        lastSync:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp of last successful sync
+          example: '2024-01-15T10:30:00Z'
+        message:
+          type: string
+          description: Additional health information
+          example: Provider is operational
+          
+    SyncResponse:
+      type: object
+      required:
+        - success
+        - recordsProcessed
+        - timestamp
+      properties:
+        success:
+          type: boolean
+          description: Whether the sync was successful
+          example: true
+        recordsProcessed:
+          type: integer
+          description: Number of records processed
+          example: 150
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the sync operation
+          example: '2024-01-15T10:30:00Z'
+        error:
+          type: string
+          nullable: true
+          description: Error message if sync failed
+          example: null
+          
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: ValidationError
+        message:
+          type: string
+          description: Human-readable error message
+          example: Invalid request parameters
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Additional error details

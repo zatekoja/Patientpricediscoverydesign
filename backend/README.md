@@ -2,6 +2,13 @@
 
 This system provides a flexible interface for connecting external data providers to our Patient Price Discovery application. The primary implementation is the `megalek_ateru_helper` provider, which connects to Google Sheets to retrieve price data.
 
+## Quick Links
+
+- **[REST API Documentation](./api/README.md)** - HTTP API for accessing price data
+- **[OpenAPI Specification](./api/openapi.yaml)** - Complete API specification
+- **[Quick Reference](./QUICK_REFERENCE.md)** - Common use cases and examples
+- **[Architecture Diagrams](./ARCHITECTURE.md)** - System architecture
+
 ## Architecture Overview
 
 ### Core Components
@@ -11,11 +18,17 @@ This system provides a flexible interface for connecting external data providers
 3. **MegalekAteruHelper** - Google Sheets implementation of the data provider
 4. **IDocumentStore Interface** - Abstraction for data storage (S3, DynamoDB, MongoDB)
 5. **DataSyncScheduler** - Scheduler for automatic data synchronization
+6. **REST API** - HTTP endpoints for external services to access data
 
 ### Directory Structure
 
 ```
 backend/
+├── api/
+│   ├── openapi.yaml                 # OpenAPI 3.0 specification
+│   ├── server.ts                    # Express REST API server
+│   ├── example-server.ts            # Example server setup
+│   └── README.md                    # API documentation
 ├── interfaces/
 │   ├── IExternalDataProvider.ts    # Main provider interface
 │   └── IDocumentStore.ts            # Document store interface
@@ -43,6 +56,18 @@ All external providers support:
 - **Configurable Options** - Time windows, pagination, custom parameters
 - **Automatic Sync** - Scheduled data synchronization
 - **Health Monitoring** - Check provider status
+
+### REST API
+
+The system includes a production-ready REST API:
+
+- **HTTP Endpoints** - RESTful API for data access
+- **OpenAPI 3.0 Spec** - Complete API documentation
+- **Error Handling** - Standardized error responses
+- **CORS Support** - Cross-origin resource sharing
+- **Pagination** - Support for large datasets
+
+See [API Documentation](./api/README.md) for details.
 
 ### Configurable Options
 
