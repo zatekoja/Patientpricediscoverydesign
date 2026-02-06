@@ -1,116 +1,51 @@
 import { MapPin, DollarSign, Calendar, Clock, Star, CheckCircle2 } from "lucide-react";
 
-interface SearchResultsProps {
-  onSelectFacility: (facility: any) => void;
+export interface UIFacility {
+  id: string;
+  name: string;
+  type: string;
+  distance: number;
+  price: number;
+  rating: number;
+  reviews: number;
+  nextAvailable: string;
+  address: string;
+  insurance: string[];
+  services: string[];
+  urgent: boolean;
+  capacity: string;
+  waitTime: string;
 }
 
-// Mock data for hospitals/facilities
-const facilities = [
-  {
-    id: 1,
-    name: "St. Mary's Medical Center",
-    type: "Hospital",
-    distance: 2.3,
-    price: 450,
-    rating: 4.8,
-    reviews: 1243,
-    nextAvailable: "Today, 3:00 PM",
-    address: "123 Medical Drive, Downtown",
-    insurance: ["Aetna", "Blue Cross", "Cigna", "Medicare"],
-    services: ["MRI", "CT Scan", "X-Ray", "Ultrasound"],
-    urgent: true,
-    capacity: "Available",
-    waitTime: "15 min"
-  },
-  {
-    id: 2,
-    name: "Central Imaging & Diagnostics",
-    type: "Imaging Center",
-    distance: 3.7,
-    price: 350,
-    rating: 4.9,
-    reviews: 892,
-    nextAvailable: "Tomorrow, 9:00 AM",
-    address: "456 Radiology Blvd, Medical District",
-    insurance: ["Aetna", "UnitedHealthcare", "Cigna"],
-    services: ["MRI", "CT Scan", "PET Scan"],
-    urgent: false,
-    capacity: "Limited",
-    waitTime: "30 min"
-  },
-  {
-    id: 3,
-    name: "Regional Emergency Hospital",
-    type: "Hospital",
-    distance: 5.1,
-    price: 520,
-    rating: 4.6,
-    reviews: 2156,
-    nextAvailable: "Today, 5:30 PM",
-    address: "789 Emergency Way, North District",
-    insurance: ["All Major Insurance", "Medicare", "Medicaid"],
-    services: ["MRI", "CT Scan", "X-Ray", "Ultrasound", "Emergency Care"],
-    urgent: true,
-    capacity: "Available",
-    waitTime: "10 min"
-  },
-  {
-    id: 4,
-    name: "Advanced Medical Imaging",
-    type: "Imaging Center",
-    distance: 7.8,
-    price: 295,
-    rating: 4.7,
-    reviews: 654,
-    nextAvailable: "Feb 8, 10:00 AM",
-    address: "321 Diagnostic Lane, East Side",
-    insurance: ["Blue Cross", "UnitedHealthcare", "Cigna"],
-    services: ["MRI", "CT Scan", "X-Ray"],
-    urgent: false,
-    capacity: "Available",
-    waitTime: "20 min"
-  },
-  {
-    id: 5,
-    name: "Community Health Center",
-    type: "Clinic",
-    distance: 4.2,
-    price: 380,
-    rating: 4.5,
-    reviews: 445,
-    nextAvailable: "Feb 7, 2:00 PM",
-    address: "555 Community Road, West District",
-    insurance: ["Medicare", "Medicaid", "Blue Cross"],
-    services: ["MRI", "X-Ray", "Ultrasound"],
-    urgent: false,
-    capacity: "Limited",
-    waitTime: "45 min"
-  },
-  {
-    id: 6,
-    name: "University Medical Center",
-    type: "Hospital",
-    distance: 9.5,
-    price: 550,
-    rating: 4.9,
-    reviews: 3421,
-    nextAvailable: "Tomorrow, 11:00 AM",
-    address: "888 University Ave, Campus District",
-    insurance: ["All Major Insurance"],
-    services: ["MRI", "CT Scan", "PET Scan", "X-Ray", "Ultrasound", "Specialty Care"],
-    urgent: true,
-    capacity: "Available",
-    waitTime: "25 min"
-  }
-];
+interface SearchResultsProps {
+  facilities: UIFacility[];
+  loading: boolean;
+  onSelectFacility: (facility: UIFacility) => void;
+}
 
-export function SearchResults({ onSelectFacility }: SearchResultsProps) {
+export function SearchResults({ facilities, loading, onSelectFacility }: SearchResultsProps) {
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (facilities.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500 text-lg">No facilities found.</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">
-            {facilities.length} facilities found for MRI scan
+            {facilities.length} facilities found
           </h2>
           <p className="text-sm text-gray-600 mt-1">
             Showing results near your location
@@ -168,7 +103,7 @@ export function SearchResults({ onSelectFacility }: SearchResultsProps) {
                     <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {facility.distance} miles away
+                        {facility.distance.toFixed(1)} miles away
                       </p>
                       <p className="text-xs text-gray-600">{facility.address}</p>
                     </div>

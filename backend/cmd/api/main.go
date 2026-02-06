@@ -116,49 +116,77 @@ import (
 		               log.Println("Typesense client initialized successfully")
 		       }
 		
-		              // Initialize adapters
-		              facilityAdapter := database.NewFacilityAdapter(pgClient)
+		              	// Initialize adapters
+		
+		              	facilityAdapter := database.NewFacilityAdapter(pgClient)
+		
+		              	appointmentAdapter := database.NewAppointmentAdapter(pgClient)
+		
+		              	procedureAdapter := database.NewProcedureAdapter(pgClient)
+		
+		              	insuranceAdapter := database.NewInsuranceAdapter(pgClient)
+		
 		              
-		              var searchRepo repositories.FacilitySearchRepository
-		              if typesenseClient != nil {
-		                      adapter := search.NewTypesenseAdapter(typesenseClient)
-		                      // Ensure schema exists
-		                      if err := adapter.InitSchema(context.Background()); err != nil {
-		                              log.Printf("Warning: Failed to init Typesense schema: %v", err)
-		                      }
-		                      searchRepo = adapter
-		              }
-		       
-		              var cacheAdapter cache.RedisAdapter
-		                     if redisClient != nil {
-		                             cacheAdapter = *cache.NewRedisAdapter(redisClient).(*cache.RedisAdapter)
-		                     }
-		                     geolocationProvider := geolocation.NewMockGeolocationProvider()
-		                     appointmentProvider := scheduling.NewCalendlyAdapter(os.Getenv("CALENDLY_API_KEY"))
+		
+		              	var searchRepo repositories.FacilitySearchRepository
+		
+		              	if typesenseClient != nil {
+		
+		              		adapter := search.NewTypesenseAdapter(typesenseClient)
+		
+		              		// Ensure schema exists
+		
+		              		if err := adapter.InitSchema(context.Background()); err != nil {
+		
+		              			log.Printf("Warning: Failed to init Typesense schema: %v", err)
+		
+		              		}
+		
+		              		searchRepo = adapter
+		
+		              	}
+		
 		              
-		                            // Initialize services
+		
+		              	var cacheAdapter cache.RedisAdapter
+		
+		              	if redisClient != nil {
+		
+		              		cacheAdapter = *cache.NewRedisAdapter(redisClient).(*cache.RedisAdapter)
+		
+		              	}
+		
+		              	geolocationProvider := geolocation.NewMockGeolocationProvider()
+		
+		              	appointmentProvider := scheduling.NewCalendlyAdapter(os.Getenv("CALENDLY_API_KEY"))
+		
 		              
-		                            facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
+		
+		              	// Initialize services
+		
+		              	facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
+		
+		              	appointmentService := services.NewAppointmentService(appointmentAdapter, appointmentProvider)
+		
 		              
-		                            // Note: In Phase 2, we will implement real AppointmentRepository
+		
+		              	// Initialize handlers
+		
+		              	facilityHandler := handlers.NewFacilityHandler(facilityService)
+		
+		              	appointmentHandler := handlers.NewAppointmentHandler(appointmentService)
+		
+		              	procedureHandler := handlers.NewProcedureHandler(procedureAdapter)
+		
+		              	insuranceHandler := handlers.NewInsuranceHandler(insuranceAdapter)
+		
 		              
-		                            // For now, AppointmentService is initialized but not fully used in handlers yet
+		
+		              	// Set up router
+		
+		              	router := routes.NewRouter(facilityHandler, appointmentHandler, procedureHandler, insuranceHandler, metrics)
+		
 		              
-		                            appointmentService := services.NewAppointmentService(database.NewAppointmentAdapter(pgClient), appointmentProvider)
-		              
-		                     
-		              
-		                            // Initialize handlers
-		              
-		                            facilityHandler := handlers.NewFacilityHandler(facilityService)
-		              
-		                            appointmentHandler := handlers.NewAppointmentHandler(appointmentService)
-		              
-		                     
-		              
-		                            // Set up router
-		              
-		                            router := routes.NewRouter(facilityHandler, appointmentHandler, metrics)
 		              
 		                     
 		

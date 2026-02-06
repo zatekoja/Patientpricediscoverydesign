@@ -3,12 +3,14 @@ module github.com/zatekoja/Patientpricediscoverydesign/backend
 go 1.24.0
 
 require (
+	github.com/99designs/gqlgen v0.17.49
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.11.1
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
 	github.com/typesense/typesense-go/v2 v2.0.0
+	github.com/vektah/gqlparser/v2 v2.5.16
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0
 	go.opentelemetry.io/otel/metric v1.40.0

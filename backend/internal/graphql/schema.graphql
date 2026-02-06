@@ -1,0 +1,380 @@
+# ============================================================================
+# Core Types
+# ============================================================================
+
+type Facility {
+  id: ID!
+  name: String!
+  description: String
+  facilityType: FacilityType!
+  location: Location!
+  address: Address!
+  contact: Contact!
+  rating: Float!
+  reviewCount: Int!
+  isActive: Boolean!
+  acceptsNewPatients: Boolean!
+
+  # Amenities
+  hasEmergency: Boolean!
+  hasParking: Boolean!
+  wheelchairAccessible: Boolean!
+
+  # Financial
+  priceRange: PriceRange
+
+  # Relations
+  insuranceProviders: [InsuranceProvider!]!
+  specialties: [Specialty!]!
+  procedures(limit: Int = 10, offset: Int = 0): ProcedureConnection!
+
+  # Metadata
+  languagesSpoken: [String!]!
+  avgWaitTime: Int
+  nextAvailableSlot: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Procedure {
+  id: ID!
+  name: String!
+  code: String!
+  category: ProcedureCategory!
+  description: String
+  price: Float!
+  duration: Int!
+  requiresReferral: Boolean!
+  preparationRequired: Boolean!
+  facility: Facility!
+  insuranceCoverage: [InsuranceProvider!]!
+  isActive: Boolean!
+}
+
+type Appointment {
+  id: ID!
+  facility: Facility!
+  procedure: Procedure!
+  providerName: String!
+  appointmentDate: DateTime!
+  duration: Int!
+  status: AppointmentStatus!
+  price: Float!
+  insuranceProvider: InsuranceProvider
+  notes: String
+  createdAt: DateTime!
+}
+
+type InsuranceProvider {
+  id: ID!
+  name: String!
+  providerType: InsuranceType!
+  isActive: Boolean!
+  coverageStates: [String!]!
+  facilitiesCount: Int!
+  proceduresCount: Int!
+}
+
+# ============================================================================
+# Enums
+# ============================================================================
+
+enum FacilityType {
+  HOSPITAL
+  CLINIC
+  URGENT_CARE
+  DIAGNOSTIC_LAB
+  IMAGING_CENTER
+  OUTPATIENT_SURGERY
+  SPECIALTY_CLINIC
+}
+
+enum ProcedureCategory {
+  DIAGNOSTIC
+  SURGICAL
+  THERAPEUTIC
+  PREVENTIVE
+  IMAGING
+  LABORATORY
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+
+enum InsuranceType {
+  PPO
+  HMO
+  EPO
+  POS
+  HDHP
+  MEDICARE
+  MEDICAID
+}
+
+enum SortOrder {
+  ASC
+  DESC
+}
+
+enum FacilitySortField {
+  NAME
+  RATING
+  DISTANCE
+  PRICE
+  NEXT_AVAILABLE
+  WAIT_TIME
+}
+
+# ============================================================================
+# Supporting Types
+# ============================================================================
+
+type Location {
+  latitude: Float!
+  longitude: Float!
+}
+
+type Address {
+  street: String!
+  city: String!
+  state: String!
+  zipCode: String!
+  country: String!
+}
+
+type Contact {
+  phone: String!
+  email: String
+  website: String
+}
+
+type PriceRange {
+  min: Float!
+  max: Float!
+  avg: Float!
+}
+
+type Specialty {
+  id: ID!
+  name: String!
+  description: String
+}
+
+# ============================================================================
+# Search & Filter Inputs
+# ============================================================================
+
+input FacilitySearchInput {
+  # Text search
+  query: String
+
+  # Geo search (required for most searches)
+  location: LocationInput!
+  radiusKm: Float!
+
+  # Filters
+  facilityTypes: [FacilityType!]
+  insuranceProviders: [ID!]
+  specialties: [String!]
+  languages: [String!]
+
+  # Price filtering
+  maxPrice: Float
+  minPrice: Float
+
+  # Amenities
+  acceptsNewPatients: Boolean
+  hasEmergency: Boolean
+  hasParking: Boolean
+  wheelchairAccessible: Boolean
+
+  # Rating
+  minRating: Float
+
+  # Sorting
+  sortBy: FacilitySortField
+  sortOrder: SortOrder
+
+  # Pagination
+  limit: Int
+  offset: Int
+}
+
+input LocationInput {
+  latitude: Float!
+  longitude: Float!
+}
+
+input ProcedureSearchInput {
+  query: String
+  facilityId: ID
+  category: ProcedureCategory
+  maxPrice: Float
+  requiresReferral: Boolean
+  insuranceProviders: [ID!]
+  limit: Int
+  offset: Int
+}
+
+input AppointmentSearchInput {
+  facilityId: ID
+  status: AppointmentStatus
+  startDate: DateTime
+  endDate: DateTime
+  limit: Int
+  offset: Int
+}
+
+# ============================================================================
+# Search Results & Pagination
+# ============================================================================
+
+type FacilitySearchResult {
+  facilities: [Facility!]!
+  facets: FacilityFacets!
+  pagination: PaginationInfo!
+  totalCount: Int!
+  searchTime: Float!
+}
+
+type ProcedureConnection {
+  nodes: [Procedure!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type FacilityFacets {
+  facilityTypes: [FacetCount!]!
+  insuranceProviders: [FacetCount!]!
+  specialties: [FacetCount!]!
+  cities: [FacetCount!]!
+  states: [FacetCount!]!
+  priceRanges: [PriceRangeFacet!]!
+  ratingDistribution: [RatingFacet!]!
+}
+
+type FacetCount {
+  value: String!
+  count: Int!
+}
+
+type PriceRangeFacet {
+  min: Float!
+  max: Float!
+  count: Int!
+}
+
+type RatingFacet {
+  rating: Float!
+  count: Int!
+}
+
+type PaginationInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  currentPage: Int!
+  totalPages: Int!
+  limit: Int!
+  offset: Int!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+# ============================================================================
+# Queries (Read Operations)
+# ============================================================================
+
+type Query {
+  # Facility Queries
+  facility(id: ID!): Facility
+  facilities(filter: FacilitySearchInput!): FacilitySearchResult!
+
+  # Advanced search with typo tolerance
+  searchFacilities(
+    query: String!
+    location: LocationInput!
+    radiusKm: Float
+    filters: FacilitySearchInput
+  ): FacilitySearchResult!
+
+  # Autocomplete/Typeahead
+  facilitySuggestions(
+    query: String!
+    location: LocationInput!
+    limit: Int
+  ): [FacilitySuggestion!]!
+
+  # Procedure Queries
+  procedure(id: ID!): Procedure
+  procedures(filter: ProcedureSearchInput!): ProcedureConnection!
+
+  # Appointment Queries
+  appointment(id: ID!): Appointment
+  appointments(filter: AppointmentSearchInput!): [Appointment!]!
+
+  # Insurance Queries
+  insuranceProvider(id: ID!): InsuranceProvider
+  insuranceProviders(
+    isActive: Boolean
+    state: String
+    limit: Int
+    offset: Int
+  ): [InsuranceProvider!]!
+
+  # Aggregations/Stats
+  facilityStats: FacilityStats!
+  priceComparison(procedureCode: String!, location: LocationInput!, radiusKm: Float!): PriceComparisonResult!
+}
+
+type FacilitySuggestion {
+  id: ID!
+  name: String!
+  facilityType: FacilityType!
+  city: String!
+  state: String!
+  distance: Float
+  rating: Float!
+}
+
+type FacilityStats {
+  totalFacilities: Int!
+  totalProcedures: Int!
+  avgRating: Float!
+  avgWaitTime: Int!
+  facilitiesByType: [FacetCount!]!
+  topInsuranceProviders: [FacetCount!]!
+}
+
+type PriceComparisonResult {
+  procedureCode: String!
+  procedureName: String!
+  minPrice: Float!
+  maxPrice: Float!
+  avgPrice: Float!
+  facilities: [FacilityPriceInfo!]!
+}
+
+type FacilityPriceInfo {
+  facility: Facility!
+  price: Float!
+  distance: Float!
+  acceptsInsurance: [String!]!
+}
+
+# ============================================================================
+# Custom Scalars
+# ============================================================================
+
+scalar DateTime

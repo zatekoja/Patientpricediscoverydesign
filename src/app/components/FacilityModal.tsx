@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   X,
   MapPin,
@@ -11,6 +12,7 @@ import {
   AlertCircle,
   ChevronRight,
 } from "lucide-react";
+import { api } from "../../lib/api";
 
 interface FacilityModalProps {
   facility: any;
@@ -18,12 +20,56 @@ interface FacilityModalProps {
 }
 
 export function FacilityModal({ facility, onClose }: FacilityModalProps) {
-  // Mock available time slots
-  const timeSlots = [
-    { date: "Today, Feb 6", times: ["3:00 PM", "4:30 PM", "6:00 PM"] },
-    { date: "Tomorrow, Feb 7", times: ["9:00 AM", "10:30 AM", "2:00 PM", "4:00 PM"] },
-    { date: "Saturday, Feb 8", times: ["10:00 AM", "11:30 AM", "1:00 PM"] },
-  ];
+  const [slots, setSlots] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<any>(null);
+  const [booking, setBooking] = useState(false);
+
+  useEffect(() => {
+    const fetchSlots = async () => {
+      setLoading(true);
+      try {
+        const from = new Date();
+        const to = new Date();
+        to.setDate(to.getDate() + 7);
+        const res = await api.getAvailability(facility.id, from, to);
+        setSlots(res.slots || []);
+      } catch (err) {
+        console.error("Failed to fetch slots:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSlots();
+  }, [facility.id]);
+
+  const handleBook = async () => {
+    if (!selectedSlot) return;
+    setBooking(true);
+    try {
+      await api.bookAppointment({
+        facility_id: facility.id,
+        scheduled_at: selectedSlot.start_time,
+        patient_name: "Demo User", // Should come from auth/form
+        patient_email: "demo@example.com",
+      });
+      alert("Appointment booked successfully!");
+      onClose();
+    } catch (err) {
+      console.error("Booking failed:", err);
+      alert("Failed to book appointment.");
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  // Group slots by date
+  const groupedSlots = slots.reduce((acc: any, slot: any) => {
+    const date = new Date(slot.start_time).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(slot);
+    return acc;
+  }, {});
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -184,25 +230,36 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             <h3 className="font-semibold text-gray-900 mb-3">
               Available Appointment Times
             </h3>
-            <div className="space-y-4">
-              {timeSlots.map((slot, index) => (
-                <div key={index}>
-                  <p className="text-sm font-medium text-gray-700 mb-2">
-                    {slot.date}
-                  </p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {slot.times.map((time, timeIndex) => (
-                      <button
-                        key={timeIndex}
-                        className="px-4 py-2 border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 text-sm transition-colors"
-                      >
-                        {time}
-                      </button>
-                    ))}
+            {loading ? (
+              <p className="text-sm text-gray-500">Loading availability...</p>
+            ) : Object.keys(groupedSlots).length > 0 ? (
+              <div className="space-y-4">
+                {Object.entries(groupedSlots).map(([date, dateSlots]: [string, any], index) => (
+                  <div key={index}>
+                    <p className="text-sm font-medium text-gray-700 mb-2">
+                      {date}
+                    </p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {dateSlots.map((slot: any, slotIndex: number) => (
+                        <button
+                          key={slotIndex}
+                          onClick={() => setSelectedSlot(slot)}
+                          className={`px-4 py-2 border rounded-lg text-sm transition-colors ${
+                            selectedSlot === slot
+                              ? "bg-blue-600 text-white border-blue-600"
+                              : "border-gray-300 hover:border-blue-500 hover:bg-blue-50"
+                          }`}
+                        >
+                          {new Date(slot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No availability found for this facility.</p>
+            )}
           </div>
 
           {/* Price Breakdown */}
@@ -212,7 +269,7 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             </h3>
             <div className="bg-gray-50 rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">MRI Scan</span>
+                <span className="text-gray-600">Procedure Fee</span>
                 <span className="text-gray-900">${facility.price - 50}</span>
               </div>
               <div className="flex justify-between text-sm">
@@ -232,8 +289,16 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
 
           {/* Action Buttons */}
           <div className="flex gap-3">
-            <button className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2">
-              Book Appointment
+            <button
+              onClick={handleBook}
+              disabled={!selectedSlot || booking}
+              className={`flex-1 px-6 py-3 rounded-lg transition-colors font-semibold flex items-center justify-center gap-2 ${
+                !selectedSlot || booking
+                  ? "bg-gray-300 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+              }`}
+            >
+              {booking ? "Booking..." : "Confirm Booking"}
               <ChevronRight className="w-5 h-5" />
             </button>
             <button className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-semibold">
