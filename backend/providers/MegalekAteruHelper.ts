@@ -100,8 +100,7 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
         },
         {
           limit: options?.limit || 100,
-          sortBy: 'syncTimestamp',
-          sortOrder: 'desc',
+
         }
       );
       

@@ -208,7 +208,7 @@ async function checkHealth(megalekProvider: MegalekAteruHelper) {
 async function main() {
   try {
     // Setup
-    const { megalekProvider, documentStore } = await basicSetup();
+    const { megalekProvider } = await basicSetup();
     
     // Check health
     await checkHealth(megalekProvider);

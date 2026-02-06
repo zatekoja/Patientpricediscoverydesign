@@ -78,16 +78,23 @@ export class InMemoryDocumentStore<T = any> implements IDocumentStore<T> {
     for (const [key, value] of Object.entries(filter)) {
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         // Handle operators like $gte, $lte
-        if ('$gte' in value && data[key] < value.$gte) {
+        const fieldValue = (data as any)[key];
+        const hasRangeOperator =
+          '$gte' in value || '$lte' in value || '$gt' in value || '$lt' in value;
+        // If a range operator is used but the field is missing/null, treat as non-matching
+        if (hasRangeOperator && (fieldValue === undefined || fieldValue === null)) {
           return false;
         }
-        if ('$lte' in value && data[key] > value.$lte) {
+        if ('$gte' in value && fieldValue < (value as any).$gte) {
           return false;
         }
-        if ('$gt' in value && data[key] <= value.$gt) {
+        if ('$lte' in value && fieldValue > (value as any).$lte) {
           return false;
         }
-        if ('$lt' in value && data[key] >= value.$lt) {
+        if ('$gt' in value && fieldValue <= (value as any).$gt) {
+          return false;
+        }
+        if ('$lt' in value && fieldValue >= (value as any).$lt) {
           return false;
         }
       } else {
