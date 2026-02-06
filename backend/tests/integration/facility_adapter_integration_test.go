@@ -1,4 +1,4 @@
-// +build integration
+//go:build integration
 
 package integration
 
@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -354,8 +355,8 @@ func getEnv(key, defaultValue string) string {
 
 func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
-		if intVal, err := fmt.Sscanf(value, "%d", &defaultValue); err == nil && intVal == 1 {
-			return defaultValue
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
 		}
 	}
 	return defaultValue

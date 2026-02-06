@@ -36,7 +36,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 
 		// Set CORS headers based on allowed origins
 		if origin != "" && isAllowedOrigin(origin, allowedOrigins) {
-			if allowedOrigins[0] == "*" {
+			if len(allowedOrigins) > 0 && allowedOrigins[0] == "*" {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 			} else {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
