@@ -54,37 +54,45 @@ async function startServer() {
   };
 
   // 4. Initialize the provider
+  let providerInitialized = false;
+  let scheduler: DataSyncScheduler | undefined;
+  
   try {
     await megalekProvider.initialize(config);
+    providerInitialized = true;
     console.log('✓ Provider initialized successfully');
   } catch (error) {
     console.error('✗ Failed to initialize provider:', error);
     if (process.env.NODE_ENV === 'production') {
       process.exit(1);
     } else {
-      console.warn('Continuing in development mode with uninitialized provider');
+      console.warn('⚠ Continuing in development mode without provider (API will return errors)');
     }
   }
 
-  // 5. Register the provider with the API
-  api.registerProvider('megalek_ateru_helper', megalekProvider, true);
-  console.log('✓ Provider registered with API');
+  // 5. Register the provider with the API only if initialized
+  if (providerInitialized) {
+    api.registerProvider('megalek_ateru_helper', megalekProvider, true);
+    console.log('✓ Provider registered with API');
 
-  // 6. Setup scheduled sync (optional)
-  const scheduler = new DataSyncScheduler();
-  scheduler.scheduleJob({
-    name: 'megalek_sync',
-    provider: megalekProvider,
-    intervalMs: SyncIntervals.THREE_DAYS,
-    runImmediately: false, // Set to true to sync on startup
-    onComplete: (result) => {
-      console.log(`Scheduled sync completed: ${result.recordsProcessed} records, success: ${result.success}`);
-    },
-    onError: (error) => {
-      console.error('Scheduled sync error:', error.message);
-    },
-  });
-  console.log('✓ Scheduled sync configured (every 3 days)');
+    // 6. Setup scheduled sync (optional)
+    scheduler = new DataSyncScheduler();
+    scheduler.scheduleJob({
+      name: 'megalek_sync',
+      provider: megalekProvider,
+      intervalMs: SyncIntervals.THREE_DAYS,
+      runImmediately: false, // Set to true to sync on startup
+      onComplete: (result) => {
+        console.log(`Scheduled sync completed: ${result.recordsProcessed} records, success: ${result.success}`);
+      },
+      onError: (error) => {
+        console.error('Scheduled sync error:', error.message);
+      },
+    });
+    console.log('✓ Scheduled sync configured (every 3 days)');
+  } else {
+    console.warn('⚠ Skipping provider registration and sync scheduler due to initialization failure');
+  }
 
   // 7. Start the API server
   const port = parseInt(process.env.PORT || '3000', 10);
@@ -93,13 +101,17 @@ async function startServer() {
   // Handle graceful shutdown
   process.on('SIGTERM', () => {
     console.log('Received SIGTERM, shutting down gracefully...');
-    scheduler.stopAll();
+    if (scheduler) {
+      scheduler.stopAll();
+    }
     process.exit(0);
   });
 
   process.on('SIGINT', () => {
     console.log('Received SIGINT, shutting down gracefully...');
-    scheduler.stopAll();
+    if (scheduler) {
+      scheduler.stopAll();
+    }
     process.exit(0);
   });
 }

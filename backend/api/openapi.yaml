@@ -25,7 +25,7 @@ info:
 servers:
   - url: http://localhost:3000/api/v1
     description: Local development server
-  - url: https://api.ateruhealth.com/v1
+  - url: https://api.ateruhealth.com/api/v1
     description: Production server (placeholder - configure with actual production URL)
 
 tags:
@@ -35,6 +35,8 @@ tags:
     description: Provider management and health endpoints
   - name: Sync
     description: Data synchronization endpoints
+  - name: System
+    description: System health and status endpoints
 
 paths:
   /data/current:
@@ -340,6 +342,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+                
+  /health:
+    get:
+      tags:
+        - System
+      summary: API health check
+      description: Returns the health status of the API server
+      operationId: getHealth
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: '2024-01-15T10:30:00Z'
 
 components:
   schemas:

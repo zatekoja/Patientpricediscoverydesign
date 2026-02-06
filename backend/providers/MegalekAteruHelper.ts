@@ -248,9 +248,14 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
   
   /**
    * Generate unique key for price data
+   * Uses stable business identifiers to enable deduplication and upserts
    */
   protected generateKey(data: PriceData, index: number): string {
-    return `${this.name}_${data.facilityId || data.facilityName}_${data.procedureCode}_${Date.now()}`;
+    const facilityKey = data.facilityId || data.facilityName.replace(/\s+/g, '_').toLowerCase();
+    const effectiveDate = data.effectiveDate instanceof Date 
+      ? data.effectiveDate.toISOString().split('T')[0]
+      : new Date(data.effectiveDate).toISOString().split('T')[0];
+    return `${this.name}_${facilityKey}_${data.procedureCode}_${effectiveDate}`;
   }
   
   /**

@@ -2,11 +2,13 @@
   "name": "patient-price-discovery-backend",
   "version": "1.0.0",
   "description": "Backend data provider system for Patient Price Discovery",
-  "main": "index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
+    "build": "tsc",
     "example": "ts-node example-usage.ts",
-    "start": "ts-node api/example-server.ts",
-    "dev": "ts-node --watch api/example-server.ts"
+    "start": "ts-node -r dotenv/config api/example-server.ts",
+    "dev": "ts-node --watch -r dotenv/config api/example-server.ts"
   },
   "keywords": [
     "data-provider",
@@ -17,6 +19,7 @@
     "rest"
   ],
   "dependencies": {
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "googleapis": "^118.0.0"
   },

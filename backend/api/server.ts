@@ -10,6 +10,14 @@ export interface ProviderRegistry {
   [key: string]: IExternalDataProvider;
 }
 
+class ProviderNotFoundError extends Error {
+  statusCode = 404;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProviderNotFoundError';
+  }
+}
+
 export class DataProviderAPI {
   private app: express.Application;
   private providers: ProviderRegistry = {};
@@ -37,7 +45,7 @@ export class DataProviderAPI {
   private getProvider(providerId?: string): IExternalDataProvider {
     const id = providerId || this.defaultProviderId;
     if (!id || !this.providers[id]) {
-      throw new Error(`Provider not found: ${id || 'no default provider'}`);
+      throw new ProviderNotFoundError(`Provider not found: ${id || 'no default provider'}`);
     }
     return this.providers[id];
   }
@@ -50,15 +58,26 @@ export class DataProviderAPI {
     
     // CORS middleware - configure allowed origins for production
     this.app.use((req, res, next) => {
-      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['*'];
+      const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
+      const allowedOrigins = allowedOriginsEnv
+        ? allowedOriginsEnv.split(',').map(o => o.trim()).filter(o => o.length > 0)
+        : [];
       const origin = req.headers.origin || '';
       
-      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', allowedOrigins.includes('*') ? '*' : origin);
+      if (allowedOrigins.length > 0) {
+        if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+          res.header('Access-Control-Allow-Origin', allowedOrigins.includes('*') ? '*' : origin);
+        }
       }
       
       res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+      // Short-circuit preflight OPTIONS requests for CORS
+      if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+      }
+      
       next();
     });
 
@@ -198,7 +217,7 @@ export class DataProviderAPI {
           return {
             id,
             name: provider.getName(),
-            type: 'External', // Could be enhanced to return provider type
+            type: id, // Use provider ID as type identifier
             healthy: health.healthy,
             lastSync: health.lastSync,
           };
@@ -252,10 +271,10 @@ export class DataProviderAPI {
   /**
    * Error handling middleware
    */
-  private errorHandler(err: Error, req: Request, res: Response, next: NextFunction): void {
+  private errorHandler(err: any, req: Request, res: Response, next: NextFunction): void {
     console.error('API Error:', err);
 
-    const statusCode = res.statusCode !== 200 ? res.statusCode : 500;
+    const statusCode = err.statusCode || (res.statusCode !== 200 ? res.statusCode : 500);
     
     res.status(statusCode).json({
       error: err.name || 'InternalServerError',
