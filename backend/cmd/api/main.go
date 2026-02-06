@@ -10,20 +10,45 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/routes"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
-)
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 
-func main() {
-	// Load configuration
-	cfg, err := config.Load()
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
+
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/search"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/routes"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
+
+	       
+
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
+
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/typesense"
+
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
+
+	       "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
+
+	)
+
+	
+
+	func main() {
+
+	       // Load configuration
+
+	       cfg, err := config.Load()
+
+	
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -76,22 +101,44 @@ func main() {
 		// Continue without Redis - the application can work without caching
 	} else {
 		defer redisClient.Close()
-		log.Println("Redis client initialized successfully")
-	}
-
-	// Initialize adapters
-	facilityAdapter := database.NewFacilityAdapter(pgClient)
-	var cacheAdapter cache.RedisAdapter
-	if redisClient != nil {
-		cacheAdapter = *cache.NewRedisAdapter(redisClient).(*cache.RedisAdapter)
-	}
-	geolocationProvider := geolocation.NewMockGeolocationProvider()
-
-	// Initialize handlers
-	facilityHandler := handlers.NewFacilityHandler(facilityAdapter)
-
-	// Set up router
-	router := routes.NewRouter(facilityHandler, metrics)
+		               log.Println("Redis client initialized successfully")
+		       }
+		
+		       // Initialize Typesense client
+		       typesenseClient, err := typesense.NewClient(&cfg.Typesense)
+		       if err != nil {
+		               log.Printf("Warning: Failed to initialize Typesense client: %v", err)
+		       } else {
+		               log.Println("Typesense client initialized successfully")
+		       }
+		
+		              // Initialize adapters
+		              facilityAdapter := database.NewFacilityAdapter(pgClient)
+		              
+		              var searchRepo repositories.FacilitySearchRepository
+		              if typesenseClient != nil {
+		                      adapter := search.NewTypesenseAdapter(typesenseClient)
+		                      // Ensure schema exists
+		                      if err := adapter.InitSchema(context.Background()); err != nil {
+		                              log.Printf("Warning: Failed to init Typesense schema: %v", err)
+		                      }
+		                      searchRepo = adapter
+		              }
+		       
+		              var cacheAdapter cache.RedisAdapter
+		              if redisClient != nil {
+		                      cacheAdapter = *cache.NewRedisAdapter(redisClient).(*cache.RedisAdapter)
+		              }
+		              geolocationProvider := geolocation.NewMockGeolocationProvider()
+		       
+		              // Initialize services
+		              facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
+		       		       // Initialize handlers
+		       facilityHandler := handlers.NewFacilityHandler(facilityService)
+		
+		       // Set up router
+		       router := routes.NewRouter(facilityHandler, metrics)
+		
 	handler := router.SetupRoutes()
 
 	// Create HTTP server
