@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS facilities (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_facilities_location ON facilities(latitude, longitude);
-CREATE INDEX idx_facilities_type ON facilities(facility_type);
-CREATE INDEX idx_facilities_active ON facilities(is_active);
+CREATE INDEX IF NOT EXISTS idx_facilities_location ON facilities(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_facilities_type ON facilities(facility_type);
+CREATE INDEX IF NOT EXISTS idx_facilities_active ON facilities(is_active);
 
 -- Create procedures table
 CREATE TABLE IF NOT EXISTS procedures (
@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS procedures (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_procedures_code ON procedures(code);
-CREATE INDEX idx_procedures_category ON procedures(category);
+CREATE INDEX IF NOT EXISTS idx_procedures_code ON procedures(code);
+CREATE INDEX IF NOT EXISTS idx_procedures_category ON procedures(category);
 
 -- Create facility_procedures table
 CREATE TABLE IF NOT EXISTS facility_procedures (
@@ -54,9 +54,9 @@ CREATE TABLE IF NOT EXISTS facility_procedures (
     UNIQUE(facility_id, procedure_id)
 );
 
-CREATE INDEX idx_facility_procedures_facility ON facility_procedures(facility_id);
-CREATE INDEX idx_facility_procedures_procedure ON facility_procedures(procedure_id);
-CREATE INDEX idx_facility_procedures_price ON facility_procedures(price);
+CREATE INDEX IF NOT EXISTS idx_facility_procedures_facility ON facility_procedures(facility_id);
+CREATE INDEX IF NOT EXISTS idx_facility_procedures_procedure ON facility_procedures(procedure_id);
+CREATE INDEX IF NOT EXISTS idx_facility_procedures_price ON facility_procedures(price);
 
 -- Create insurance_providers table
 CREATE TABLE IF NOT EXISTS insurance_providers (
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS insurance_providers (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_insurance_providers_code ON insurance_providers(code);
+CREATE INDEX IF NOT EXISTS idx_insurance_providers_code ON insurance_providers(code);
 
 -- Create facility_insurance table
 CREATE TABLE IF NOT EXISTS facility_insurance (
@@ -83,8 +83,8 @@ CREATE TABLE IF NOT EXISTS facility_insurance (
     UNIQUE(facility_id, insurance_provider_id)
 );
 
-CREATE INDEX idx_facility_insurance_facility ON facility_insurance(facility_id);
-CREATE INDEX idx_facility_insurance_provider ON facility_insurance(insurance_provider_id);
+CREATE INDEX IF NOT EXISTS idx_facility_insurance_facility ON facility_insurance(facility_id);
+CREATE INDEX IF NOT EXISTS idx_facility_insurance_provider ON facility_insurance(insurance_provider_id);
 
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Create appointments table
 CREATE TABLE IF NOT EXISTS appointments (
@@ -117,10 +117,10 @@ CREATE TABLE IF NOT EXISTS appointments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_appointments_user ON appointments(user_id);
-CREATE INDEX idx_appointments_facility ON appointments(facility_id);
-CREATE INDEX idx_appointments_scheduled ON appointments(scheduled_at);
-CREATE INDEX idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_user ON appointments(user_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_facility ON appointments(facility_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_scheduled ON appointments(scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
 
 -- Create availability_slots table
 CREATE TABLE IF NOT EXISTS availability_slots (
@@ -133,9 +133,9 @@ CREATE TABLE IF NOT EXISTS availability_slots (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_availability_slots_facility ON availability_slots(facility_id);
-CREATE INDEX idx_availability_slots_time ON availability_slots(start_time, end_time);
-CREATE INDEX idx_availability_slots_booked ON availability_slots(is_booked);
+CREATE INDEX IF NOT EXISTS idx_availability_slots_facility ON availability_slots(facility_id);
+CREATE INDEX IF NOT EXISTS idx_availability_slots_time ON availability_slots(start_time, end_time);
+CREATE INDEX IF NOT EXISTS idx_availability_slots_booked ON availability_slots(is_booked);
 
 -- Create reviews table
 CREATE TABLE IF NOT EXISTS reviews (
@@ -149,6 +149,6 @@ CREATE TABLE IF NOT EXISTS reviews (
     UNIQUE(user_id, facility_id)
 );
 
-CREATE INDEX idx_reviews_user ON reviews(user_id);
-CREATE INDEX idx_reviews_facility ON reviews(facility_id);
-CREATE INDEX idx_reviews_rating ON reviews(rating);
+CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_facility ON reviews(facility_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(rating);

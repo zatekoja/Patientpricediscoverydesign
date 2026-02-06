@@ -14,18 +14,34 @@ import (
 
 // CalendlyAdapter implements AppointmentProvider for Calendly
 type CalendlyAdapter struct {
-	apiKey string
-	client *http.Client
+	apiKey  string
+	client  *http.Client
 	baseURL string
 }
 
+// CalendlyOption defines a configuration option for CalendlyAdapter
+type CalendlyOption func(*CalendlyAdapter)
+
+// WithBaseURL allows overriding the base URL (useful for testing)
+func WithBaseURL(url string) CalendlyOption {
+	return func(a *CalendlyAdapter) {
+		a.baseURL = url
+	}
+}
+
 // NewCalendlyAdapter creates a new Calendly adapter
-func NewCalendlyAdapter(apiKey string) providers.AppointmentProvider {
-	return &CalendlyAdapter{
+func NewCalendlyAdapter(apiKey string, opts ...CalendlyOption) providers.AppointmentProvider {
+	adapter := &CalendlyAdapter{
 		apiKey:  apiKey,
 		client:  &http.Client{Timeout: 10 * time.Second},
 		baseURL: "https://api.calendly.com",
 	}
+	
+	for _, opt := range opts {
+		opt(adapter)
+	}
+	
+	return adapter
 }
 
 // GetAvailableSlots returns available slots
