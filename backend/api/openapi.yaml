@@ -1,0 +1,202 @@
+openapi: 3.0.3
+info:
+  title: Patient Price Discovery API
+  description: API for searching and viewing healthcare facilities and prices.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns the health status of the service
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /api/facilities:
+    get:
+      summary: List facilities
+      description: Retrieve a list of facilities with optional filtering.
+      parameters:
+        - name: type
+          in: query
+          description: Filter by facility type (e.g., "Hospital", "Imaging Center")
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of facilities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  facilities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Facility'
+                  count:
+                    type: integer
+                    description: Total number of facilities returned
+        '500':
+          description: Internal server error
+
+  /api/facilities/search:
+    get:
+      summary: Search facilities by location
+      description: Search for facilities near a specific location.
+      parameters:
+        - name: lat
+          in: query
+          description: Latitude of the search center
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: lon
+          in: query
+          description: Longitude of the search center
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: radius
+          in: query
+          description: Search radius in kilometers (default 10)
+          schema:
+            type: number
+            format: double
+        - name: limit
+          in: query
+          description: Maximum number of results to return (default 30, max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          description: Number of results to skip (default 0)
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: A list of facilities matching the search criteria
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  facilities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Facility'
+                  count:
+                    type: integer
+        '400':
+          description: Invalid parameters
+        '500':
+          description: Internal server error
+
+  /api/facilities/{id}:
+    get:
+      summary: Get facility by ID
+      description: Retrieve detailed information about a specific facility.
+      parameters:
+        - name: id
+          in: path
+          description: ID of the facility to retrieve
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Facility details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Facility'
+        '404':
+          description: Facility not found
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    Facility:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          $ref: '#/components/schemas/Address'
+        location:
+          $ref: '#/components/schemas/Location'
+        phone_number:
+          type: string
+        email:
+          type: string
+          format: email
+        website:
+          type: string
+          format: uri
+        description:
+          type: string
+        facility_type:
+          type: string
+        accepted_insurance:
+          type: array
+          items:
+            type: string
+        rating:
+          type: number
+          format: float
+        review_count:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - address
+        - location
+
+    Address:
+      type: object
+      properties:
+        street:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip_code:
+          type: string
+        country:
+          type: string
+
+    Location:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double

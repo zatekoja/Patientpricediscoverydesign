@@ -14,11 +14,15 @@ import (
 
 	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 
-	       "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
+
+	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/scheduling"
 
 	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/search"
 
 	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
+
+	       
 
 	              "github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
 
@@ -126,15 +130,21 @@ import (
 		              }
 		       
 		              var cacheAdapter cache.RedisAdapter
-		              if redisClient != nil {
-		                      cacheAdapter = *cache.NewRedisAdapter(redisClient).(*cache.RedisAdapter)
-		              }
-		              geolocationProvider := geolocation.NewMockGeolocationProvider()
-		       
-		              // Initialize services
-		              facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
-		       		       // Initialize handlers
-		       facilityHandler := handlers.NewFacilityHandler(facilityService)
+		                     if redisClient != nil {
+		                             cacheAdapter = *cache.NewRedisAdapter(redisClient).(*cache.RedisAdapter)
+		                     }
+		                     geolocationProvider := geolocation.NewMockGeolocationProvider()
+		                     appointmentProvider := scheduling.NewCalendlyAdapter(os.Getenv("CALENDLY_API_KEY"))
+		              
+		                     // Initialize services
+		                     facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
+		                     // Note: In Phase 2, we will implement real AppointmentRepository
+		                     // For now, AppointmentService is initialized but not fully used in handlers yet
+		                     _ = services.NewAppointmentService(nil, appointmentProvider)
+		              
+		                     // Initialize handlers
+		                     facilityHandler := handlers.NewFacilityHandler(facilityService)
+		              
 		
 		       // Set up router
 		       router := routes.NewRouter(facilityHandler, metrics)
