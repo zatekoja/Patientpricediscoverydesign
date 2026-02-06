@@ -9,7 +9,7 @@ import { Facility } from "../types/api";
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [location, setLocation] = useState("San Francisco, CA"); // Default location
+  const [location, setLocation] = useState("Lagos, Nigeria"); // Default location
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
@@ -24,13 +24,13 @@ export default function App() {
   // Filter states
   const [selectedProcedure, setSelectedProcedure] = useState("");
   const [maxDistance, setMaxDistance] = useState("50");
-  const [maxPrice, setMaxPrice] = useState("5000");
+  const [maxPrice, setMaxPrice] = useState("500000"); // Updated for NGN
   const [selectedInsurance, setSelectedInsurance] = useState("");
   const [availability, setAvailability] = useState("any");
 
-  // Default search coordinates (San Francisco)
-  const defaultLat = 37.7749;
-  const defaultLon = -122.4194;
+  // Default search coordinates (Lagos, Nigeria)
+  const defaultLat = 6.4531;
+  const defaultLon = 3.3958;
 
   const fetchData = async () => {
     try {

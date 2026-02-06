@@ -109,14 +109,14 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             <div className="bg-blue-50 rounded-lg p-4">
               <MapPin className="w-5 h-5 text-blue-600 mb-2" />
               <p className="text-2xl font-bold text-gray-900 mb-1">
-                {facility.distance} mi
+                {facility.distance} km
               </p>
               <p className="text-sm text-gray-600">Distance</p>
             </div>
             <div className="bg-green-50 rounded-lg p-4">
               <DollarSign className="w-5 h-5 text-green-600 mb-2" />
               <p className="text-2xl font-bold text-gray-900 mb-1">
-                ${facility.price}
+                ₦{facility.price.toLocaleString()}
               </p>
               <p className="text-sm text-gray-600">Estimated Cost</p>
             </div>
@@ -270,15 +270,15 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             <div className="bg-gray-50 rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Procedure Fee</span>
-                <span className="text-gray-900">${facility.price - 50}</span>
+                <span className="text-gray-900">₦{(facility.price - 5000).toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Consultation Fee</span>
-                <span className="text-gray-900">$50</span>
+                <span className="text-gray-900">₦5,000</span>
               </div>
               <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
                 <span className="text-gray-900">Total Estimated Cost</span>
-                <span className="text-gray-900">${facility.price}</span>
+                <span className="text-gray-900">₦{facility.price.toLocaleString()}</span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 * Final cost may vary based on insurance coverage and specific

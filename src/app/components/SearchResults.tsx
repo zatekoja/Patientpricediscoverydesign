@@ -103,7 +103,7 @@ export function SearchResults({ facilities, loading, onSelectFacility }: SearchR
                     <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {facility.distance.toFixed(1)} miles away
+                        {facility.distance.toFixed(1)} km away
                       </p>
                       <p className="text-xs text-gray-600">{facility.address}</p>
                     </div>
@@ -112,7 +112,7 @@ export function SearchResults({ facilities, loading, onSelectFacility }: SearchR
                     <DollarSign className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        ${facility.price}
+                        ₦{facility.price.toLocaleString()}
                       </p>
                       <p className="text-xs text-gray-600">Estimated cost</p>
                     </div>
