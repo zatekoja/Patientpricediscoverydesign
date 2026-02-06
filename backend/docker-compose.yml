@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ppd_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: patient_price_discovery
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ppd_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Typesense for search
+  typesense:
+    image: typesense/typesense:27.1
+    container_name: ppd_typesense
+    environment:
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-xyz}
+      TYPESENSE_ENABLE_CORS: true
+    ports:
+      - "8108:8108"
+    volumes:
+      - typesense_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8108/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # SigNoz for observability (replaces OTEL collector)
+  # SigNoz components: OTel Collector, ClickHouse, Query Service, Frontend
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.11-alpine
+    container_name: ppd_clickhouse
+    environment:
+      CLICKHOUSE_DB: signoz_metrics
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin
+    ports:
+      - "9000:9000"
+      - "8123:8123"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  signoz-otel-collector:
+    image: signoz/signoz-otel-collector:0.88.11
+    container_name: ppd_signoz_otel_collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+    environment:
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=patient-price-discovery
+    depends_on:
+      - clickhouse
+    volumes:
+      - ./signoz-otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  signoz-query-service:
+    image: signoz/query-service:0.39.0
+    container_name: ppd_signoz_query_service
+    command: ["-config=/root/config/prometheus.yml"]
+    ports:
+      - "8080:8080"
+    environment:
+      - ClickHouseUrl=tcp://clickhouse:9000
+    depends_on:
+      - clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8080/api/v1/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  signoz-frontend:
+    image: signoz/frontend:0.39.0
+    container_name: ppd_signoz_frontend
+    ports:
+      - "3301:3301"
+    environment:
+      - FRONTEND_API_ENDPOINT=http://signoz-query-service:8080
+    depends_on:
+      - signoz-query-service
+
+volumes:
+  postgres_data:
+  redis_data:
+  typesense_data:
+  clickhouse_data:
