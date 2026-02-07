@@ -19,6 +19,12 @@ import { FacilityProfile } from '../types/FacilityProfile';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
+import {
+  CapacityRequestService,
+  SesEmailSender,
+  WhatsAppCloudSender,
+  CapacityRequestToken,
+} from '../ingestion/capacityRequestService';
 
 /**
  * Initialize and start the API server
@@ -48,6 +54,7 @@ async function startServer() {
   const mongoCollection = process.env.PROVIDER_MONGO_COLLECTION || 'price_records';
   const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
   const mongoFacilityCollection = process.env.PROVIDER_FACILITY_COLLECTION || 'facility_profiles';
+  const mongoCapacityCollection = process.env.PROVIDER_CAPACITY_TOKEN_COLLECTION || 'capacity_request_tokens';
   const mongoTTL = process.env.PROVIDER_MONGO_TTL_DAYS
     ? Number.parseInt(process.env.PROVIDER_MONGO_TTL_DAYS, 10)
     : 30;
@@ -88,8 +95,46 @@ async function startServer() {
   };
   const facilityProfileService = new FacilityProfileService(facilityStore, llmConfig);
 
+  let capacityTokenStore: IDocumentStore<CapacityRequestToken>;
+  if (mongoURI) {
+    const ttlMinutes = process.env.PROVIDER_CAPACITY_TOKEN_TTL_MINUTES
+      ? Number.parseInt(process.env.PROVIDER_CAPACITY_TOKEN_TTL_MINUTES, 10)
+      : 120;
+    const ttlDays = Math.max(1, Math.ceil(ttlMinutes / (60 * 24)));
+    capacityTokenStore = new MongoDocumentStore<CapacityRequestToken>(mongoURI, mongoDB, mongoCapacityCollection, {
+      ttlDays,
+    });
+  } else {
+    capacityTokenStore = new InMemoryDocumentStore<CapacityRequestToken>('capacity-tokens');
+  }
+
+  const publicBaseUrl = process.env.PROVIDER_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const sesRegion = process.env.AWS_REGION || 'us-east-1';
+  const sesFrom = process.env.SES_FROM_ADDRESS || '';
+  const emailSender = sesFrom ? new SesEmailSender(sesRegion, sesFrom) : undefined;
+
+  const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
+  const whatsappPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+  const whatsappTemplate = process.env.WHATSAPP_TEMPLATE_NAME;
+  const whatsappLang = process.env.WHATSAPP_TEMPLATE_LANG || 'en_US';
+  const whatsappSender =
+    whatsappAccessToken && whatsappPhoneId
+      ? new WhatsAppCloudSender(whatsappAccessToken, whatsappPhoneId, whatsappTemplate, whatsappLang)
+      : undefined;
+
+  const capacityRequestService = new CapacityRequestService({
+    facilityProfileService,
+    tokenStore: capacityTokenStore,
+    publicBaseUrl,
+    tokenTTLMinutes: process.env.PROVIDER_CAPACITY_TOKEN_TTL_MINUTES
+      ? Number.parseInt(process.env.PROVIDER_CAPACITY_TOKEN_TTL_MINUTES, 10)
+      : 120,
+    emailSender,
+    whatsappSender,
+  });
+
   // 1. Create the API server
-  const api = new DataProviderAPI({ facilityProfileService });
+  const api = new DataProviderAPI({ facilityProfileService, capacityRequestService });
 
   // 3. Create and configure provider
   let providerInitialized = false;
@@ -177,6 +222,14 @@ async function startServer() {
     console.warn('⚠ Skipping provider registration and sync scheduler due to initialization failure');
   }
 
+  const capacityIntervalMinutes = process.env.PROVIDER_CAPACITY_REQUEST_INTERVAL_MINUTES
+    ? Number.parseInt(process.env.PROVIDER_CAPACITY_REQUEST_INTERVAL_MINUTES, 10)
+    : 45;
+  if (capacityIntervalMinutes > 0) {
+    capacityRequestService.start(capacityIntervalMinutes * 60 * 1000);
+    console.log(`✓ Capacity request scheduler enabled (every ${capacityIntervalMinutes} minutes)`);
+  }
+
   // 7. Start the API server
   const port = parseInt(process.env.PORT || '3000', 10);
   api.listen(port);
@@ -187,6 +240,7 @@ async function startServer() {
     if (scheduler) {
       scheduler.stopAll();
     }
+    capacityRequestService.stop();
     process.exit(0);
   });
 
@@ -195,6 +249,7 @@ async function startServer() {
     if (scheduler) {
       scheduler.stopAll();
     }
+    capacityRequestService.stop();
     process.exit(0);
   });
 }

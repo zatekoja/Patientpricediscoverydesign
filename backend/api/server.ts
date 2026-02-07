@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { IExternalDataProvider, DataProviderOptions } from '../interfaces/IExternalDataProvider';
 import { recordApiRequest } from '../observability/metrics';
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
+import { CapacityRequestService } from '../ingestion/capacityRequestService';
 
 /**
  * API Router for External Data Provider
@@ -20,8 +21,46 @@ class ProviderNotFoundError extends Error {
   }
 }
 
+function buildCapacityForm(token: string): string {
+  return `
+    <html>
+      <head>
+        <title>Update Capacity</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
+      <body style="font-family: Arial, sans-serif; padding: 24px;">
+        <h2>Facility Capacity Update</h2>
+        <form method="POST" action="/api/v1/capacity/submit">
+          <input type="hidden" name="token" value="${token}" />
+          <div style="margin-bottom: 12px;">
+            <label>Capacity Status</label><br />
+            <select name="capacityStatus">
+              <option value="available">Available</option>
+              <option value="busy">Busy</option>
+              <option value="full">Full</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label>Average Wait (minutes)</label><br />
+            <input type="number" name="avgWaitMinutes" min="0" />
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label>
+              <input type="checkbox" name="urgentCareAvailable" value="true" />
+              Urgent care available
+            </label>
+          </div>
+          <button type="submit">Submit Update</button>
+        </form>
+      </body>
+    </html>
+  `;
+}
+
 export interface DataProviderAPIOptions {
   facilityProfileService?: FacilityProfileService;
+  capacityRequestService?: CapacityRequestService;
 }
 
 export class DataProviderAPI {
@@ -29,10 +68,12 @@ export class DataProviderAPI {
   private providers: ProviderRegistry = {};
   private defaultProviderId?: string;
   private facilityProfileService?: FacilityProfileService;
+  private capacityRequestService?: CapacityRequestService;
 
   constructor(options?: DataProviderAPIOptions) {
     this.app = express();
     this.facilityProfileService = options?.facilityProfileService;
+    this.capacityRequestService = options?.capacityRequestService;
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -63,6 +104,7 @@ export class DataProviderAPI {
    */
   private setupMiddleware(): void {
     this.app.use(express.json());
+    this.app.use(express.urlencoded({ extended: true }));
 
     // API request metrics
     this.app.use((req, res, next) => {
@@ -131,6 +173,8 @@ export class DataProviderAPI {
     router.get('/facilities', this.handleListFacilities.bind(this));
     router.get('/facilities/:id', this.handleGetFacility.bind(this));
     router.patch('/facilities/:id/status', this.handleUpdateFacilityStatus.bind(this));
+    router.get('/capacity/form/:token', this.handleCapacityForm.bind(this));
+    router.post('/capacity/submit', this.handleCapacitySubmit.bind(this));
 
     // Sync endpoints
     router.post('/sync/trigger', this.handleTriggerSync.bind(this));
@@ -413,6 +457,57 @@ export class DataProviderAPI {
         urgentCareAvailable,
       });
       res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/v1/capacity/form/:token
+   */
+  private async handleCapacityForm(req: Request, res: Response): Promise<void> {
+    if (!this.capacityRequestService) {
+      res.status(503).send('Capacity service not configured');
+      return;
+    }
+    const token = req.params.token;
+    res.setHeader('Content-Type', 'text/html');
+    res.send(buildCapacityForm(token));
+  }
+
+  /**
+   * POST /api/v1/capacity/submit
+   */
+  private async handleCapacitySubmit(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.capacityRequestService || !this.facilityProfileService) {
+        res.status(503).send('Capacity service not configured');
+        return;
+      }
+      const token = (req.body?.token || '').toString().trim();
+      if (!token) {
+        res.status(400).send('Token is required');
+        return;
+      }
+
+      const record = await this.capacityRequestService.consumeToken(token);
+      const capacityStatus = req.body?.capacityStatus ? String(req.body.capacityStatus) : undefined;
+      const avgWaitMinutes = req.body?.avgWaitMinutes
+        ? parseInt(req.body.avgWaitMinutes, 10)
+        : undefined;
+      const urgentCareAvailable =
+        typeof req.body?.urgentCareAvailable === 'string'
+          ? req.body.urgentCareAvailable === 'true'
+          : req.body?.urgentCareAvailable === true;
+
+      await this.facilityProfileService.updateStatus(record.facilityId, {
+        capacityStatus,
+        avgWaitMinutes: Number.isFinite(avgWaitMinutes) ? avgWaitMinutes : undefined,
+        urgentCareAvailable,
+      });
+
+      res.setHeader('Content-Type', 'text/html');
+      res.send('<p>Thank you. Your capacity update has been recorded.</p>');
     } catch (error) {
       next(error);
     }
