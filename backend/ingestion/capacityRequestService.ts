@@ -93,6 +93,31 @@ export class CapacityRequestService {
     return record;
   }
 
+  async sendSingleRequest(facilityId: string, channel?: CapacityChannel): Promise<void> {
+    const facility = await this.options.facilityProfileService.getProfile(facilityId);
+    if (!facility) {
+      throw new Error('Facility not found');
+    }
+    if (channel) {
+      if (channel === 'email') {
+        const emailRecipient = facility.email?.trim();
+        if (!emailRecipient || !this.options.emailSender) {
+          throw new Error('Email sender not configured or facility email missing');
+        }
+        await this.sendRequest(facility, 'email', emailRecipient);
+        return;
+      }
+      const phoneRecipient = facility.phoneNumber?.trim();
+      if (!phoneRecipient || !this.options.whatsappSender) {
+        throw new Error('WhatsApp sender not configured or facility phone missing');
+      }
+      await this.sendRequest(facility, 'whatsapp', phoneRecipient);
+      return;
+    }
+
+    await this.requestForFacility(facility);
+  }
+
   private async requestForFacility(facility: FacilityProfile): Promise<void> {
     const emailRecipient = facility.email?.trim();
     const phoneRecipient = facility.phoneNumber?.trim();

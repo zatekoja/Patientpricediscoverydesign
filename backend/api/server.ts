@@ -69,11 +69,13 @@ export class DataProviderAPI {
   private defaultProviderId?: string;
   private facilityProfileService?: FacilityProfileService;
   private capacityRequestService?: CapacityRequestService;
+  private adminToken?: string;
 
   constructor(options?: DataProviderAPIOptions) {
     this.app = express();
     this.facilityProfileService = options?.facilityProfileService;
     this.capacityRequestService = options?.capacityRequestService;
+    this.adminToken = process.env.PROVIDER_ADMIN_TOKEN;
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -175,6 +177,7 @@ export class DataProviderAPI {
     router.patch('/facilities/:id/status', this.handleUpdateFacilityStatus.bind(this));
     router.get('/capacity/form/:token', this.handleCapacityForm.bind(this));
     router.post('/capacity/submit', this.handleCapacitySubmit.bind(this));
+    router.post('/capacity/request', this.requireAdmin.bind(this), this.handleCapacityRequest.bind(this));
 
     // Sync endpoints
     router.post('/sync/trigger', this.handleTriggerSync.bind(this));
@@ -506,10 +509,70 @@ export class DataProviderAPI {
         urgentCareAvailable,
       });
 
+      await this.triggerIngestionWebhook(record.facilityId);
+
       res.setHeader('Content-Type', 'text/html');
       res.send('<p>Thank you. Your capacity update has been recorded.</p>');
     } catch (error) {
       next(error);
+    }
+  }
+
+  private async handleCapacityRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.capacityRequestService) {
+        res.status(503).json({ error: 'Capacity service not configured' });
+        return;
+      }
+      const facilityId = (req.body?.facilityId || req.query?.facilityId || '').toString().trim();
+      if (!facilityId) {
+        res.status(400).json({ error: 'facilityId is required' });
+        return;
+      }
+      const channelRaw = (req.body?.channel || req.query?.channel || '').toString().trim().toLowerCase();
+      const channel = channelRaw === 'email' || channelRaw === 'whatsapp' ? channelRaw : undefined;
+      await this.capacityRequestService.sendSingleRequest(facilityId, channel);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  private requireAdmin(req: Request, res: Response, next: NextFunction): void {
+    if (!this.adminToken) {
+      res.status(503).json({ error: 'Admin token not configured' });
+      return;
+    }
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : header;
+    if (token !== this.adminToken) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    next();
+  }
+
+  private async triggerIngestionWebhook(facilityId: string): Promise<void> {
+    const webhookUrl = process.env.PROVIDER_INGESTION_WEBHOOK_URL;
+    if (!webhookUrl) {
+      return;
+    }
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facilityId,
+          source: 'capacity_update',
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`Ingestion webhook failed (${response.status}): ${text}`);
+      }
+    } catch (error) {
+      console.error('Ingestion webhook error:', error);
     }
   }
 
