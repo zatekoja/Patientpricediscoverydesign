@@ -42,7 +42,7 @@ test-integration: ## Run integration tests (requires live database)
 test-integration-full: test-db-up test-integration test-db-down ## Start test DB, run integration tests, stop test DB
 test-provider-integration: ## Run provider API integration test (requires docker-compose.test.yml)
 	@echo "Running provider API integration test..."
-	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 node tests/integration/provider_api_integration_test.mjs
+	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list node tests/integration/provider_api_integration_test.mjs
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."
 	go test -v -coverprofile=coverage.out ./...

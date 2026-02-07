@@ -9,6 +9,7 @@
 import '../observability/otel';
 import { DataProviderAPI } from './server';
 import { MegalekAteruHelper } from '../providers/MegalekAteruHelper';
+import { FilePriceListProvider, FilePriceListConfig } from '../providers/FilePriceListProvider';
 import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
@@ -17,14 +18,22 @@ import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
  * Initialize and start the API server
  */
 async function startServer() {
-  // Validate required environment variables
-  const requiredEnvVars = ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_PROJECT_ID', 'SPREADSHEET_IDS'];
-  const missingVars = requiredEnvVars.filter(v => !process.env[v]);
-  
-  if (missingVars.length > 0 && process.env.NODE_ENV === 'production') {
-    console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
-    console.error('Please configure these variables before starting the server in production.');
-    process.exit(1);
+  const priceListFiles = (process.env.PRICE_LIST_FILES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const useFileProvider = priceListFiles.length > 0;
+
+  // Validate required environment variables for Google Sheets
+  if (!useFileProvider) {
+    const requiredEnvVars = ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_PROJECT_ID', 'SPREADSHEET_IDS'];
+    const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+    
+    if (missingVars.length > 0 && process.env.NODE_ENV === 'production') {
+      console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+      console.error('Please configure these variables before starting the server in production.');
+      process.exit(1);
+    }
   }
 
   // 1. Create the API server
@@ -33,8 +42,16 @@ async function startServer() {
   // 2. Create document store
   const documentStore = new InMemoryDocumentStore<PriceData>('price-data-store');
 
-  // 3. Create and configure the Google Sheets provider
-  const megalekProvider = new MegalekAteruHelper(documentStore);
+  // 3. Create and configure provider
+  let providerInitialized = false;
+  let scheduler: DataSyncScheduler | undefined;
+  let providerId = 'megalek_ateru_helper';
+  let provider: MegalekAteruHelper | FilePriceListProvider = new MegalekAteruHelper(documentStore);
+
+  if (useFileProvider) {
+    providerId = 'file_price_list';
+    provider = new FilePriceListProvider(documentStore);
+  }
 
   // Configuration (use environment variables or provide defaults for development)
   const config: GoogleSheetsConfig = {
@@ -54,14 +71,21 @@ async function startServer() {
     },
   };
 
+  const fileConfig: FilePriceListConfig = {
+    files: priceListFiles.map((filePath) => ({ path: filePath })),
+    currency: process.env.PRICE_LIST_CURRENCY || 'NGN',
+    defaultEffectiveDate: process.env.PRICE_LIST_EFFECTIVE_DATE,
+  };
+
   // 4. Initialize the provider
-  let providerInitialized = false;
-  let scheduler: DataSyncScheduler | undefined;
-  
   try {
-    await megalekProvider.initialize(config);
+    if (useFileProvider) {
+      await (provider as FilePriceListProvider).initialize(fileConfig);
+    } else {
+      await (provider as MegalekAteruHelper).initialize(config);
+    }
     providerInitialized = true;
-    console.log('✓ Provider initialized successfully');
+    console.log(`✓ Provider initialized successfully (${providerId})`);
   } catch (error) {
     console.error('✗ Failed to initialize provider:', error);
     if (process.env.NODE_ENV === 'production') {
@@ -73,14 +97,14 @@ async function startServer() {
 
   // 5. Register the provider with the API only if initialized
   if (providerInitialized) {
-    api.registerProvider('megalek_ateru_helper', megalekProvider, true);
-    console.log('✓ Provider registered with API');
+    api.registerProvider(providerId, provider, true);
+    console.log(`✓ Provider registered with API (${providerId})`);
 
     // 6. Setup scheduled sync (optional)
     scheduler = new DataSyncScheduler();
     scheduler.scheduleJob({
-      name: 'megalek_sync',
-      provider: megalekProvider,
+      name: `${providerId}_sync`,
+      provider,
       intervalMs: SyncIntervals.THREE_DAYS,
       runImmediately: false, // Set to true to sync on startup
       onComplete: (result) => {

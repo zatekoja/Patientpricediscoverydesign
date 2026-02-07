@@ -17,6 +17,7 @@ import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
 import { LLMTagGeneratorConfig, TaggedPriceData } from '../providers/LLMTagGeneratorProvider';
+import { FilePriceListProvider, FilePriceListConfig } from '../providers/FilePriceListProvider';
 
 /**
  * Setup the complete ingestion workflow
@@ -29,7 +30,14 @@ async function setupIngestionWorkflow() {
   const taggedDataStore = new InMemoryDocumentStore<TaggedPriceData>('tagged-price-data');
   
   // Step 2: Configure and initialize Google Sheets provider (source)
+  const priceListFiles = (process.env.PRICE_LIST_FILES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const useFileProvider = priceListFiles.length > 0;
+
   const googleSheetsProvider = new MegalekAteruHelper(rawDataStore);
+  const fileProvider = new FilePriceListProvider(rawDataStore);
   
   const sheetsConfig: GoogleSheetsConfig = {
     credentials: {
@@ -47,12 +55,26 @@ async function setupIngestionWorkflow() {
       effectiveDate: 'Effective Date',
     },
   };
+
+  const fileConfig: FilePriceListConfig = {
+    files: priceListFiles.map((filePath) => ({ path: filePath })),
+    currency: process.env.PRICE_LIST_CURRENCY || 'NGN',
+    defaultEffectiveDate: process.env.PRICE_LIST_EFFECTIVE_DATE,
+  };
   
-  await googleSheetsProvider.initialize(sheetsConfig);
-  console.log('✓ Google Sheets provider initialized');
+  if (useFileProvider) {
+    await fileProvider.initialize(fileConfig);
+    console.log('✓ File price list provider initialized');
+  } else {
+    await googleSheetsProvider.initialize(sheetsConfig);
+    console.log('✓ Google Sheets provider initialized');
+  }
   
   // Step 3: Configure and initialize LLM Tag Generator provider
-  const llmProvider = new LLMTagGeneratorProvider(taggedDataStore, googleSheetsProvider);
+  const llmProvider = new LLMTagGeneratorProvider(
+    taggedDataStore,
+    useFileProvider ? fileProvider : googleSheetsProvider
+  );
   
   const llmConfig: LLMTagGeneratorConfig = {
     apiEndpoint: process.env.LLM_API_ENDPOINT || 'https://api.openai.com/v1/chat/completions',
@@ -71,7 +93,7 @@ async function setupIngestionWorkflow() {
   // Schedule Google Sheets sync every 3 days
   scheduler.scheduleJob({
     name: 'google-sheets-sync',
-    provider: googleSheetsProvider,
+    provider: useFileProvider ? fileProvider : googleSheetsProvider,
     intervalMs: SyncIntervals.THREE_DAYS,
     runImmediately: false,
     onComplete: async (result) => {

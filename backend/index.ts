@@ -13,6 +13,7 @@ export { BaseDataProvider } from './providers/BaseDataProvider';
 // Providers
 export { MegalekAteruHelper } from './providers/MegalekAteruHelper';
 export { LLMTagGeneratorProvider, LLMTagGeneratorConfig, TaggedPriceData } from './providers/LLMTagGeneratorProvider';
+export { FilePriceListProvider, FilePriceListConfig } from './providers/FilePriceListProvider';
 
 // Stores
 export { InMemoryDocumentStore } from './stores/InMemoryDocumentStore';

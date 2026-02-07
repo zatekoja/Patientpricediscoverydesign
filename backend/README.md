@@ -408,6 +408,21 @@ scheduler.scheduleJob({
 });
 ```
 
+### File Price List Provider (file_price_list)
+
+For CSV/DOCX price lists (local or downloaded from Drive), you can use the file provider.
+
+```bash
+PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx
+PRICE_LIST_CURRENCY=NGN
+PRICE_LIST_EFFECTIVE_DATE=2026-01-01
+```
+
+The provider normalizes rows into `PriceData` and stores:
+- `metadata.area` and `metadata.category` (when detected)
+- `metadata.priceTier` (adult/paediatric/etc.)
+- `metadata.unit` (per_day, per_hour, etc.)
+
 ### Data Flow
 
 1. **External Source (Google Sheets)**

@@ -66,12 +66,15 @@ async function run() {
 
   const current = await fetchJson(`/data/current?providerId=${providerId}`);
   assert(Array.isArray(current.data), 'current data should be an array');
+  assert(current.data.length > 0, 'current data should not be empty');
 
   const previous = await fetchJson(`/data/previous?providerId=${providerId}`);
   assert(Array.isArray(previous.data), 'previous data should be an array');
+  assert(previous.data.length > 0, 'previous data should not be empty after two syncs');
 
-  const historical = await fetchJson(`/data/historical?providerId=${providerId}&timeWindow=7d`);
+  const historical = await fetchJson(`/data/historical?providerId=${providerId}&timeWindow=1y`);
   assert(Array.isArray(historical.data), 'historical data should be an array');
+  assert(historical.data.length > 0, 'historical data should not be empty');
 
   console.log('✓ provider API integration tests passed');
 }
