@@ -36,15 +36,11 @@ resource "google_dns_record_set" "frontend" {
   rrdatas = [var.load_balancer_ip]
 }
 
-# Create A record for backend API (e.g., dev.api.ohealth-ng.com)
-# Note: This creates dev.api.ohealth-ng.com, which is outside the dev.ohealth-ng.com zone
-# For this to work, you need to either:
-# 1. Create this record in the parent ohealth-ng.com zone, OR
-# 2. Change the hostname pattern to api.dev.ohealth-ng.com (within this zone)
-# Currently using pattern: ${environment}.api.${domain} to match load balancer config
+# Create A record for backend API within the zone (e.g., api.dev.ohealth-ng.com)
+# The API will be accessible at api.${environment}.${domain_name}
 resource "google_dns_record_set" "api" {
   count        = var.load_balancer_ip != "" ? 1 : 0
-  name         = "${var.environment}.api.${var.domain_name}."
+  name         = "api.${var.environment}.${var.domain_name}."
   type         = "A"
   ttl          = 300
   managed_zone = google_dns_managed_zone.main.name

@@ -17,7 +17,7 @@ Complete Infrastructure as Code (IaC) solution implemented for deploying the Pat
 #### Modular Architecture (5 Modules)
 
 **DNS Module** (`terraform/modules/dns/`)
-- Cloud DNS managed zone for ohealth-ng.com
+- Cloud DNS managed zone for environment subdomain (e.g., dev.ohealth-ng.com)
 - A records for dev.ohealth-ng.com (Frontend)
 - A records for dev.api.ohealth-ng.com (Backend API)
 - DNSSEC enabled for security

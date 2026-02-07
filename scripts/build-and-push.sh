@@ -26,9 +26,15 @@ echo -e "\n${YELLOW}Authenticating with GCP...${NC}"
 gcloud auth configure-docker
 
 # Build and push Frontend
+# Set default API URLs if not provided
+VITE_API_BASE_URL=${VITE_API_BASE_URL:-"https://api.${ENVIRONMENT}.ohealth-ng.com"}
+VITE_SSE_BASE_URL=${VITE_SSE_BASE_URL:-"https://api.${ENVIRONMENT}.ohealth-ng.com"}
+
 echo -e "\n${YELLOW}Building Frontend...${NC}"
 docker build -f Frontend/frontend.Dockerfile \
   --build-arg VITE_GOOGLE_MAPS_API_KEY="${GOOGLE_MAPS_API_KEY}" \
+  --build-arg VITE_API_BASE_URL="${VITE_API_BASE_URL}" \
+  --build-arg VITE_SSE_BASE_URL="${VITE_SSE_BASE_URL}" \
   -t gcr.io/${PROJECT_ID}/${ENVIRONMENT}-ppd-frontend:latest \
   -t gcr.io/${PROJECT_ID}/${ENVIRONMENT}-ppd-frontend:$(git rev-parse --short HEAD) \
   .

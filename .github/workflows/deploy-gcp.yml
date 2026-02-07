@@ -51,6 +51,8 @@ jobs:
         run: |
           docker build -f Frontend/frontend.Dockerfile \
             --build-arg VITE_GOOGLE_MAPS_API_KEY="${{ secrets.GOOGLE_MAPS_API_KEY }}" \
+            --build-arg VITE_API_BASE_URL="https://api.${{ env.ENV }}.ohealth-ng.com" \
+            --build-arg VITE_SSE_BASE_URL="https://api.${{ env.ENV }}.ohealth-ng.com" \
             -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:${{ github.sha }} \
             -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:latest \
             .

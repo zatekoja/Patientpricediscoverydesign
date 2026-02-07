@@ -49,7 +49,7 @@ variable "typesense_api_key" {
 }
 
 variable "openai_api_key" {
-  description = "OpenAI API key for AI features (required)"
+  description = "OpenAI API key for AI features (optional - backend will disable enrichment if not provided)"
   type        = string
   sensitive   = true
   default     = ""

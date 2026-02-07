@@ -14,7 +14,7 @@ resource "google_compute_managed_ssl_certificate" "default" {
   managed {
     domains = [
       "${var.environment}.${var.domain_name}",
-      "${var.environment}.api.${var.domain_name}",
+      "api.${var.environment}.${var.domain_name}",
       "www.${var.environment}.${var.domain_name}"
     ]
   }
@@ -157,7 +157,7 @@ resource "google_compute_url_map" "default" {
   default_service = google_compute_backend_service.frontend.id
 
   host_rule {
-    hosts        = ["${var.environment}.api.${var.domain_name}"]
+    hosts        = ["api.${var.environment}.${var.domain_name}"]
     path_matcher = "api"
   }
 

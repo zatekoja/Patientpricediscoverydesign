@@ -9,6 +9,13 @@
 # 4. Using Terraform Cloud/Enterprise with encrypted state
 # Alternatively, reference existing secrets instead of creating them in Terraform.
 
+# Dedicated service account for Cloud Run services
+resource "google_service_account" "cloud_run" {
+  account_id   = "${var.environment}-cloud-run-sa"
+  display_name = "Cloud Run service account for ${var.environment}"
+  project      = var.project_id
+}
+
 # Create Secret Manager secrets for API keys
 resource "google_secret_manager_secret" "google_maps_api_key" {
   secret_id = "${var.environment}-google-maps-api-key"
@@ -59,6 +66,8 @@ resource "google_cloud_run_v2_service" "frontend" {
   location = var.region
 
   template {
+    service_account = google_service_account.cloud_run.email
+    
     containers {
       image = "gcr.io/${var.project_id}/${var.environment}-ppd-frontend:latest"
 
@@ -73,16 +82,19 @@ resource "google_cloud_run_v2_service" "frontend" {
         }
       }
 
-      # Vite environment variables are resolved at build time
-      # These need to match the frontend's expected variable names
+      # NOTE:
+      # Vite environment variables (VITE_*) are resolved at build time via import.meta.env.
+      # They must be provided to the image build (for example via Docker build args in CI)
+      # and cannot be overridden via Cloud Run runtime environment variables.
+      # The values below are placeholders and will not affect the built frontend.
       env {
         name  = "VITE_API_BASE_URL"
-        value = "https://${var.environment}.api.${var.domain_name}"
+        value = "https://api.${var.environment}.${var.domain_name}"
       }
 
       env {
         name  = "VITE_SSE_BASE_URL"
-        value = "https://${var.environment}.api.${var.domain_name}"
+        value = "https://api.${var.environment}.${var.domain_name}"
       }
     }
 
@@ -181,7 +193,7 @@ resource "google_cloud_run_v2_service" "api" {
 
       env {
         name  = "TYPESENSE_URL"
-        value = var.typesense_url != "" ? var.typesense_url : "http://typesense:8108"
+        value = var.typesense_url != "" ? var.typesense_url : "http://localhost:8108"
       }
 
       env {
@@ -310,7 +322,7 @@ resource "google_cloud_run_v2_service" "graphql" {
 
       env {
         name  = "TYPESENSE_URL"
-        value = var.typesense_url != "" ? var.typesense_url : "http://typesense:8108"
+        value = var.typesense_url != "" ? var.typesense_url : "http://localhost:8108"
       }
 
       env {
@@ -429,22 +441,28 @@ resource "google_cloud_run_v2_service_iam_member" "sse_noauth" {
   member   = "allUsers"
 }
 
-# Grant Cloud Run service accounts access to Secret Manager secrets
-# The default compute service account is used by Cloud Run services
+# Grant the Cloud Run service account access to Secret Manager secrets
 resource "google_secret_manager_secret_iam_member" "google_maps_access" {
   secret_id = google_secret_manager_secret.google_maps_api_key.id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
 }
 
 resource "google_secret_manager_secret_iam_member" "typesense_access" {
   secret_id = google_secret_manager_secret.typesense_api_key.id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
 }
 
 resource "google_secret_manager_secret_iam_member" "openai_access" {
   secret_id = google_secret_manager_secret.openai_api_key.id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
+# Grant access to the PostgreSQL password secret (created in databases module)
+resource "google_secret_manager_secret_iam_member" "postgres_password_access" {
+  secret_id = var.postgres_password_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
 }
