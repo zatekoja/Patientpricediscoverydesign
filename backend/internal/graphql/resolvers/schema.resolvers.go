@@ -13,8 +13,8 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 )
 
 // Facility is the resolver for the facility field.
@@ -304,16 +304,6 @@ func (r *insuranceProviderResolver) ProceduresCount(ctx context.Context, obj *en
 // Category is the resolver for the category field.
 func (r *procedureResolver) Category(ctx context.Context, obj *entities.Procedure) (generated.ProcedureCategory, error) {
 	return generated.ProcedureCategory(obj.Category), nil
-}
-
-// Price is the resolver for the price field.
-func (r *procedureResolver) Price(ctx context.Context, obj *entities.Procedure) (float64, error) {
-	return obj.Price, nil
-}
-
-// Duration is the resolver for the duration field.
-func (r *procedureResolver) Duration(ctx context.Context, obj *entities.Procedure) (int, error) {
-	return obj.Duration, nil
 }
 
 // RequiresReferral is the resolver for the requiresReferral field.
