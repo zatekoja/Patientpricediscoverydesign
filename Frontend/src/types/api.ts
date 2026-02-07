@@ -84,11 +84,24 @@ export interface FacilitySuggestion {
   rating: number;
   price?: FacilityPriceRange;
   service_prices?: ServicePrice[];
+  matched_service_price?: ServicePrice;
 }
 
 export interface FacilitySuggestionResponse {
   suggestions: FacilitySuggestion[];
   count: number;
+}
+
+export interface FeedbackRequest {
+  rating: number;
+  message?: string;
+  email?: string;
+  page?: string;
+}
+
+export interface FeedbackResponse {
+  status: string;
+  id: string;
 }
 
 export interface SearchParams {

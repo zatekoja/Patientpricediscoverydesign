@@ -14,6 +14,11 @@ type Procedure struct {
 	IsActive    bool      `json:"is_active" db:"is_active"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+
+	// GraphQL support fields (populated by resolvers when in context of a facility)
+	FacilityID string  `json:"facility_id,omitempty" db:"-"`
+	Price      float64 `json:"price,omitempty" db:"-"`
+	Duration   int     `json:"duration,omitempty" db:"-"`
 }
 
 // FacilityProcedure represents pricing for a procedure at a specific facility

@@ -11,20 +11,32 @@ import (
 // here.
 
 type Resolver struct {
-	searchAdapter services.SearchAdapter
-	facilityRepo  repositories.FacilityRepository
-	cache         services.QueryCacheProvider
+	searchAdapter         services.SearchAdapter
+	facilityRepo          repositories.FacilityRepository
+	appointmentRepo       repositories.AppointmentRepository
+	procedureRepo         repositories.ProcedureRepository
+	facilityProcedureRepo repositories.FacilityProcedureRepository
+	insuranceRepo         repositories.InsuranceRepository
+	cache                 services.QueryCacheProvider
 }
 
 // NewResolver creates a new resolver with dependencies
 func NewResolver(
 	searchAdapter services.SearchAdapter,
 	facilityRepo repositories.FacilityRepository,
+	appointmentRepo repositories.AppointmentRepository,
+	procedureRepo repositories.ProcedureRepository,
+	facilityProcedureRepo repositories.FacilityProcedureRepository,
+	insuranceRepo repositories.InsuranceRepository,
 	cache services.QueryCacheProvider,
 ) *Resolver {
 	return &Resolver{
-		searchAdapter: searchAdapter,
-		facilityRepo:  facilityRepo,
-		cache:         cache,
+		searchAdapter:         searchAdapter,
+		facilityRepo:          facilityRepo,
+		appointmentRepo:       appointmentRepo,
+		procedureRepo:         procedureRepo,
+		facilityProcedureRepo: facilityProcedureRepo,
+		insuranceRepo:         insuranceRepo,
+		cache:                 cache,
 	}
 }

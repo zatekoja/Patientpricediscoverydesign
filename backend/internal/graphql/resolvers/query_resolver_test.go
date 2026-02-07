@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/tests/mocks"
 )
 
@@ -18,12 +18,19 @@ func TestQueryResolver_Facility_Success(t *testing.T) {
 	// Arrange
 	mockSearch := mocks.NewMockSearchAdapter(t)
 	mockDB := mocks.NewMockFacilityRepository(t)
+	mockAppt := mocks.NewMockAppointmentRepository(t)
+	mockProc := mocks.NewMockProcedureRepository(t)
+	mockFacProc := mocks.NewMockFacilityProcedureRepository(t)
+	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
 	queryResolver := resolver.Query()
 
-	ctx := context.Background()
+	// Set up DataLoader
+	ldrs := loaders.NewLoaders(mockDB, mockProc)
+	ctx := loaders.WithLoaders(context.Background(), ldrs)
+
 	facilityID := "fac-123"
 
 	expectedFacility := &entities.Facility{
@@ -40,10 +47,8 @@ func TestQueryResolver_Facility_Success(t *testing.T) {
 		CreatedAt:   time.Now(),
 	}
 
-	// Mock: Cache miss, then DB hit, then cache set
-	mockCache.EXPECT().Get(ctx, "facility:"+facilityID).Return(nil, assert.AnError)
-	mockDB.EXPECT().GetByID(ctx, facilityID).Return(expectedFacility, nil)
-	mockCache.EXPECT().Set(ctx, "facility:"+facilityID, mock.Anything, 5*time.Minute).Return(nil)
+	// Mock: DataLoader will call GetByIDs
+	mockDB.EXPECT().GetByIDs(ctx, []string{facilityID}).Return([]*entities.Facility{expectedFacility}, nil)
 
 	// Act
 	result, err := queryResolver.Facility(ctx, facilityID)
@@ -60,9 +65,13 @@ func TestQueryResolver_Facilities_Success(t *testing.T) {
 	// Arrange
 	mockSearch := mocks.NewMockSearchAdapter(t)
 	mockDB := mocks.NewMockFacilityRepository(t)
+	mockAppt := mocks.NewMockAppointmentRepository(t)
+	mockProc := mocks.NewMockProcedureRepository(t)
+	mockFacProc := mocks.NewMockFacilityProcedureRepository(t)
+	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -117,9 +126,13 @@ func TestFacilitySearchResultResolver_Facilities(t *testing.T) {
 	// Arrange
 	mockSearch := mocks.NewMockSearchAdapter(t)
 	mockDB := mocks.NewMockFacilityRepository(t)
+	mockAppt := mocks.NewMockAppointmentRepository(t)
+	mockProc := mocks.NewMockProcedureRepository(t)
+	mockFacProc := mocks.NewMockFacilityProcedureRepository(t)
+	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
 	fieldResolver := resolver.FacilitySearchResult()
 
 	ctx := context.Background()
@@ -152,9 +165,13 @@ func TestFacilitySearchResultResolver_TotalCount(t *testing.T) {
 	// Arrange
 	mockSearch := mocks.NewMockSearchAdapter(t)
 	mockDB := mocks.NewMockFacilityRepository(t)
+	mockAppt := mocks.NewMockAppointmentRepository(t)
+	mockProc := mocks.NewMockProcedureRepository(t)
+	mockFacProc := mocks.NewMockFacilityProcedureRepository(t)
+	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
 	fieldResolver := resolver.FacilitySearchResult()
 
 	ctx := context.Background()

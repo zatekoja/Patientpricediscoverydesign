@@ -58,6 +58,7 @@ func TestTypesenseAdapter(t *testing.T) {
 			Country: "Nigeria",
 		},
 		AcceptedInsurance: []string{"NHIS"},
+		Tags:              []string{"mri", "cardiology"},
 		Location: entities.Location{
 			Latitude:  37.7749,
 			Longitude: -122.4194,
@@ -106,6 +107,24 @@ func TestTypesenseAdapter(t *testing.T) {
 	suggestions, err := adapter.Suggest(ctx, "ikeja", 37.7749, -122.4194, 5)
 	require.NoError(t, err)
 	assert.True(t, containsFacility(suggestions, facility.ID))
+
+	// 3c.1 Search by custom tag
+	customTagParams := repositories.SearchParams{
+		Query:     "mri",
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		RadiusKm:  10,
+		Limit:     10,
+		Offset:    0,
+	}
+
+	customTagResults, err := adapter.Search(ctx, customTagParams)
+	require.NoError(t, err)
+	assert.True(t, containsFacility(customTagResults, facility.ID))
+
+	customTagSuggestions, err := adapter.Suggest(ctx, "mri", 37.7749, -122.4194, 5)
+	require.NoError(t, err)
+	assert.True(t, containsFacility(customTagSuggestions, facility.ID))
 
 	// 3d. Suggest with typo tolerance
 	typoSuggestions, err := adapter.Suggest(ctx, "ikejx", 37.7749, -122.4194, 5)

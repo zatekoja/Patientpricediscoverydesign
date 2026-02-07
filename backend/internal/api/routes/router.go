@@ -23,7 +23,8 @@ type Router struct {
 
 	geolocationHandler *handlers.GeolocationHandler
 
-	mapsHandler *handlers.MapsHandler
+	mapsHandler     *handlers.MapsHandler
+	feedbackHandler *handlers.FeedbackHandler
 
 	metrics *observability.Metrics
 }
@@ -43,6 +44,7 @@ func NewRouter(
 	geolocationHandler *handlers.GeolocationHandler,
 
 	mapsHandler *handlers.MapsHandler,
+	feedbackHandler *handlers.FeedbackHandler,
 
 	metrics *observability.Metrics,
 
@@ -62,7 +64,8 @@ func NewRouter(
 
 		geolocationHandler: geolocationHandler,
 
-		mapsHandler: mapsHandler,
+		mapsHandler:     mapsHandler,
+		feedbackHandler: feedbackHandler,
 
 		metrics: metrics,
 	}
@@ -120,6 +123,10 @@ func (r *Router) SetupRoutes() http.Handler {
 	// Maps endpoints
 
 	r.mux.HandleFunc("GET /api/maps/static", r.mapsHandler.GetStaticMap)
+
+	// Feedback endpoints
+
+	r.mux.HandleFunc("POST /api/feedback", r.feedbackHandler.SubmitFeedback)
 
 	// Apply middleware in reverse order (last middleware wraps first)
 

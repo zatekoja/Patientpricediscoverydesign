@@ -31,20 +31,47 @@ func NewFacilityAdapter(client *postgres.Client) repositories.FacilityRepository
 // Create creates a new facility
 func (a *FacilityAdapter) Create(ctx context.Context, facility *entities.Facility) error {
 	record := goqu.Record{
-		"id":           facility.ID,
-		"name":         facility.Name,
-		"street":       sql.NullString{String: facility.Address.Street, Valid: facility.Address.Street != ""},
-		"city":         sql.NullString{String: facility.Address.City, Valid: facility.Address.City != ""},
-		"state":        sql.NullString{String: facility.Address.State, Valid: facility.Address.State != ""},
-		"zip_code":     sql.NullString{String: facility.Address.ZipCode, Valid: facility.Address.ZipCode != ""},
-		"country":      sql.NullString{String: facility.Address.Country, Valid: facility.Address.Country != ""},
-		"latitude":     facility.Location.Latitude,
-		"longitude":    facility.Location.Longitude,
-		"phone_number": sql.NullString{String: facility.PhoneNumber, Valid: facility.PhoneNumber != ""},
-		"email":        sql.NullString{String: facility.Email, Valid: facility.Email != ""},
-		"website":      sql.NullString{String: facility.Website, Valid: facility.Website != ""},
-		"description":  sql.NullString{String: facility.Description, Valid: facility.Description != ""},
+		"id":            facility.ID,
+		"name":          facility.Name,
+		"street":        sql.NullString{String: facility.Address.Street, Valid: facility.Address.Street != ""},
+		"city":          sql.NullString{String: facility.Address.City, Valid: facility.Address.City != ""},
+		"state":         sql.NullString{String: facility.Address.State, Valid: facility.Address.State != ""},
+		"zip_code":      sql.NullString{String: facility.Address.ZipCode, Valid: facility.Address.ZipCode != ""},
+		"country":       sql.NullString{String: facility.Address.Country, Valid: facility.Address.Country != ""},
+		"latitude":      facility.Location.Latitude,
+		"longitude":     facility.Location.Longitude,
+		"phone_number":  sql.NullString{String: facility.PhoneNumber, Valid: facility.PhoneNumber != ""},
+		"email":         sql.NullString{String: facility.Email, Valid: facility.Email != ""},
+		"website":       sql.NullString{String: facility.Website, Valid: facility.Website != ""},
+		"description":   sql.NullString{String: facility.Description, Valid: facility.Description != ""},
 		"facility_type": sql.NullString{String: facility.FacilityType, Valid: facility.FacilityType != ""},
+		"capacity_status": sql.NullString{
+			String: func() string {
+				if facility.CapacityStatus != nil {
+					return *facility.CapacityStatus
+				}
+				return ""
+			}(),
+			Valid: facility.CapacityStatus != nil && *facility.CapacityStatus != "",
+		},
+		"avg_wait_minutes": sql.NullInt64{
+			Int64: func() int64 {
+				if facility.AvgWaitMinutes != nil {
+					return int64(*facility.AvgWaitMinutes)
+				}
+				return 0
+			}(),
+			Valid: facility.AvgWaitMinutes != nil,
+		},
+		"urgent_care_available": sql.NullBool{
+			Bool: func() bool {
+				if facility.UrgentCareAvailable != nil {
+					return *facility.UrgentCareAvailable
+				}
+				return false
+			}(),
+			Valid: facility.UrgentCareAvailable != nil,
+		},
 		"rating":       facility.Rating,
 		"review_count": facility.ReviewCount,
 		"is_active":    facility.IsActive,
@@ -70,7 +97,7 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 	query, args, err := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "rating", "review_count",
+		"description", "facility_type", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 	).From("facilities").
 		Where(goqu.Ex{"id": id, "is_active": true}).
@@ -83,6 +110,9 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 	facility := &entities.Facility{}
 	var street, city, state, zipCode, country sql.NullString
 	var phoneNumber, email, website, description, facilityType sql.NullString
+	var capacityStatus sql.NullString
+	var avgWaitMinutes sql.NullInt64
+	var urgentCareAvailable sql.NullBool
 
 	err = a.client.DB().QueryRowContext(ctx, query, args...).Scan(
 		&facility.ID,
@@ -99,6 +129,9 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 		&website,
 		&description,
 		&facilityType,
+		&capacityStatus,
+		&avgWaitMinutes,
+		&urgentCareAvailable,
 		&facility.Rating,
 		&facility.ReviewCount,
 		&facility.IsActive,
@@ -124,6 +157,18 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 	facility.Website = website.String
 	facility.Description = description.String
 	facility.FacilityType = facilityType.String
+	if capacityStatus.Valid {
+		value := capacityStatus.String
+		facility.CapacityStatus = &value
+	}
+	if avgWaitMinutes.Valid {
+		value := int(avgWaitMinutes.Int64)
+		facility.AvgWaitMinutes = &value
+	}
+	if urgentCareAvailable.Valid {
+		value := urgentCareAvailable.Bool
+		facility.UrgentCareAvailable = &value
+	}
 
 	return facility, nil
 }
@@ -133,23 +178,23 @@ func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facilit
 	facility.UpdatedAt = time.Now()
 
 	record := goqu.Record{
-		"name":         facility.Name,
-		"street":       sql.NullString{String: facility.Address.Street, Valid: facility.Address.Street != ""},
-		"city":         sql.NullString{String: facility.Address.City, Valid: facility.Address.City != ""},
-		"state":        sql.NullString{String: facility.Address.State, Valid: facility.Address.State != ""},
-		"zip_code":     sql.NullString{String: facility.Address.ZipCode, Valid: facility.Address.ZipCode != ""},
-		"country":      sql.NullString{String: facility.Address.Country, Valid: facility.Address.Country != ""},
-		"latitude":     facility.Location.Latitude,
-		"longitude":    facility.Location.Longitude,
-		"phone_number": sql.NullString{String: facility.PhoneNumber, Valid: facility.PhoneNumber != ""},
-		"email":        sql.NullString{String: facility.Email, Valid: facility.Email != ""},
-		"website":      sql.NullString{String: facility.Website, Valid: facility.Website != ""},
-		"description":  sql.NullString{String: facility.Description, Valid: facility.Description != ""},
+		"name":          facility.Name,
+		"street":        sql.NullString{String: facility.Address.Street, Valid: facility.Address.Street != ""},
+		"city":          sql.NullString{String: facility.Address.City, Valid: facility.Address.City != ""},
+		"state":         sql.NullString{String: facility.Address.State, Valid: facility.Address.State != ""},
+		"zip_code":      sql.NullString{String: facility.Address.ZipCode, Valid: facility.Address.ZipCode != ""},
+		"country":       sql.NullString{String: facility.Address.Country, Valid: facility.Address.Country != ""},
+		"latitude":      facility.Location.Latitude,
+		"longitude":     facility.Location.Longitude,
+		"phone_number":  sql.NullString{String: facility.PhoneNumber, Valid: facility.PhoneNumber != ""},
+		"email":         sql.NullString{String: facility.Email, Valid: facility.Email != ""},
+		"website":       sql.NullString{String: facility.Website, Valid: facility.Website != ""},
+		"description":   sql.NullString{String: facility.Description, Valid: facility.Description != ""},
 		"facility_type": sql.NullString{String: facility.FacilityType, Valid: facility.FacilityType != ""},
-		"rating":       facility.Rating,
-		"review_count": facility.ReviewCount,
-		"is_active":    facility.IsActive,
-		"updated_at":   facility.UpdatedAt,
+		"rating":        facility.Rating,
+		"review_count":  facility.ReviewCount,
+		"is_active":     facility.IsActive,
+		"updated_at":    facility.UpdatedAt,
 	}
 
 	query, args, err := a.db.Update("facilities").
@@ -176,6 +221,98 @@ func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facilit
 	}
 
 	return nil
+}
+
+// GetByIDs retrieves multiple facilities by their IDs
+func (a *FacilityAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entities.Facility, error) {
+	if len(ids) == 0 {
+		return []*entities.Facility{}, nil
+	}
+
+	query, args, err := a.db.Select(
+		"id", "name", "street", "city", "state", "zip_code", "country",
+		"latitude", "longitude", "phone_number", "email", "website",
+		"description", "facility_type", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
+		"is_active", "created_at", "updated_at",
+	).From("facilities").
+		Where(goqu.Ex{"id": ids, "is_active": true}).
+		ToSQL()
+
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to build query", err)
+	}
+
+	rows, err := a.client.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to get facilities by ids", err)
+	}
+	defer rows.Close()
+
+	facilities := []*entities.Facility{}
+	for rows.Next() {
+		facility := &entities.Facility{}
+		var street, city, state, zipCode, country sql.NullString
+		var phoneNumber, email, website, description, facilityType sql.NullString
+		var capacityStatus sql.NullString
+		var avgWaitMinutes sql.NullInt64
+		var urgentCareAvailable sql.NullBool
+
+		err := rows.Scan(
+			&facility.ID,
+			&facility.Name,
+			&street,
+			&city,
+			&state,
+			&zipCode,
+			&country,
+			&facility.Location.Latitude,
+			&facility.Location.Longitude,
+			&phoneNumber,
+			&email,
+			&website,
+			&description,
+			&facilityType,
+			&capacityStatus,
+			&avgWaitMinutes,
+			&urgentCareAvailable,
+			&facility.Rating,
+			&facility.ReviewCount,
+			&facility.IsActive,
+			&facility.CreatedAt,
+			&facility.UpdatedAt,
+		)
+		if err != nil {
+			return nil, apperrors.NewInternalError("failed to scan facility", err)
+		}
+
+		// Map nullable fields
+		facility.Address.Street = street.String
+		facility.Address.City = city.String
+		facility.Address.State = state.String
+		facility.Address.ZipCode = zipCode.String
+		facility.Address.Country = country.String
+		facility.PhoneNumber = phoneNumber.String
+		facility.Email = email.String
+		facility.Website = website.String
+		facility.Description = description.String
+		facility.FacilityType = facilityType.String
+		if capacityStatus.Valid {
+			value := capacityStatus.String
+			facility.CapacityStatus = &value
+		}
+		if avgWaitMinutes.Valid {
+			value := int(avgWaitMinutes.Int64)
+			facility.AvgWaitMinutes = &value
+		}
+		if urgentCareAvailable.Valid {
+			value := urgentCareAvailable.Bool
+			facility.UrgentCareAvailable = &value
+		}
+
+		facilities = append(facilities, facility)
+	}
+
+	return facilities, nil
 }
 
 // Delete deletes a facility (soft delete)
@@ -211,7 +348,7 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 	ds := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "rating", "review_count",
+		"description", "facility_type", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 	).From("facilities")
 
@@ -249,6 +386,9 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 		facility := &entities.Facility{}
 		var street, city, state, zipCode, country sql.NullString
 		var phoneNumber, email, website, description, facilityType sql.NullString
+		var capacityStatus sql.NullString
+		var avgWaitMinutes sql.NullInt64
+		var urgentCareAvailable sql.NullBool
 
 		err := rows.Scan(
 			&facility.ID,
@@ -265,6 +405,9 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 			&website,
 			&description,
 			&facilityType,
+			&capacityStatus,
+			&avgWaitMinutes,
+			&urgentCareAvailable,
 			&facility.Rating,
 			&facility.ReviewCount,
 			&facility.IsActive,
@@ -286,6 +429,18 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 		facility.Website = website.String
 		facility.Description = description.String
 		facility.FacilityType = facilityType.String
+		if capacityStatus.Valid {
+			value := capacityStatus.String
+			facility.CapacityStatus = &value
+		}
+		if avgWaitMinutes.Valid {
+			value := int(avgWaitMinutes.Int64)
+			facility.AvgWaitMinutes = &value
+		}
+		if urgentCareAvailable.Valid {
+			value := urgentCareAvailable.Bool
+			facility.UrgentCareAvailable = &value
+		}
 
 		facilities = append(facilities, facility)
 	}
@@ -309,7 +464,7 @@ func (a *FacilityAdapter) Search(ctx context.Context, params repositories.Search
 	ds := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "rating", "review_count",
+		"description", "facility_type", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 		distanceExpr.As("distance"),
 	).From("facilities").
@@ -341,6 +496,9 @@ func (a *FacilityAdapter) Search(ctx context.Context, params repositories.Search
 		facility := &entities.Facility{}
 		var street, city, state, zipCode, country sql.NullString
 		var phoneNumber, email, website, description, facilityType sql.NullString
+		var capacityStatus sql.NullString
+		var avgWaitMinutes sql.NullInt64
+		var urgentCareAvailable sql.NullBool
 		var distance float64
 
 		err := rows.Scan(
@@ -358,6 +516,9 @@ func (a *FacilityAdapter) Search(ctx context.Context, params repositories.Search
 			&website,
 			&description,
 			&facilityType,
+			&capacityStatus,
+			&avgWaitMinutes,
+			&urgentCareAvailable,
 			&facility.Rating,
 			&facility.ReviewCount,
 			&facility.IsActive,
@@ -380,6 +541,18 @@ func (a *FacilityAdapter) Search(ctx context.Context, params repositories.Search
 		facility.Website = website.String
 		facility.Description = description.String
 		facility.FacilityType = facilityType.String
+		if capacityStatus.Valid {
+			value := capacityStatus.String
+			facility.CapacityStatus = &value
+		}
+		if avgWaitMinutes.Valid {
+			value := int(avgWaitMinutes.Int64)
+			facility.AvgWaitMinutes = &value
+		}
+		if urgentCareAvailable.Valid {
+			value := urgentCareAvailable.Bool
+			facility.UrgentCareAvailable = &value
+		}
 
 		facilities = append(facilities, facility)
 	}

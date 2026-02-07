@@ -224,7 +224,7 @@ func (h *FacilityHandler) SuggestFacilities(w http.ResponseWriter, r *http.Reque
 
 	suggestions := make([]FacilitySuggestion, 0, len(results))
 	for _, result := range results {
-		suggestions = append(suggestions, FacilitySuggestionFromSearchResult(result))
+		suggestions = append(suggestions, FacilitySuggestionFromSearchResult(result, query))
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -235,19 +235,20 @@ func (h *FacilityHandler) SuggestFacilities(w http.ResponseWriter, r *http.Reque
 
 // FacilitySuggestion is a lightweight suggestion payload.
 type FacilitySuggestion struct {
-	ID            string                       `json:"id"`
-	Name          string                       `json:"name"`
-	FacilityType  string                       `json:"facility_type"`
-	Address       entities.Address             `json:"address"`
-	Location      entities.Location            `json:"location"`
-	Rating        float64                      `json:"rating"`
-	Price         *entities.FacilityPriceRange `json:"price,omitempty"`
-	ServicePrices []entities.ServicePrice      `json:"service_prices,omitempty"`
+	ID                  string                       `json:"id"`
+	Name                string                       `json:"name"`
+	FacilityType        string                       `json:"facility_type"`
+	Address             entities.Address             `json:"address"`
+	Location            entities.Location            `json:"location"`
+	Rating              float64                      `json:"rating"`
+	Price               *entities.FacilityPriceRange `json:"price,omitempty"`
+	ServicePrices       []entities.ServicePrice      `json:"service_prices,omitempty"`
+	MatchedServicePrice *entities.ServicePrice       `json:"matched_service_price,omitempty"`
 }
 
 // FacilitySuggestionFromSearchResult maps a search result to a suggestion.
-func FacilitySuggestionFromSearchResult(result entities.FacilitySearchResult) FacilitySuggestion {
-	return FacilitySuggestion{
+func FacilitySuggestionFromSearchResult(result entities.FacilitySearchResult, query string) FacilitySuggestion {
+	suggestion := FacilitySuggestion{
 		ID:            result.ID,
 		Name:          result.Name,
 		FacilityType:  result.FacilityType,
@@ -257,6 +258,12 @@ func FacilitySuggestionFromSearchResult(result entities.FacilitySearchResult) Fa
 		Price:         result.Price,
 		ServicePrices: trimServicePrices(result.ServicePrices, 3),
 	}
+
+	if matched := matchServicePrice(query, result.ServicePrices); matched != nil {
+		suggestion.MatchedServicePrice = matched
+	}
+
+	return suggestion
 }
 
 func trimServicePrices(items []entities.ServicePrice, limit int) []entities.ServicePrice {
@@ -267,6 +274,22 @@ func trimServicePrices(items []entities.ServicePrice, limit int) []entities.Serv
 		return items
 	}
 	return items[:limit]
+}
+
+func matchServicePrice(query string, items []entities.ServicePrice) *entities.ServicePrice {
+	trimmed := strings.ToLower(strings.TrimSpace(query))
+	if trimmed == "" || len(items) == 0 {
+		return nil
+	}
+
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.Name), trimmed) {
+			matched := item
+			return &matched
+		}
+	}
+
+	return nil
 }
 
 // Helper functions

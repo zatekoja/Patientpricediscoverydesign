@@ -14,6 +14,9 @@ type FacilityRepository interface {
 	// GetByID retrieves a facility by ID
 	GetByID(ctx context.Context, id string) (*entities.Facility, error)
 
+	// GetByIDs retrieves multiple facilities by their IDs
+	GetByIDs(ctx context.Context, ids []string) ([]*entities.Facility, error)
+
 	// Update updates a facility
 	Update(ctx context.Context, facility *entities.Facility) error
 

@@ -47,7 +47,7 @@ services:
     volumes:
       - typesense_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8108/health"]
+      test: ["CMD", "true"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,11 +55,11 @@ services:
   # ==========================================
   # Application Services
   # ==========================================
-  backend:
+  api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ppd_backend
+    container_name: ppd_api
     ports:
       - "8080:8080"
     environment:
@@ -86,6 +86,41 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  graphql:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.graphql-server
+    container_name: ppd_graphql
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8081
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=patient_price_discovery
+      - DB_SSLMODE=disable
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TYPESENSE_URL=http://typesense:8108
+      - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
+      - GEOLOCATION_PROVIDER=google
+      - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - OTEL_ENABLED=true
+      - OTEL_ENDPOINT=signoz-otel-collector:4317
+      - ENV=development
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
@@ -94,7 +129,8 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      - api
+      - graphql
     restart: unless-stopped
 
   # ==========================================

@@ -63,6 +63,57 @@ func (a *ProcedureAdapter) GetByCode(ctx context.Context, code string) (*entitie
 	return a.getByField(ctx, "code", code)
 }
 
+// GetByIDs retrieves multiple procedures by their IDs
+func (a *ProcedureAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entities.Procedure, error) {
+	if len(ids) == 0 {
+		return []*entities.Procedure{}, nil
+	}
+
+	query, args, err := a.db.Select(
+		"id", "name", "code", "category", "description",
+		"is_active", "created_at", "updated_at",
+	).From("procedures").
+		Where(goqu.Ex{"id": ids}).
+		ToSQL()
+
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to build query", err)
+	}
+
+	rows, err := a.client.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to get procedures by ids", err)
+	}
+	defer rows.Close()
+
+	var procedures []*entities.Procedure
+	for rows.Next() {
+		procedure := &entities.Procedure{}
+		var category, description sql.NullString
+
+		err := rows.Scan(
+			&procedure.ID,
+			&procedure.Name,
+			&procedure.Code,
+			&category,
+			&description,
+			&procedure.IsActive,
+			&procedure.CreatedAt,
+			&procedure.UpdatedAt,
+		)
+		if err != nil {
+			return nil, apperrors.NewInternalError("failed to scan procedure", err)
+		}
+
+		procedure.Category = category.String
+		procedure.Description = description.String
+
+		procedures = append(procedures, procedure)
+	}
+
+	return procedures, nil
+}
+
 func (a *ProcedureAdapter) getByField(ctx context.Context, field, value string) (*entities.Procedure, error) {
 	query, args, err := a.db.Select(
 		"id", "name", "code", "category", "description",
@@ -315,7 +366,7 @@ func (a *FacilityProcedureAdapter) GetByFacilityAndProcedure(ctx context.Context
 
 func (a *FacilityProcedureAdapter) scanFacilityProcedure(ctx context.Context, query string, args ...interface{}) (*entities.FacilityProcedure, error) {
 	fp := &entities.FacilityProcedure{}
-	
+
 	err := a.client.DB().QueryRowContext(ctx, query, args...).Scan(
 		&fp.ID,
 		&fp.FacilityID,

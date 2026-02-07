@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, Filter, X, Activity } from "lucide-react";
+import { Search, MapPin, Filter, X, Activity, Navigation } from "lucide-react";
 import { SearchResults } from "./components/SearchResults";
 import { MapView } from "./components/MapView";
 import { FacilityModal } from "./components/FacilityModal";
+import { FeedbackTab } from "./components/FeedbackTab";
 import { api, API_BASE_URL } from "../lib/api";
 import { mapFacilitySearchResultToUI, UIFacility } from "../lib/mappers";
 import { FacilitySuggestion } from "../types/api";
@@ -49,16 +50,18 @@ export default function App() {
     }
   };
 
-  const fetchFacilities = async (overrideQuery?: string, overrideLocation?: string) => {
+  const fetchFacilities = async (overrideQuery?: string, overrideLocation?: string, overrideCenter?: { lat: number; lon: number }) => {
     setLoading(true);
     setError(null);
     setSearchStatus("loading");
     const startTime = performance.now();
     try {
-      let searchCenter = center;
+      let searchCenter = overrideCenter || center;
       const locationInput = overrideLocation ?? location;
       const trimmedLocation = locationInput.trim();
-      if (trimmedLocation.length > 0) {
+
+      // Only geocode if we don't have an override center and there is a location string
+      if (!overrideCenter && trimmedLocation.length > 0) {
         try {
           const geo = await api.geocode(trimmedLocation);
           searchCenter = { lat: geo.lat, lon: geo.lon };
@@ -66,6 +69,9 @@ export default function App() {
         } catch (geoErr) {
           console.error("Failed to geocode location, using previous center:", geoErr);
         }
+      } else if (overrideCenter) {
+           // Ensure center state is updated when override provided
+           setCenter(overrideCenter);
       }
 
       const queryText = (overrideQuery ?? searchQuery).trim();
@@ -98,6 +104,41 @@ export default function App() {
       setSearchDurationMs(performance.now() - startTime);
       setLastSearchAt(new Date());
     }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        const newCenter = { lat: latitude, lon: longitude };
+
+        try {
+           // Reverse geocode to get address for text input
+           const addressData = await api.reverseGeocode(latitude, longitude);
+           const addressString = addressData.FormattedAddress || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+
+           setLocation(addressString);
+           fetchFacilities(undefined, addressString, newCenter);
+
+        } catch (error) {
+           console.error("Error getting location details:", error);
+           const locString = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+           setLocation(locString);
+           fetchFacilities(undefined, locString, newCenter);
+        }
+      },
+      (error) => {
+        console.error("Error getting location:", error);
+        setLoading(false);
+        alert("Unable to retrieve your location");
+      }
+    );
   };
 
   useEffect(() => {
@@ -258,14 +299,25 @@ export default function App() {
                               {suggestion.address?.city}
                               {suggestion.address?.state ? `, ${suggestion.address.state}` : ""}
                             </div>
-                            {suggestion.service_prices && suggestion.service_prices.length > 0 && (
+                            {suggestion.matched_service_price ? (
                               <div className="mt-1 text-xs text-gray-600">
-                                {suggestion.service_prices.slice(0, 2).map((service) => (
-                                  <span key={service.procedure_id} className="mr-2">
-                                    {service.name}: {formatCurrency(service.price, service.currency)}
-                                  </span>
-                                ))}
+                                Price for {suggestion.matched_service_price.name}:{" "}
+                                {formatCurrency(
+                                  suggestion.matched_service_price.price,
+                                  suggestion.matched_service_price.currency
+                                )}
                               </div>
+                            ) : (
+                              suggestion.service_prices &&
+                              suggestion.service_prices.length > 0 && (
+                                <div className="mt-1 text-xs text-gray-600">
+                                  {suggestion.service_prices.slice(0, 2).map((service) => (
+                                    <span key={service.procedure_id} className="mr-2">
+                                      {service.name}: {formatCurrency(service.price, service.currency)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )
                             )}
                           </button>
                         </li>
@@ -283,8 +335,15 @@ export default function App() {
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && fetchFacilities()}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <button
+                onClick={handleUseMyLocation}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-600 hover:text-blue-800"
+                title="Use my location"
+              >
+                <Navigation className="w-5 h-5" />
+              </button>
             </div>
             <button
               onClick={() => fetchFacilities()}
@@ -323,7 +382,6 @@ export default function App() {
             >
               MRI
             </button>
-            <span className="text-gray-500">Typo tolerant</span>
           </div>
 
           {/* Filters Panel */}
@@ -448,6 +506,8 @@ export default function App() {
           onClose={() => setSelectedFacility(null)}
         />
       )}
+
+      <FeedbackTab />
     </div>
   );
 }
