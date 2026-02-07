@@ -5,6 +5,11 @@ import { PriceData } from '../types/PriceData';
 import { FacilityProfile } from '../types/FacilityProfile';
 import { hydrateTags } from './tagHydration';
 import { buildFacilityId, normalizeIdentifier } from './facilityIds';
+import {
+  recordCapacityUpdate,
+  recordFacilityProfileEnrichment,
+  recordFacilityProfileLLM,
+} from '../observability/metrics';
 
 export interface FacilityLLMConfig {
   apiEndpoint?: string;
@@ -47,9 +52,14 @@ export class FacilityProfileService {
     return this.store.query({}, { limit, offset, sortBy: 'lastUpdated', sortOrder: 'desc' });
   }
 
-  async updateStatus(id: string, update: FacilityStatusUpdate): Promise<FacilityProfile> {
+  async updateStatus(
+    id: string,
+    update: FacilityStatusUpdate,
+    options?: { source?: string }
+  ): Promise<FacilityProfile> {
     const profile = await this.store.get(id);
     if (!profile) {
+      recordCapacityUpdate({ source: options?.source || 'unknown', success: false });
       throw new Error('Facility not found');
     }
     const now = new Date();
@@ -67,6 +77,7 @@ export class FacilityProfileService {
       source: profile.source,
       updatedAt: now.toISOString(),
     });
+    recordCapacityUpdate({ source: options?.source || 'unknown', success: true });
     return profile;
   }
 
@@ -143,6 +154,12 @@ export class FacilityProfileService {
       }
     }
 
+    recordFacilityProfileEnrichment({
+      provider: options?.providerId || 'unknown',
+      created: summary.created,
+      skipped: summary.skipped,
+      failed: summary.failed,
+    });
     return summary;
   }
 
@@ -192,6 +209,7 @@ export class FacilityProfileService {
     }
 
     const prompt = buildFacilityPrompt(facilityName, existingTags, sampleProcedures);
+    const startTime = Date.now();
     return this.tracer.startActiveSpan(
       'provider.facility_enrichment',
       { attributes: { facility: facilityName, tags: existingTags.length } },
@@ -199,6 +217,12 @@ export class FacilityProfileService {
         try {
           const responseText = await callLLMAPI(prompt, this.llmConfig!);
           const parsed = parseLLMProfile(responseText);
+          recordFacilityProfileLLM({
+            provider: this.llmConfig?.model || 'unknown',
+            success: true,
+            durationMs: Date.now() - startTime,
+            tags: parsed.tags ? parsed.tags.length : 0,
+          });
           span.setStatus({ code: SpanStatusCode.OK });
           return {
             ...parsed,
@@ -210,6 +234,11 @@ export class FacilityProfileService {
             },
           };
         } catch (error) {
+          recordFacilityProfileLLM({
+            provider: this.llmConfig?.model || 'unknown',
+            success: false,
+            durationMs: Date.now() - startTime,
+          });
           span.recordException(error as Error);
           span.setStatus({
             code: SpanStatusCode.ERROR,

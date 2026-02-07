@@ -67,6 +67,60 @@ const providerMissingFieldCount = meter.createCounter('provider.missing_field.co
   description: 'Count of missing required fields in provider data',
 });
 
+const capacityRequestCount = meter.createCounter('provider.capacity.request.count', {
+  description: 'Number of capacity update requests sent',
+});
+const capacityRequestErrors = meter.createCounter('provider.capacity.request.error.count', {
+  description: 'Number of capacity update request failures',
+});
+const capacityRequestJobCount = meter.createCounter('provider.capacity.request.job.count', {
+  description: 'Number of capacity request job runs',
+});
+const capacityRequestJobDuration = meter.createHistogram('provider.capacity.request.job.duration_ms', {
+  description: 'Duration of capacity request job execution',
+  unit: 'ms',
+});
+const capacityTokenIssued = meter.createCounter('provider.capacity.token.issued', {
+  description: 'Number of capacity update tokens issued',
+});
+const capacityTokenConsumed = meter.createCounter('provider.capacity.token.consumed', {
+  description: 'Number of capacity update tokens consumed',
+});
+const capacityUpdateCount = meter.createCounter('provider.capacity.update.count', {
+  description: 'Number of capacity updates applied',
+});
+const capacityUpdateErrors = meter.createCounter('provider.capacity.update.error.count', {
+  description: 'Number of failed capacity updates',
+});
+const capacityWebhookCount = meter.createCounter('provider.capacity.webhook.count', {
+  description: 'Number of ingestion webhook calls after capacity update',
+});
+const capacityWebhookErrors = meter.createCounter('provider.capacity.webhook.error.count', {
+  description: 'Number of ingestion webhook call failures',
+});
+const facilityProfileCreated = meter.createCounter('provider.facility.profile.created', {
+  description: 'Number of facility profiles created',
+});
+const facilityProfileSkipped = meter.createCounter('provider.facility.profile.skipped', {
+  description: 'Number of facility profiles skipped (already exists)',
+});
+const facilityProfileFailed = meter.createCounter('provider.facility.profile.failed', {
+  description: 'Number of facility profile enrich failures',
+});
+const facilityProfileLLMCount = meter.createCounter('provider.facility.profile.llm.count', {
+  description: 'Number of facility profile LLM enrichment attempts',
+});
+const facilityProfileLLMErrors = meter.createCounter('provider.facility.profile.llm.error.count', {
+  description: 'Number of facility profile LLM errors',
+});
+const facilityProfileLLMDuration = meter.createHistogram('provider.facility.profile.llm.duration_ms', {
+  description: 'Duration of facility profile LLM calls',
+  unit: 'ms',
+});
+const facilityProfileLLMTags = meter.createCounter('provider.facility.profile.llm.tags', {
+  description: 'Number of tags returned by facility profile LLM',
+});
+
 type ProviderSyncState = {
   lastSyncMs?: number;
 };
@@ -264,5 +318,76 @@ export function recordProviderDataMetrics(params: {
   if (minPrice !== null && maxPrice !== null) {
     const currency = records.find((record) => record.currency)?.currency || 'unknown';
     providerPriceRange.record(maxPrice - minPrice, { provider, currency });
+  }
+}
+
+export function recordCapacityRequest(params: { channel: string; success: boolean }): void {
+  capacityRequestCount.add(1, { channel: params.channel, success: String(params.success) });
+  if (!params.success) {
+    capacityRequestErrors.add(1, { channel: params.channel });
+  }
+}
+
+export function recordCapacityRequestJob(params: { success?: boolean; durationMs?: number }): void {
+  capacityRequestJobCount.add(1, {
+    success: params.success === undefined ? 'unknown' : String(params.success),
+  });
+  if (params.durationMs !== undefined) {
+    capacityRequestJobDuration.record(params.durationMs);
+  }
+}
+
+export function recordCapacityTokenIssued(channel: string): void {
+  capacityTokenIssued.add(1, { channel });
+}
+
+export function recordCapacityTokenConsumed(channel: string): void {
+  capacityTokenConsumed.add(1, { channel });
+}
+
+export function recordCapacityUpdate(params: { source: string; success: boolean }): void {
+  capacityUpdateCount.add(1, { source: params.source, success: String(params.success) });
+  if (!params.success) {
+    capacityUpdateErrors.add(1, { source: params.source });
+  }
+}
+
+export function recordCapacityWebhook(params: { success: boolean }): void {
+  capacityWebhookCount.add(1, { success: String(params.success) });
+  if (!params.success) {
+    capacityWebhookErrors.add(1, {});
+  }
+}
+
+export function recordFacilityProfileEnrichment(params: {
+  provider: string;
+  created: number;
+  skipped: number;
+  failed: number;
+}): void {
+  if (params.created > 0) {
+    facilityProfileCreated.add(params.created, { provider: params.provider });
+  }
+  if (params.skipped > 0) {
+    facilityProfileSkipped.add(params.skipped, { provider: params.provider });
+  }
+  if (params.failed > 0) {
+    facilityProfileFailed.add(params.failed, { provider: params.provider });
+  }
+}
+
+export function recordFacilityProfileLLM(params: {
+  provider: string;
+  success: boolean;
+  durationMs: number;
+  tags?: number;
+}): void {
+  facilityProfileLLMCount.add(1, { provider: params.provider, success: String(params.success) });
+  facilityProfileLLMDuration.record(params.durationMs, { provider: params.provider });
+  if (!params.success) {
+    facilityProfileLLMErrors.add(1, { provider: params.provider });
+  }
+  if (params.tags && params.tags > 0) {
+    facilityProfileLLMTags.add(params.tags, { provider: params.provider });
   }
 }

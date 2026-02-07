@@ -2,6 +2,12 @@ import crypto from 'crypto';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { FacilityProfile } from '../types/FacilityProfile';
 import { FacilityProfileService } from './facilityProfileService';
+import {
+  recordCapacityRequest,
+  recordCapacityRequestJob,
+  recordCapacityTokenConsumed,
+  recordCapacityTokenIssued,
+} from '../observability/metrics';
 
 export type CapacityChannel = 'email' | 'whatsapp';
 
@@ -64,12 +70,20 @@ export class CapacityRequestService {
       return;
     }
     this.running = true;
+    const startTime = Date.now();
+    let success = false;
     try {
       const facilities = await this.listAllFacilities();
       for (const facility of facilities) {
-        await this.requestForFacility(facility);
+        try {
+          await this.requestForFacility(facility);
+        } catch (error) {
+          console.error('Capacity request failed for facility:', facility.id, error);
+        }
       }
+      success = true;
     } finally {
+      recordCapacityRequestJob({ success, durationMs: Date.now() - startTime });
       this.running = false;
     }
   }
@@ -90,6 +104,7 @@ export class CapacityRequestService {
 
     record.usedAt = now.toISOString();
     await this.options.tokenStore.put(tokenHash, record, { usedAt: record.usedAt });
+    recordCapacityTokenConsumed(record.channel);
     return record;
   }
 
@@ -151,16 +166,29 @@ export class CapacityRequestService {
       channel,
       recipient,
     });
+    recordCapacityTokenIssued(channel);
 
     const link = this.buildFormLink(rawToken);
     if (channel === 'email' && this.options.emailSender) {
-      const subject = `Update ${facility.name} capacity status`;
-      const body = buildEmailBody(facility.name, link);
-      await this.options.emailSender.send(recipient, subject, body, stripHtml(body));
+      try {
+        const subject = `Update ${facility.name} capacity status`;
+        const body = buildEmailBody(facility.name, link);
+        await this.options.emailSender.send(recipient, subject, body, stripHtml(body));
+        recordCapacityRequest({ channel, success: true });
+      } catch (error) {
+        recordCapacityRequest({ channel, success: false });
+        throw error;
+      }
     }
     if (channel === 'whatsapp' && this.options.whatsappSender) {
-      const message = `Please update capacity for ${facility.name}: ${link}`;
-      await this.options.whatsappSender.send(recipient, message, link);
+      try {
+        const message = `Please update capacity for ${facility.name}: ${link}`;
+        await this.options.whatsappSender.send(recipient, message, link);
+        recordCapacityRequest({ channel, success: true });
+      } catch (error) {
+        recordCapacityRequest({ channel, success: false });
+        throw error;
+      }
     }
   }
 

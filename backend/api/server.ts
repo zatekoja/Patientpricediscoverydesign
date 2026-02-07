@@ -3,6 +3,7 @@ import { IExternalDataProvider, DataProviderOptions } from '../interfaces/IExter
 import { recordApiRequest } from '../observability/metrics';
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
 import { CapacityRequestService } from '../ingestion/capacityRequestService';
+import { recordCapacityWebhook } from '../observability/metrics';
 
 /**
  * API Router for External Data Provider
@@ -454,11 +455,15 @@ export class DataProviderAPI {
       const urgentCareAvailable =
         typeof payload.urgentCareAvailable === 'boolean' ? payload.urgentCareAvailable : undefined;
 
-      const updated = await this.facilityProfileService.updateStatus(id, {
-        capacityStatus,
-        avgWaitMinutes,
-        urgentCareAvailable,
-      });
+      const updated = await this.facilityProfileService.updateStatus(
+        id,
+        {
+          capacityStatus,
+          avgWaitMinutes,
+          urgentCareAvailable,
+        },
+        { source: 'admin_patch' }
+      );
       res.json(updated);
     } catch (error) {
       next(error);
@@ -503,11 +508,15 @@ export class DataProviderAPI {
           ? req.body.urgentCareAvailable === 'true'
           : req.body?.urgentCareAvailable === true;
 
-      await this.facilityProfileService.updateStatus(record.facilityId, {
-        capacityStatus,
-        avgWaitMinutes: Number.isFinite(avgWaitMinutes) ? avgWaitMinutes : undefined,
-        urgentCareAvailable,
-      });
+      await this.facilityProfileService.updateStatus(
+        record.facilityId,
+        {
+          capacityStatus,
+          avgWaitMinutes: Number.isFinite(avgWaitMinutes) ? avgWaitMinutes : undefined,
+          urgentCareAvailable,
+        },
+        { source: 'form' }
+      );
 
       await this.triggerIngestionWebhook(record.facilityId);
 
@@ -570,9 +579,13 @@ export class DataProviderAPI {
       if (!response.ok) {
         const text = await response.text();
         console.error(`Ingestion webhook failed (${response.status}): ${text}`);
+        recordCapacityWebhook({ success: false });
+      } else {
+        recordCapacityWebhook({ success: true });
       }
     } catch (error) {
       console.error('Ingestion webhook error:', error);
+      recordCapacityWebhook({ success: false });
     }
   }
 
