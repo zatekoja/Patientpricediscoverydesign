@@ -1,5 +1,14 @@
 # Cloud Run Services Module - Deploys containerized services
 
+# SECURITY NOTE: Secret Manager secrets are created with secret_data from Terraform variables.
+# This means secret values will be stored in Terraform state (potentially in plaintext).
+# For production use, consider:
+# 1. Creating secrets/versions out-of-band (via gcloud or console)
+# 2. Using remote state backend with encryption (GCS with encryption at rest)
+# 3. Implementing strict state access controls
+# 4. Using Terraform Cloud/Enterprise with encrypted state
+# Alternatively, reference existing secrets instead of creating them in Terraform.
+
 # Create Secret Manager secrets for API keys
 resource "google_secret_manager_secret" "google_maps_api_key" {
   secret_id = "${var.environment}-google-maps-api-key"
@@ -390,34 +399,35 @@ resource "google_cloud_run_v2_service" "sse" {
 }
 
 # IAM policy to allow unauthenticated access (for public-facing services)
-resource "google_cloud_run_service_iam_member" "frontend_noauth" {
+# Using v2 IAM resources to match v2 Cloud Run services
+resource "google_cloud_run_v2_service_iam_member" "frontend_noauth" {
   project  = var.project_id
   location = var.region
-  service  = google_cloud_run_v2_service.frontend.name
+  name     = google_cloud_run_v2_service.frontend.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
 
-resource "google_cloud_run_service_iam_member" "api_noauth" {
+resource "google_cloud_run_v2_service_iam_member" "api_noauth" {
   project  = var.project_id
   location = var.region
-  service  = google_cloud_run_v2_service.api.name
+  name     = google_cloud_run_v2_service.api.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
 
-resource "google_cloud_run_service_iam_member" "graphql_noauth" {
+resource "google_cloud_run_v2_service_iam_member" "graphql_noauth" {
   project  = var.project_id
   location = var.region
-  service  = google_cloud_run_v2_service.graphql.name
+  name     = google_cloud_run_v2_service.graphql.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
 
-resource "google_cloud_run_service_iam_member" "sse_noauth" {
+resource "google_cloud_run_v2_service_iam_member" "sse_noauth" {
   project  = var.project_id
   location = var.region
-  service  = google_cloud_run_v2_service.sse.name
+  name     = google_cloud_run_v2_service.sse.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }

@@ -29,6 +29,7 @@ resource "google_compute_backend_service" "frontend" {
   timeout_sec           = 30
   enable_cdn            = true
   compression_mode      = "AUTOMATIC"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
   
   backend {
     group = google_compute_region_network_endpoint_group.frontend.id
@@ -49,11 +50,12 @@ resource "google_compute_backend_service" "frontend" {
 
 # Create backend service for API
 resource "google_compute_backend_service" "api" {
-  name        = "${var.environment}-ppd-api-backend"
-  project     = var.project_id
-  protocol    = "HTTP"
-  port_name   = "http"
-  timeout_sec = 30
+  name                  = "${var.environment}-ppd-api-backend"
+  project               = var.project_id
+  protocol              = "HTTP"
+  port_name             = "http"
+  timeout_sec           = 30
+  load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
     group = google_compute_region_network_endpoint_group.api.id
@@ -67,11 +69,12 @@ resource "google_compute_backend_service" "api" {
 
 # Create backend service for GraphQL
 resource "google_compute_backend_service" "graphql" {
-  name        = "${var.environment}-ppd-graphql-backend"
-  project     = var.project_id
-  protocol    = "HTTP"
-  port_name   = "http"
-  timeout_sec = 30
+  name                  = "${var.environment}-ppd-graphql-backend"
+  project               = var.project_id
+  protocol              = "HTTP"
+  port_name             = "http"
+  timeout_sec           = 30
+  load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
     group = google_compute_region_network_endpoint_group.graphql.id
@@ -85,11 +88,12 @@ resource "google_compute_backend_service" "graphql" {
 
 # Create backend service for SSE
 resource "google_compute_backend_service" "sse" {
-  name        = "${var.environment}-ppd-sse-backend"
-  project     = var.project_id
-  protocol    = "HTTP"
-  port_name   = "http"
-  timeout_sec = 300 # Longer timeout for SSE connections
+  name                  = "${var.environment}-ppd-sse-backend"
+  project               = var.project_id
+  protocol              = "HTTP"
+  port_name             = "http"
+  timeout_sec           = 300 # Longer timeout for SSE connections
+  load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
     group = google_compute_region_network_endpoint_group.sse.id

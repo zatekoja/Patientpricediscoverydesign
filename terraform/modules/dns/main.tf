@@ -1,10 +1,17 @@
 # DNS Module - Manages Cloud DNS hosted zones and records
 
-# Create managed zone for the domain
+# NOTE: This creates an environment-specific subdomain zone (e.g., dev.ohealth-ng.com)
+# to allow multiple environments to run in parallel without nameserver conflicts.
+# You will need to delegate the subdomain from your main domain registrar by creating
+# NS records in the parent zone pointing to the nameservers output by this module.
+# Example: In the main ohealth-ng.com zone, create NS records for dev.ohealth-ng.com
+# pointing to the nameservers shown in the Terraform output.
+
+# Create managed zone for the environment-specific subdomain
 resource "google_dns_managed_zone" "main" {
   name        = "${var.environment}-${replace(var.domain_name, ".", "-")}"
-  dns_name    = "${var.domain_name}."
-  description = "DNS zone for ${var.domain_name} - ${var.environment} environment"
+  dns_name    = "${var.environment}.${var.domain_name}."
+  description = "DNS zone for ${var.environment}.${var.domain_name}"
   project     = var.project_id
 
   dnssec_config {
@@ -29,10 +36,10 @@ resource "google_dns_record_set" "frontend" {
   rrdatas = [var.load_balancer_ip]
 }
 
-# Create A record for backend API (e.g., dev.api.ohealth-ng.com)
+# Create A record for backend API (e.g., api.dev.ohealth-ng.com)
 resource "google_dns_record_set" "api" {
   count        = var.load_balancer_ip != "" ? 1 : 0
-  name         = "${var.environment}.api.${var.domain_name}."
+  name         = "api.${var.environment}.${var.domain_name}."
   type         = "A"
   ttl          = 300
   managed_zone = google_dns_managed_zone.main.name

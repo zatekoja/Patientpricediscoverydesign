@@ -84,11 +84,12 @@ module "networking" {
 module "databases" {
   source = "./modules/databases"
 
-  project_id       = var.project_id
-  region           = var.region
-  environment      = var.environment
-  network_id       = module.networking.network_id
+  project_id        = var.project_id
+  region            = var.region
+  environment       = var.environment
+  network_id        = module.networking.network_id
   network_self_link = module.networking.network_self_link
+  postgres_password = var.postgres_password
 
   depends_on = [google_project_service.required_apis]
 }

@@ -9,5 +9,6 @@ domain_name = "ohealth-ng.com"
 # API Keys - These should be provided via environment variables or terraform.tfvars
 # google_maps_api_key = "your-google-maps-api-key"
 # typesense_api_key   = "your-typesense-api-key"
+# typesense_url       = "https://your-typesense-host.example.com"
 # openai_api_key      = "your-openai-api-key"
 # postgres_password   = "your-secure-postgres-password"

@@ -18,6 +18,7 @@ module "infrastructure" {
 
   google_maps_api_key = var.google_maps_api_key
   typesense_api_key   = var.typesense_api_key
+  typesense_url       = var.typesense_url
   openai_api_key      = var.openai_api_key
   postgres_password   = var.postgres_password
 }
