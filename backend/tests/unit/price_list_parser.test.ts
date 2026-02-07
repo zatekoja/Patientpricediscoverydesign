@@ -107,6 +107,28 @@ async function main() {
     assert(previous.data.length > 0, 'expected previous data after two syncs');
   });
 
+  await runTest('file provider generates stable keys', async () => {
+    const store = new InMemoryDocumentStore('key-test-store');
+    const provider = new FilePriceListProvider(store);
+    await provider.initialize({
+      files: [{ path: megalekCsv }],
+      currency: 'NGN',
+      defaultEffectiveDate: '2026-01-01',
+    });
+
+    const current = await provider.getCurrentData({ limit: 1 });
+    assert(current.data.length === 1, 'expected at least one record');
+    const record = current.data[0];
+
+    const key1 = (provider as any).generateKey(record, 0);
+    const key2 = (provider as any).generateKey(record, 0);
+    assert.strictEqual(key1, key2, 'expected stable key for identical record');
+
+    const mutated = { ...record, price: record.price + 1 };
+    const key3 = (provider as any).generateKey(mutated, 0);
+    assert.notStrictEqual(key1, key3, 'expected key to change when price changes');
+  });
+
   if (process.exitCode) {
     process.exit(1);
   }

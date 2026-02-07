@@ -67,6 +67,20 @@ go test -v -tags=integration ./tests/integration -run TestProviderPriceCurrentGr
 docker-compose -f docker-compose.test.yml down -v
 ```
 
+### Provider API Client Integration Test (Go)
+
+This test uses the Go provider API client against a live provider container.
+
+```bash
+docker-compose -f docker-compose.test.yml up -d provider-api-test
+
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 \
+PROVIDER_ID=file_price_list \
+go test -v -tags=integration ./tests/integration -run TestProviderAPIClientCurrentData
+
+docker-compose -f docker-compose.test.yml down -v
+```
+
 ### Individual Test Execution
 
 ```bash

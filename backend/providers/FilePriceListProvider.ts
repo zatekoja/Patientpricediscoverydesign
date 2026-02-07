@@ -6,6 +6,7 @@ import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { PriceData } from '../types/PriceData';
 import { parseCsvFile, parseDocxFile, PriceListParseContext } from '../ingestion/priceListParser';
 import { applyCuratedTags } from '../ingestion/tagHydration';
+import { recordProviderSyncMetrics } from '../observability/metrics';
 
 export interface FilePriceListConfig {
   files: Array<{
@@ -179,6 +180,70 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
         dateRange: { startDate, endDate },
       },
     };
+  }
+
+  async syncData(): Promise<{
+    success: boolean;
+    recordsProcessed: number;
+    timestamp: Date;
+    error?: string;
+  }> {
+    const startTime = Date.now();
+    const timestamp = new Date();
+    const batchId = timestamp.toISOString();
+
+    try {
+      const response = await this.getCurrentData();
+      const dataWithSync = response.data.map((data) =>
+        this.attachSyncMetadata(data, batchId, timestamp)
+      );
+
+      if (this.documentStore && dataWithSync.length > 0) {
+        const items = dataWithSync.map((data, index) => {
+          const stableKey = this.generateKey(data, index);
+          return {
+            key: `${batchId}_${stableKey}`,
+            data,
+            metadata: {
+              syncTimestamp: timestamp,
+              source: this.name,
+              batchId,
+              stableKey,
+            },
+          };
+        });
+        await this.documentStore.batchPut(items);
+      }
+
+      this.previousBatchId = this.lastBatchId;
+      this.lastBatchId = batchId;
+      this.lastSyncDate = timestamp;
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: true,
+        recordsProcessed: dataWithSync.length,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        success: true,
+        recordsProcessed: dataWithSync.length,
+        timestamp,
+      };
+    } catch (error) {
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: false,
+        recordsProcessed: 0,
+        durationMs: Date.now() - startTime,
+      });
+      return {
+        success: false,
+        recordsProcessed: 0,
+        timestamp,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
   }
 
   private ensureInitialized(): void {

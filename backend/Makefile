@@ -48,6 +48,10 @@ test-provider-graphql-integration: ## Run GraphQL provider integration test (req
 	@echo "Running GraphQL provider integration test..."
 	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list go test -v -tags=integration ./tests/integration -run TestProviderPriceCurrentGraphQLIntegration
 
+test-provider-api-client: ## Run Go provider API client integration test (requires provider API)
+	@echo "Running provider API client integration test..."
+	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list go test -v -tags=integration ./tests/integration -run TestProviderAPIClientCurrentData
+
 test-provider-unit: ## Run provider unit tests (parser + file provider)
 	@echo "Running provider unit tests..."
 	./node_modules/.bin/ts-node tests/unit/price_list_parser.test.ts
