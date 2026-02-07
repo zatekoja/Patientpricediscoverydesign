@@ -442,7 +442,7 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
             tagMetadata: {
               ...(item.tagMetadata ?? {}),
               generatedAt: new Date(),
-              model: this.llmConfig.model,
+              model: this.llmConfig?.model ?? 'unknown',
             },
             metadata: {
               ...(item.metadata ?? {}),
@@ -471,7 +471,7 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
             tagMetadata: {
               ...(item.tagMetadata ?? {}),
               generatedAt: new Date(),
-              model: this.llmConfig.model,
+              model: this.llmConfig?.model ?? 'unknown',
             },
             metadata: {
               ...(item.metadata ?? {}),
