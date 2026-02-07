@@ -184,11 +184,50 @@ go test -race ./...
 - `GET /api/facilities/:id` - Get facility by ID
 - `GET /api/facilities/search` - Search facilities by location
 
+#### Provider Data (REST)
+- `GET /api/provider/prices/current` - Current provider price data
+- `GET /api/provider/prices/previous` - Previous provider price batch
+- `GET /api/provider/prices/historical` - Historical provider price data
+- `GET /api/provider/health` - Provider health status
+- `GET /api/provider/list` - List registered providers
+- `POST /api/provider/sync/trigger` - Trigger provider sync
+- `GET /api/provider/sync/status` - Provider sync status
+
 #### Future Endpoints (Phase 2+)
 - `GET /api/procedures` - List procedures
 - `GET /api/facilities/:id/availability` - Get facility availability
 - `POST /api/appointments` - Book appointment
 - `GET /api/facilities/:id/reviews` - Get facility reviews
+
+### GraphQL + Provider API
+
+The GraphQL server (`cmd/graphql`) exposes external provider data via:
+
+- `providerPriceCurrent(providerId, limit, offset)` → `ProviderPriceResponse`
+
+It calls the Provider API configured by `PROVIDER_API_BASE_URL`. Example:
+
+```graphql
+query {
+  providerPriceCurrent(limit: 5) {
+    data {
+      id
+      facilityName
+      procedureDescription
+      price
+      tags
+    }
+    timestamp
+  }
+}
+```
+
+Run locally:
+
+```bash
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 \
+go run cmd/graphql/main.go
+```
 
 ### OTEL Metrics
 

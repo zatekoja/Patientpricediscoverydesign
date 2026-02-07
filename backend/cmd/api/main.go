@@ -21,6 +21,7 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/typesense"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
@@ -94,6 +95,13 @@ func main() {
 		log.Printf("Warning: Failed to initialize Typesense client: %v", err)
 	} else {
 		log.Println("Typesense client initialized successfully")
+	}
+
+	// Initialize Provider API client
+	var providerClient providerapi.Client
+	if cfg.ProviderAPI.BaseURL != "" {
+		providerClient = providerapi.NewClient(cfg.ProviderAPI.BaseURL)
+		log.Println("Provider API client initialized successfully")
 	}
 
 	// Initialize adapters
@@ -171,6 +179,8 @@ func main() {
 
 	mapsHandler := handlers.NewMapsHandler(cfg.Geolocation.APIKey, cacheProvider)
 
+	providerPriceHandler := handlers.NewProviderPriceHandler(providerClient)
+
 	// Set up router
 
 	router := routes.NewRouter(
@@ -180,6 +190,7 @@ func main() {
 		insuranceHandler,
 		geolocationHandler,
 		mapsHandler,
+		providerPriceHandler,
 		metrics,
 	)
 

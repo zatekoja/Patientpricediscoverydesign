@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +13,12 @@ import (
 
 type Client interface {
 	GetCurrentData(ctx context.Context, req CurrentDataRequest) (*CurrentDataResponse, error)
+	GetPreviousData(ctx context.Context, req CurrentDataRequest) (*CurrentDataResponse, error)
+	GetHistoricalData(ctx context.Context, req HistoricalDataRequest) (*CurrentDataResponse, error)
+	GetProviderHealth(ctx context.Context, providerID string) (*ProviderHealthResponse, error)
+	ListProviders(ctx context.Context) (*ProviderListResponse, error)
+	TriggerSync(ctx context.Context, providerID string) (*SyncResponse, error)
+	GetSyncStatus(ctx context.Context, providerID string) (*SyncResponse, error)
 }
 
 type HTTPClient struct {
@@ -32,9 +39,13 @@ type CurrentDataResponse struct {
 }
 
 type CurrentDataMetadata struct {
-	Source string `json:"source"`
-	Count  int    `json:"count"`
-	Total  int    `json:"total"`
+	Source  string `json:"source"`
+	Count   int    `json:"count"`
+	Total   int    `json:"total"`
+	BatchID string `json:"batchId,omitempty"`
+	Type    string `json:"type,omitempty"`
+	Message string `json:"message,omitempty"`
+	HasMore bool   `json:"hasMore,omitempty"`
 }
 
 type PriceRecord struct {
@@ -50,6 +61,40 @@ type PriceRecord struct {
 	Tags                 []string  `json:"tags"`
 }
 
+type HistoricalDataRequest struct {
+	ProviderID string
+	TimeWindow string
+	StartDate  *time.Time
+	EndDate    *time.Time
+	Limit      int
+	Offset     int
+}
+
+type ProviderHealthResponse struct {
+	Healthy  bool      `json:"healthy"`
+	LastSync time.Time `json:"lastSync,omitempty"`
+	Message  string    `json:"message,omitempty"`
+}
+
+type ProviderInfo struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Type     string    `json:"type"`
+	Healthy  bool      `json:"healthy"`
+	LastSync time.Time `json:"lastSync,omitempty"`
+}
+
+type ProviderListResponse struct {
+	Providers []ProviderInfo `json:"providers"`
+}
+
+type SyncResponse struct {
+	Success          bool      `json:"success"`
+	RecordsProcessed int       `json:"recordsProcessed"`
+	Timestamp        time.Time `json:"timestamp"`
+	Error            string    `json:"error,omitempty"`
+}
+
 func NewClient(baseURL string) *HTTPClient {
 	trimmed := strings.TrimRight(baseURL, "/")
 	return &HTTPClient{
@@ -61,8 +106,94 @@ func NewClient(baseURL string) *HTTPClient {
 }
 
 func (c *HTTPClient) GetCurrentData(ctx context.Context, req CurrentDataRequest) (*CurrentDataResponse, error) {
-	endpoint := fmt.Sprintf("%s/data/current", c.baseURL)
-	parsed, err := url.Parse(endpoint)
+	return c.getData(ctx, "/data/current", req)
+}
+
+func (c *HTTPClient) GetPreviousData(ctx context.Context, req CurrentDataRequest) (*CurrentDataResponse, error) {
+	return c.getData(ctx, "/data/previous", req)
+}
+
+func (c *HTTPClient) GetHistoricalData(ctx context.Context, req HistoricalDataRequest) (*CurrentDataResponse, error) {
+	parsed, err := url.Parse(fmt.Sprintf("%s/data/historical", c.baseURL))
+	if err != nil {
+		return nil, err
+	}
+
+	query := parsed.Query()
+	if req.ProviderID != "" {
+		query.Set("providerId", req.ProviderID)
+	}
+	if req.TimeWindow != "" {
+		query.Set("timeWindow", req.TimeWindow)
+	}
+	if req.StartDate != nil {
+		query.Set("startDate", req.StartDate.Format(time.RFC3339))
+	}
+	if req.EndDate != nil {
+		query.Set("endDate", req.EndDate.Format(time.RFC3339))
+	}
+	if req.Limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", req.Limit))
+	}
+	if req.Offset > 0 {
+		query.Set("offset", fmt.Sprintf("%d", req.Offset))
+	}
+	parsed.RawQuery = query.Encode()
+
+	out := &CurrentDataResponse{}
+	if err := c.doJSON(ctx, http.MethodGet, parsed.String(), nil, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) GetProviderHealth(ctx context.Context, providerID string) (*ProviderHealthResponse, error) {
+	endpoint := fmt.Sprintf("%s/provider/health", c.baseURL)
+	if providerID != "" {
+		endpoint = fmt.Sprintf("%s?providerId=%s", endpoint, url.QueryEscape(providerID))
+	}
+	out := &ProviderHealthResponse{}
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) ListProviders(ctx context.Context) (*ProviderListResponse, error) {
+	endpoint := fmt.Sprintf("%s/provider/list", c.baseURL)
+	out := &ProviderListResponse{}
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) TriggerSync(ctx context.Context, providerID string) (*SyncResponse, error) {
+	endpoint := fmt.Sprintf("%s/sync/trigger", c.baseURL)
+	if providerID != "" {
+		endpoint = fmt.Sprintf("%s?providerId=%s", endpoint, url.QueryEscape(providerID))
+	}
+	out := &SyncResponse{}
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, nil, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) GetSyncStatus(ctx context.Context, providerID string) (*SyncResponse, error) {
+	endpoint := fmt.Sprintf("%s/sync/status", c.baseURL)
+	if providerID != "" {
+		endpoint = fmt.Sprintf("%s?providerId=%s", endpoint, url.QueryEscape(providerID))
+	}
+	out := &SyncResponse{}
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) getData(ctx context.Context, path string, req CurrentDataRequest) (*CurrentDataResponse, error) {
+	parsed, err := url.Parse(fmt.Sprintf("%s%s", c.baseURL, path))
 	if err != nil {
 		return nil, err
 	}
@@ -79,25 +210,32 @@ func (c *HTTPClient) GetCurrentData(ctx context.Context, req CurrentDataRequest)
 	}
 	parsed.RawQuery = query.Encode()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
+	out := &CurrentDataResponse{}
+	if err := c.doJSON(ctx, http.MethodGet, parsed.String(), nil, out); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) doJSON(ctx context.Context, method, endpoint string, body io.Reader, out interface{}) error {
+	httpReq, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	if err != nil {
+		return err
 	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("provider api returned status %d", resp.StatusCode)
+		return fmt.Errorf("provider api returned status %d", resp.StatusCode)
 	}
 
-	var decoded CurrentDataResponse
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, err
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return err
 	}
 
-	return &decoded, nil
+	return nil
 }

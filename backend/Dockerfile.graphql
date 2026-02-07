@@ -1,0 +1,31 @@
+# Build stage
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# Download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Ensure dependencies are tidy
+RUN go mod tidy
+
+# Build the GraphQL application
+RUN CGO_ENABLED=0 GOOS=linux go build -o ppd-graphql ./cmd/graphql/main.go
+
+# Run stage
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/ppd-graphql .
+
+# Expose port
+EXPOSE 8081
+
+# Run the application
+CMD ["./ppd-graphql"]

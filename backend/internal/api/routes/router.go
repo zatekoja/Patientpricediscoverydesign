@@ -25,6 +25,8 @@ type Router struct {
 
 	mapsHandler *handlers.MapsHandler
 
+	providerPriceHandler *handlers.ProviderPriceHandler
+
 	metrics *observability.Metrics
 }
 
@@ -43,6 +45,8 @@ func NewRouter(
 	geolocationHandler *handlers.GeolocationHandler,
 
 	mapsHandler *handlers.MapsHandler,
+
+	providerPriceHandler *handlers.ProviderPriceHandler,
 
 	metrics *observability.Metrics,
 
@@ -63,6 +67,8 @@ func NewRouter(
 		geolocationHandler: geolocationHandler,
 
 		mapsHandler: mapsHandler,
+
+		providerPriceHandler: providerPriceHandler,
 
 		metrics: metrics,
 	}
@@ -120,6 +126,22 @@ func (r *Router) SetupRoutes() http.Handler {
 	// Maps endpoints
 
 	r.mux.HandleFunc("GET /api/maps/static", r.mapsHandler.GetStaticMap)
+
+	// Provider data endpoints
+
+	r.mux.HandleFunc("GET /api/provider/prices/current", r.providerPriceHandler.GetCurrentData)
+
+	r.mux.HandleFunc("GET /api/provider/prices/previous", r.providerPriceHandler.GetPreviousData)
+
+	r.mux.HandleFunc("GET /api/provider/prices/historical", r.providerPriceHandler.GetHistoricalData)
+
+	r.mux.HandleFunc("GET /api/provider/health", r.providerPriceHandler.GetProviderHealth)
+
+	r.mux.HandleFunc("GET /api/provider/list", r.providerPriceHandler.ListProviders)
+
+	r.mux.HandleFunc("POST /api/provider/sync/trigger", r.providerPriceHandler.TriggerSync)
+
+	r.mux.HandleFunc("GET /api/provider/sync/status", r.providerPriceHandler.GetSyncStatus)
 
 	// Apply middleware in reverse order (last middleware wraps first)
 

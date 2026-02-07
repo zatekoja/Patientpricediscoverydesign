@@ -128,6 +128,162 @@ paths:
         '500':
           description: Internal server error
 
+  /api/provider/prices/current:
+    get:
+      summary: Get current provider price data
+      description: Proxy to the external provider API for current price records.
+      parameters:
+        - name: providerId
+          in: query
+          description: Specific provider ID
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum records to return (default 100)
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          description: Pagination offset (default 0)
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Provider price data response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPriceResponse'
+        '502':
+          description: Provider API error
+
+  /api/provider/prices/previous:
+    get:
+      summary: Get previous provider price data
+      description: Proxy to the external provider API for previous batch.
+      parameters:
+        - name: providerId
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Provider price data response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPriceResponse'
+
+  /api/provider/prices/historical:
+    get:
+      summary: Get historical provider price data
+      description: Proxy to the external provider API for historical records.
+      parameters:
+        - name: providerId
+          in: query
+          schema:
+            type: string
+        - name: timeWindow
+          in: query
+          description: Time window (e.g., 30d, 6m, 1y)
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          description: RFC3339 start date
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          description: RFC3339 end date
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Provider price data response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPriceResponse'
+
+  /api/provider/health:
+    get:
+      summary: Get provider health status
+      parameters:
+        - name: providerId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Provider health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderHealth'
+
+  /api/provider/list:
+    get:
+      summary: List registered providers
+      responses:
+        '200':
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderList'
+
+  /api/provider/sync/trigger:
+    post:
+      summary: Trigger a provider sync
+      parameters:
+        - name: providerId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderSync'
+
+  /api/provider/sync/status:
+    get:
+      summary: Get provider sync status
+      parameters:
+        - name: providerId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync status response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderSync'
+
 components:
   schemas:
     Facility:
@@ -200,3 +356,101 @@ components:
         longitude:
           type: number
           format: double
+
+    ProviderPriceRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        facilityName:
+          type: string
+        procedureCode:
+          type: string
+        procedureDescription:
+          type: string
+        price:
+          type: number
+        currency:
+          type: string
+        effectiveDate:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+        source:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    ProviderPriceMetadata:
+      type: object
+      properties:
+        source:
+          type: string
+        count:
+          type: integer
+        total:
+          type: integer
+
+    ProviderPriceResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderPriceRecord'
+        timestamp:
+          type: string
+          format: date-time
+        metadata:
+          $ref: '#/components/schemas/ProviderPriceMetadata'
+
+    ProviderHealth:
+      type: object
+      properties:
+        healthy:
+          type: boolean
+        lastSync:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    ProviderInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        healthy:
+          type: boolean
+        lastSync:
+          type: string
+          format: date-time
+
+    ProviderList:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderInfo'
+
+    ProviderSync:
+      type: object
+      properties:
+        success:
+          type: boolean
+        recordsProcessed:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+        error:
+          type: string
