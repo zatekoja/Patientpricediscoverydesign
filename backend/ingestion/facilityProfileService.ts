@@ -277,7 +277,7 @@ async function callLLMAPI(prompt: string, config: FacilityLLMConfig): Promise<st
     throw new Error(`LLM API error (${response.status}): ${text}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
   const content =
     data?.choices?.[0]?.message?.content ||
     data?.choices?.[0]?.text ||

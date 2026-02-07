@@ -44,6 +44,10 @@ test-provider-integration: ## Run provider API integration test (requires docker
 	@echo "Running provider API integration test..."
 	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list node tests/integration/provider_api_integration_test.mjs
 
+test-provider-capacity: ## Run provider capacity request integration test
+	@echo "Running provider capacity request integration test..."
+	./node_modules/.bin/ts-node tests/integration/provider_capacity_integration_test.ts
+
 test-provider-graphql-integration: ## Run GraphQL provider integration test (requires provider API)
 	@echo "Running GraphQL provider integration test..."
 	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list go test -v -tags=integration ./tests/integration -run TestProviderPriceCurrentGraphQLIntegration
