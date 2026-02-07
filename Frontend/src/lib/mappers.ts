@@ -1,0 +1,82 @@
+import { FacilitySearchResult } from '../types/api';
+import { calculateDistance } from './utils';
+
+export type UIFacility = {
+  id: string;
+  name: string;
+  type: string;
+  distanceKm: number;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  currency?: string | null;
+  rating: number;
+  reviews: number;
+  nextAvailableAt?: string | null;
+  address: string;
+  insurance: string[];
+  services: string[];
+  servicePrices: { name: string; price: number; currency: string }[];
+  lat?: number;
+  lon?: number;
+  updatedAt?: string;
+  phoneNumber?: string | null;
+  website?: string | null;
+  capacityStatus?: string | null;
+  avgWaitMinutes?: number | null;
+  urgentCareAvailable?: boolean | null;
+};
+
+const buildAddress = (facility: FacilitySearchResult): string => {
+  const parts = [
+    facility.address?.street,
+    facility.address?.city,
+    facility.address?.state,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'Address not available';
+};
+
+export const mapFacilitySearchResultToUI = (
+  facility: FacilitySearchResult,
+  center?: { lat: number; lon: number }
+): UIFacility => {
+  const distanceKm =
+    typeof facility.distance_km === 'number'
+      ? facility.distance_km
+      : center
+        ? calculateDistance(
+            center.lat,
+            center.lon,
+            facility.location.latitude,
+            facility.location.longitude
+          )
+        : 0;
+
+  return {
+    id: facility.id,
+    name: facility.name,
+    type: facility.facility_type || 'Health Facility',
+    distanceKm,
+    priceMin: facility.price?.min ?? null,
+    priceMax: facility.price?.max ?? null,
+    currency: facility.price?.currency ?? null,
+    rating: facility.rating ?? 0,
+    reviews: facility.review_count ?? 0,
+    nextAvailableAt: facility.next_available_at ?? null,
+    address: buildAddress(facility),
+    insurance: facility.accepted_insurance ?? [],
+    services: facility.services ?? [],
+    servicePrices: (facility.service_prices ?? []).map((item) => ({
+      name: item.name,
+      price: item.price,
+      currency: item.currency,
+    })),
+    lat: facility.location?.latitude,
+    lon: facility.location?.longitude,
+    updatedAt: facility.updated_at,
+    phoneNumber: facility.phone_number ?? null,
+    website: facility.website ?? null,
+    capacityStatus: facility.capacity_status ?? null,
+    avgWaitMinutes: facility.avg_wait_minutes ?? null,
+    urgentCareAvailable: facility.urgent_care_available ?? null,
+  };
+};
