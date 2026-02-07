@@ -55,8 +55,8 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
       credentials: {
         client_email: this.sheetsConfig.credentials.clientEmail,
         private_key: this.sheetsConfig.credentials.privateKey,
-        project_id: this.sheetsConfig.credentials.projectId,
       },
+      projectId: this.sheetsConfig.credentials.projectId,
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
 
