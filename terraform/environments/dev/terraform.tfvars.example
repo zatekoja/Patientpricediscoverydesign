@@ -1,0 +1,13 @@
+# Development Environment Configuration
+
+# Use variables from parent module
+project_id  = "open-health-index-dev"
+region      = "us-central1"
+environment = "dev"
+domain_name = "ohealth-ng.com"
+
+# API Keys - These should be provided via environment variables or terraform.tfvars
+# google_maps_api_key = "your-google-maps-api-key"
+# typesense_api_key   = "your-typesense-api-key"
+# openai_api_key      = "your-openai-api-key"
+# postgres_password   = "your-secure-postgres-password"
