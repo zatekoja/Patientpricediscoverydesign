@@ -59,20 +59,18 @@ if (otelEnabled && !globalState[globalKey]) {
     ],
   });
 
-  sdk
-    .start()
+  Promise.resolve(sdk.start())
     .then(() => {
       console.log('[otel] tracing/metrics initialized');
     })
-    .catch((error) => {
+    .catch((error: unknown) => {
       console.error('[otel] failed to start', error);
     });
 
   const shutdown = () => {
-    sdk
-      .shutdown()
+    Promise.resolve(sdk.shutdown())
       .then(() => console.log('[otel] shutdown complete'))
-      .catch((error) => console.error('[otel] shutdown error', error));
+      .catch((error: unknown) => console.error('[otel] shutdown error', error));
   };
 
   process.on('SIGTERM', shutdown);

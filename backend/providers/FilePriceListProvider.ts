@@ -5,6 +5,7 @@ import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExtern
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { PriceData } from '../types/PriceData';
 import { parseCsvFile, parseDocxFile, PriceListParseContext } from '../ingestion/priceListParser';
+import { applyCuratedTags } from '../ingestion/tagHydration';
 
 export interface FilePriceListConfig {
   files: Array<{
@@ -74,9 +75,10 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
       }
     }
 
+    const hydrated = applyCuratedTags(allData);
     const offset = options?.offset || 0;
-    const limit = options?.limit || allData.length;
-    const sliced = allData.slice(offset, offset + limit);
+    const limit = options?.limit || hydrated.length;
+    const sliced = hydrated.slice(offset, offset + limit);
 
     return {
       data: sliced,
@@ -84,7 +86,7 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
       metadata: {
         source: this.name,
         count: sliced.length,
-        total: allData.length,
+        total: hydrated.length,
       },
     };
   }

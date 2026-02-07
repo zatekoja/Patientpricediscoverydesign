@@ -335,11 +335,13 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
     const startTime = Date.now();
     try {
       const prompt = this.buildTagGenerationPrompt(item);
-      const tags = await this.callLLMAPI(prompt);
+      const existingTags = item.tags ?? [];
+      const llmTags = await this.callLLMAPI(prompt);
+      const tags = this.mergeTags(existingTags, llmTags);
       recordTagGeneration({
         provider: this.name,
         durationMs: Date.now() - startTime,
-        tags: tags.length,
+        tags: llmTags.length,
         success: true,
       });
       
@@ -349,6 +351,7 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
         lastUpdated: new Date(),
         tags,
         tagMetadata: {
+          ...(item.tagMetadata ?? {}),
           generatedAt: new Date(),
           model: this.llmConfig.model,
         },
@@ -370,8 +373,9 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
         ...item,
         source: this.name,
         lastUpdated: new Date(),
-        tags: [],
+        tags: item.tags ?? [],
         tagMetadata: {
+          ...(item.tagMetadata ?? {}),
           generatedAt: new Date(),
           model: this.llmConfig.model,
         },
@@ -394,6 +398,7 @@ Procedure: ${item.procedureDescription} (Code: ${item.procedureCode})
 Price: $${item.price} ${item.currency}
 ${item.location ? `Location: ${item.location.city}, ${item.location.state}` : ''}
 ${item.insurance ? `Insurance: ${item.insurance.provider}` : ''}
+${item.tags && item.tags.length > 0 ? `Existing tags: ${item.tags.join(', ')}` : ''}
 
 Generate up to ${this.llmConfig!.maxTags} relevant tags that describe:
 - The type of medical procedure or service
@@ -404,6 +409,21 @@ Generate up to ${this.llmConfig!.maxTags} relevant tags that describe:
 - Type of imaging or diagnostic method (if applicable)
 
 Return ONLY a comma-separated list of tags, no explanations.`;
+  }
+
+  private mergeTags(existing: string[], incoming: string[]): string[] {
+    const merged = new Set<string>();
+    for (const tag of existing) {
+      if (tag) {
+        merged.add(tag);
+      }
+    }
+    for (const tag of incoming) {
+      if (tag) {
+        merged.add(tag);
+      }
+    }
+    return Array.from(merged);
   }
   
   /**

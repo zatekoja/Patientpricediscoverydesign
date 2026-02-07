@@ -63,6 +63,23 @@ export interface PriceData {
   
   /** Source of the data */
   source: string;
+
+  /** Search tags for this price record */
+  tags?: string[];
+
+  /** Metadata about tag generation */
+  tagMetadata?: {
+    generatedAt?: Date;
+    model?: string;
+    confidence?: number;
+    curated?: {
+      sources?: string[];
+      facilityTags?: string[];
+      ruleTags?: string[];
+      metadataTags?: string[];
+      matchedRules?: string[];
+    };
+  };
   
   /** Additional metadata */
   metadata?: Record<string, any>;

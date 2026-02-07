@@ -90,6 +90,16 @@ async function main() {
     const current = await provider.getCurrentData();
     assert(current.data.length > 0, 'expected current data to be non-empty');
 
+    const padTagged = current.data.find((record) => record.procedureDescription.toLowerCase() === 'pad');
+    assert(padTagged, 'expected PAD record in current data');
+    assert(padTagged!.tags?.includes('consumables'), 'expected PAD to include consumables tag');
+
+    const lasuthTagged = current.data.find((record) =>
+      record.facilityName.toLowerCase().includes('lagos state university teaching hospital')
+    );
+    assert(lasuthTagged, 'expected LASUTH record in current data');
+    assert(lasuthTagged!.tags?.includes('teaching_hospital'), 'expected LASUTH to include teaching_hospital tag');
+
     await provider.syncData();
     await provider.syncData();
 

@@ -19,7 +19,7 @@ func TestQueryResolver_Facility_Success(t *testing.T) {
 	mockDB := mocks.NewMockFacilityRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -61,7 +61,7 @@ func TestQueryResolver_Facility_NotFound(t *testing.T) {
 	mockDB := mocks.NewMockFacilityRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -86,7 +86,7 @@ func TestQueryResolver_SearchFacilities_Success(t *testing.T) {
 	mockDB := mocks.NewMockFacilityRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -137,7 +137,7 @@ func TestQueryResolver_Facilities_Success(t *testing.T) {
 	mockDB := mocks.NewMockFacilityRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()

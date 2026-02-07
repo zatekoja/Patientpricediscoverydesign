@@ -1,0 +1,27 @@
+dir: tests/mocks
+filename: mock_{{.InterfaceName}}.go
+structname: Mock{{.InterfaceName}}
+pkgname: mocks
+template: testify
+template-data:
+  unroll-variadic: true
+packages:
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers:
+    interfaces:
+      CacheProvider: {}
+      GeolocationProvider: {}
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories:
+    interfaces:
+      AppointmentRepository: {}
+      AvailabilityRepository: {}
+      FacilityProcedureRepository: {}
+      FacilityRepository: {}
+      FacilitySearchRepository: {}
+      InsuranceRepository: {}
+      ProcedureRepository: {}
+      ReviewRepository: {}
+      UserRepository: {}
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/query/services:
+    interfaces:
+      QueryCacheProvider: {}
+      SearchAdapter: {}

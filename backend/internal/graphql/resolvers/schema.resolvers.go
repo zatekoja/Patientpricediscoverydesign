@@ -13,6 +13,7 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 )
 
 // Facility is the resolver for the facility field.
@@ -352,6 +353,70 @@ func (r *queryResolver) FacilityStats(ctx context.Context) (*generated.FacilityS
 // PriceComparison is the resolver for the priceComparison field.
 func (r *queryResolver) PriceComparison(ctx context.Context, procedureCode string, location generated.LocationInput, radiusKm float64) (*generated.PriceComparisonResult, error) {
 	panic(fmt.Errorf("not implemented: PriceComparison - priceComparison"))
+}
+
+// ProviderPriceCurrent resolves current tagged price data from the provider API.
+func (r *queryResolver) ProviderPriceCurrent(ctx context.Context, providerID *string, limit *int, offset *int) (*generated.ProviderPriceResponse, error) {
+	if r.providerClient == nil {
+		return nil, fmt.Errorf("provider api client not configured")
+	}
+
+	req := providerapi.CurrentDataRequest{
+		Limit:  100,
+		Offset: 0,
+	}
+	if providerID != nil {
+		req.ProviderID = *providerID
+	}
+	if limit != nil {
+		req.Limit = *limit
+	}
+	if offset != nil {
+		req.Offset = *offset
+	}
+
+	resp, err := r.providerClient.GetCurrentData(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]*generated.ProviderPriceRecord, 0, len(resp.Data))
+	for _, item := range resp.Data {
+		tags := item.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		records = append(records, &generated.ProviderPriceRecord{
+			ID:                   item.ID,
+			FacilityName:         item.FacilityName,
+			ProcedureCode:        item.ProcedureCode,
+			ProcedureDescription: item.ProcedureDescription,
+			Price:                item.Price,
+			Currency:             item.Currency,
+			EffectiveDate:        item.EffectiveDate,
+			LastUpdated:          item.LastUpdated,
+			Source:               item.Source,
+			Tags:                 tags,
+		})
+	}
+
+	var metadata *generated.ProviderPriceMetadata
+	if resp.Metadata != nil {
+		source := resp.Metadata.Source
+		count := resp.Metadata.Count
+		total := resp.Metadata.Total
+		metadata = &generated.ProviderPriceMetadata{
+			Source: &source,
+			Count:  &count,
+			Total:  &total,
+		}
+	}
+
+	return &generated.ProviderPriceResponse{
+		Data:      records,
+		Timestamp: resp.Timestamp,
+		Metadata:  metadata,
+	}, nil
 }
 
 // Appointment returns generated.AppointmentResolver implementation.

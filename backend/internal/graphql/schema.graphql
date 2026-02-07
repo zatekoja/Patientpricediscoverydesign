@@ -336,6 +336,13 @@ type Query {
   # Aggregations/Stats
   facilityStats: FacilityStats!
   priceComparison(procedureCode: String!, location: LocationInput!, radiusKm: Float!): PriceComparisonResult!
+
+  # Provider API (tagged price lists)
+  providerPriceCurrent(
+    providerId: String
+    limit: Int
+    offset: Int
+  ): ProviderPriceResponse!
 }
 
 type FacilitySuggestion {
@@ -371,6 +378,35 @@ type FacilityPriceInfo {
   price: Float!
   distance: Float!
   acceptsInsurance: [String!]!
+}
+
+# ============================================================================
+# Provider Price Data (External Provider API)
+# ============================================================================
+
+type ProviderPriceRecord {
+  id: ID!
+  facilityName: String!
+  procedureCode: String!
+  procedureDescription: String!
+  price: Float!
+  currency: String!
+  effectiveDate: DateTime!
+  lastUpdated: DateTime!
+  source: String!
+  tags: [String!]!
+}
+
+type ProviderPriceMetadata {
+  source: String
+  count: Int
+  total: Int
+}
+
+type ProviderPriceResponse {
+  data: [ProviderPriceRecord!]!
+  timestamp: DateTime!
+  metadata: ProviderPriceMetadata
 }
 
 # ============================================================================
