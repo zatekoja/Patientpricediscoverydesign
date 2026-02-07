@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -323,8 +324,8 @@ func TestGraphQLPaginationBehavior(t *testing.T) {
 	facilities := make([]*entities.Facility, 10)
 	for i := 0; i < 10; i++ {
 		facilities[i] = &entities.Facility{
-			ID:           string(rune('A' + i)),
-			Name:         "Facility " + string(rune('A'+i)),
+			ID:           fmt.Sprintf("fac-%d", i),
+			Name:         fmt.Sprintf("Facility %d", i),
 			FacilityType: "hospital",
 			IsActive:     true,
 		}

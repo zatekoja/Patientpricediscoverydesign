@@ -370,9 +370,19 @@ func (r *queryResolver) Facilities(ctx context.Context, filter generated.Facilit
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
+	// Ensure limit is not zero to avoid division by zero
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20 // default
+	}
+
 	// Calculate pagination
-	totalPages := (searchResult.TotalCount + params.Limit - 1) / params.Limit
-	currentPage := params.Offset/params.Limit + 1
+	totalPages := 1
+	currentPage := 1
+	if searchResult.TotalCount > 0 {
+		totalPages = (searchResult.TotalCount + limit - 1) / limit
+		currentPage = params.Offset/limit + 1
+	}
 
 	// Build result
 	result := &entities.GraphQLFacilitySearchResult{
@@ -385,7 +395,7 @@ func (r *queryResolver) Facilities(ctx context.Context, filter generated.Facilit
 			HasPreviousPage: currentPage > 1,
 			CurrentPage:     currentPage,
 			TotalPages:      totalPages,
-			Limit:           params.Limit,
+			Limit:           limit,
 			Offset:          params.Offset,
 		},
 	}
@@ -429,9 +439,19 @@ func (r *queryResolver) SearchFacilities(ctx context.Context, query string, loca
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
+	// Ensure limit is not zero to avoid division by zero
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20 // default
+	}
+
 	// Calculate pagination
-	totalPages := (searchResult.TotalCount + params.Limit - 1) / params.Limit
-	currentPage := params.Offset/params.Limit + 1
+	totalPages := 1
+	currentPage := 1
+	if searchResult.TotalCount > 0 {
+		totalPages = (searchResult.TotalCount + limit - 1) / limit
+		currentPage = params.Offset/limit + 1
+	}
 
 	// Build result
 	result := &entities.GraphQLFacilitySearchResult{
@@ -444,7 +464,7 @@ func (r *queryResolver) SearchFacilities(ctx context.Context, query string, loca
 			HasPreviousPage: currentPage > 1,
 			CurrentPage:     currentPage,
 			TotalPages:      totalPages,
-			Limit:           params.Limit,
+			Limit:           limit,
 			Offset:          params.Offset,
 		},
 	}
