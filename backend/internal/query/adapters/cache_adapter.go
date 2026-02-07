@@ -40,7 +40,9 @@ func (a *QueryCacheAdapter) Set(ctx context.Context, key string, value interface
 		return err
 	}
 
-	return a.provider.Set(ctx, key, data, ttl)
+	// Convert time.Duration to seconds (int)
+	expirationSeconds := int(ttl.Seconds())
+	return a.provider.Set(ctx, key, data, expirationSeconds)
 }
 
 // Delete removes a value from cache

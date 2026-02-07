@@ -103,6 +103,7 @@ func main() {
 	appointmentAdapter := database.NewAppointmentAdapter(pgClient)
 
 	procedureAdapter := database.NewProcedureAdapter(pgClient)
+	facilityProcedureAdapter := database.NewFacilityProcedureAdapter(pgClient)
 
 	insuranceAdapter := database.NewInsuranceAdapter(pgClient)
 
@@ -146,7 +147,13 @@ func main() {
 
 	// Initialize services
 
-	facilityService := services.NewFacilityService(facilityAdapter, searchRepo)
+	facilityService := services.NewFacilityService(
+		facilityAdapter,
+		searchRepo,
+		facilityProcedureAdapter,
+		procedureAdapter,
+		insuranceAdapter,
+	)
 
 	appointmentService := services.NewAppointmentService(appointmentAdapter, appointmentProvider)
 
