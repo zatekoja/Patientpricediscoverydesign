@@ -17,6 +17,9 @@ type ProcedureRepository interface {
 	// GetByCode retrieves a procedure by code
 	GetByCode(ctx context.Context, code string) (*entities.Procedure, error)
 
+	// GetByIDs retrieves multiple procedures by their IDs
+	GetByIDs(ctx context.Context, ids []string) ([]*entities.Procedure, error)
+
 	// Update updates a procedure
 	Update(ctx context.Context, procedure *entities.Procedure) error
 

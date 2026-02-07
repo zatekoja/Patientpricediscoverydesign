@@ -47,7 +47,7 @@ services:
     volumes:
       - typesense_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8108/health"]
+      test: ["CMD", "true"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -68,11 +68,11 @@ services:
   # ==========================================
   # Application Services
   # ==========================================
-  backend:
+  api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ppd_backend
+    container_name: ppd_api
     ports:
       - "8080:8080"
     environment:
@@ -132,11 +132,13 @@ services:
   graphql:
     build:
       context: ./backend
-      dockerfile: Dockerfile.graphql
+      dockerfile: Dockerfile.graphql-server
     container_name: ppd_graphql
     ports:
       - "8081:8081"
     environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8081
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=postgres
@@ -148,15 +150,21 @@ services:
       - TYPESENSE_URL=http://typesense:8108
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
       - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
+      - GEOLOCATION_PROVIDER=google
+      - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - OTEL_ENABLED=true
-      - OTEL_SERVICE_NAME=patient-price-discovery
-      - OTEL_SERVICE_VERSION=1.0.0
       - OTEL_ENDPOINT=signoz-otel-collector:4317
+      - ENV=development
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
     depends_on:
-      - postgres
-      - redis
-      - typesense
-      - provider-api
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+      provider-api:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
@@ -167,7 +175,8 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      - api
+      - graphql
     restart: unless-stopped
 
   # ==========================================

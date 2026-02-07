@@ -114,6 +114,7 @@ func main() {
 	facilityProcedureAdapter := database.NewFacilityProcedureAdapter(pgClient)
 
 	insuranceAdapter := database.NewInsuranceAdapter(pgClient)
+	feedbackAdapter := database.NewFeedbackAdapter(pgClient)
 
 	var searchRepo repositories.FacilitySearchRepository
 
@@ -164,6 +165,7 @@ func main() {
 	)
 
 	appointmentService := services.NewAppointmentService(appointmentAdapter, appointmentProvider)
+	feedbackService := services.NewFeedbackService(feedbackAdapter)
 
 	// Initialize handlers
 
@@ -178,6 +180,7 @@ func main() {
 	geolocationHandler := handlers.NewGeolocationHandler(geolocationProvider)
 
 	mapsHandler := handlers.NewMapsHandler(cfg.Geolocation.APIKey, cacheProvider)
+	feedbackHandler := handlers.NewFeedbackHandler(feedbackService, cacheProvider)
 
 	providerPriceHandler := handlers.NewProviderPriceHandler(providerClient)
 
@@ -190,6 +193,7 @@ func main() {
 		insuranceHandler,
 		geolocationHandler,
 		mapsHandler,
+		feedbackHandler,
 		providerPriceHandler,
 		metrics,
 	)

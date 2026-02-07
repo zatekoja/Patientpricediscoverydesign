@@ -1,4 +1,4 @@
-import { MapPin, Banknote, Calendar, Clock, Star, CheckCircle2 } from "lucide-react";
+import { MapPin, Calendar, Clock, Star, CheckCircle2, Activity } from "lucide-react";
 import type { UIFacility } from "../../lib/mappers";
 
 interface SearchResultsProps {
@@ -59,11 +59,6 @@ export function SearchResults({
     error: "bg-red-500",
   }[searchStatus];
 
-  const formatCurrency = (value: number, currency?: string | null) => {
-    const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
-    return `${symbol}${Math.round(value).toLocaleString()}`;
-  };
-
   const formatNextAvailable = (iso?: string | null) => {
     if (!iso) return "Check availability";
     const date = new Date(iso);
@@ -74,6 +69,20 @@ export function SearchResults({
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const resolveCapacity = (status?: string | null) => {
+    const normalized = (status || "").toLowerCase();
+    if (normalized.includes("available")) {
+      return { label: "Available", tone: "green", badge: "bg-green-100 text-green-800", dot: "bg-green-600" };
+    }
+    if (normalized.includes("limited") || normalized.includes("busy")) {
+      return { label: status || "Limited", tone: "yellow", badge: "bg-yellow-100 text-yellow-800", dot: "bg-yellow-600" };
+    }
+    if (normalized.includes("full") || normalized.includes("closed")) {
+      return { label: status || "Full", tone: "red", badge: "bg-red-100 text-red-800", dot: "bg-red-600" };
+    }
+    return { label: status || "Unknown", tone: "gray", badge: "bg-gray-100 text-gray-700", dot: "bg-gray-400" };
   };
 
   if (loading) {
@@ -139,7 +148,7 @@ export function SearchResults({
             className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow cursor-pointer"
             onClick={() => onSelectFacility(facility)}
           >
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
@@ -167,7 +176,7 @@ export function SearchResults({
                 </div>
 
                 {/* Key Information Grid */}
-                <div className="grid grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-2 gap-4 mb-4 lg:grid-cols-3">
                   <div className="flex items-start gap-2">
                     <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
@@ -175,17 +184,6 @@ export function SearchResults({
                         {facility.distanceKm.toFixed(2)} km away
                       </p>
                       <p className="text-xs text-gray-600">{facility.address}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Banknote className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {facility.priceMin != null
-                          ? formatCurrency(facility.priceMin, facility.currency)
-                          : "Call for pricing"}
-                      </p>
-                      <p className="text-xs text-gray-600">Estimated cost</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
@@ -197,17 +195,27 @@ export function SearchResults({
                       <p className="text-xs text-gray-600">Next available</p>
                     </div>
                   </div>
-                  {facility.avgWaitMinutes != null && (
-                    <div className="flex items-start gap-2">
-                      <Clock className="w-4 h-4 text-gray-400 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {facility.avgWaitMinutes} min
-                        </p>
-                        <p className="text-xs text-gray-600">Avg. wait time</p>
-                      </div>
+                  <div className="flex items-start gap-2">
+                    <Activity className="w-4 h-4 text-gray-400 mt-0.5" />
+                    <div>
+                      {(() => {
+                        const capacity = resolveCapacity(facility.capacityStatus);
+                        return (
+                          <>
+                            <div className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs ${capacity.badge}`}>
+                              <span className={`h-2 w-2 rounded-full ${capacity.dot}`} />
+                              <span className="font-medium">Capacity {capacity.label}</span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1">
+                              {facility.avgWaitMinutes != null
+                                ? `Avg. wait ${facility.avgWaitMinutes} min`
+                                : "Avg. wait not available"}
+                            </p>
+                          </>
+                        );
+                      })()}
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 <div className="text-xs text-gray-500 mb-4">
@@ -246,23 +254,7 @@ export function SearchResults({
               </div>
 
               {/* Right Side - Capacity Status */}
-              <div className="text-right">
-                {facility.capacityStatus && (
-                  <div
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg mb-6 ${
-                      facility.capacityStatus === "Available"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-yellow-100 text-yellow-800"
-                    }`}
-                  >
-                    <div
-                      className={`w-2 h-2 rounded-full ${
-                        facility.capacityStatus === "Available" ? "bg-green-600" : "bg-yellow-600"
-                      }`}
-                    />
-                    <span className="text-sm font-medium">{facility.capacityStatus}</span>
-                  </div>
-                )}
+              <div className="flex items-center justify-between lg:flex-col lg:items-end lg:text-right">
                 <button className="px-6 py-2 bg-transparent text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
                   View Details
                 </button>

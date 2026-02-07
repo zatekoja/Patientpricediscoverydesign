@@ -11,11 +11,17 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/search"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/middleware"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/resolvers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
@@ -93,6 +99,10 @@ func main() {
 
 	// Initialize adapters
 	facilityDBAdapter := database.NewFacilityAdapter(pgClient)
+	appointmentDBAdapter := database.NewAppointmentAdapter(pgClient)
+	procedureDBAdapter := database.NewProcedureAdapter(pgClient)
+	facilityProcedureDBAdapter := database.NewFacilityProcedureAdapter(pgClient)
+	insuranceDBAdapter := database.NewInsuranceAdapter(pgClient)
 
 	// Create search adapter (Typesense)
 	searchAdapter := search.NewTypesenseAdapter(typesenseClient)
@@ -108,14 +118,37 @@ func main() {
 	resolver := resolvers.NewResolver(
 		searchAdapter,
 		facilityDBAdapter,
+		appointmentDBAdapter,
+		procedureDBAdapter,
+		facilityProcedureDBAdapter,
+		insuranceDBAdapter,
 		&queryCacheProvider,
 		providerClient,
 	)
 
 	// Create GraphQL server
-	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+	srv := handler.New(generated.NewExecutableSchema(generated.Config{
 		Resolvers: resolver,
 	}))
+
+	// Configure transports
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+	srv.AddTransport(transport.MultipartForm{})
+
+	// Set up Query Cache (LRU)
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+
+	// Enable Introspection (disable in production if needed)
+	srv.Use(extension.Introspection{})
+
+	/*
+		// Automatic Persisted Queries (APQ)
+		srv.Use(extension.AutomaticPersistedQueries{
+			Cache: lru.New[string](100),
+		})
+	*/
 
 	// Set up HTTP routes
 	mux := http.NewServeMux()
@@ -127,8 +160,24 @@ func main() {
 		w.Write([]byte(`{"status":"ok","service":"graphql"}`))
 	})
 
+	// Create DataLoader middleware
+	loaderMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ldrs := loaders.NewLoaders(facilityDBAdapter, procedureDBAdapter)
+			ctx := loaders.WithLoaders(r.Context(), ldrs)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+
+	// Apply middleware: Logging -> CORS -> DataLoader
+	handler := middleware.LoggingMiddleware(
+		middleware.CORSMiddleware(
+			loaderMiddleware(srv),
+		),
+	)
+
 	// GraphQL endpoint
-	mux.Handle("/graphql", srv)
+	mux.Handle("/graphql", handler)
 
 	// Playground endpoint (dev only)
 	if os.Getenv("ENV") != "production" {

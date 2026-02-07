@@ -20,6 +20,8 @@ type FacilityService struct {
 	insuranceRepo        repositories.InsuranceRepository
 }
 
+const maxSearchTags = 12
+
 // NewFacilityService creates a new facility service
 func NewFacilityService(
 	repo repositories.FacilityRepository,
@@ -46,6 +48,7 @@ func (s *FacilityService) Create(ctx context.Context, facility *entities.Facilit
 
 	// 2. Index in search engine
 	if s.searchRepo != nil {
+		s.enrichFacilityForSearch(ctx, facility)
 		if err := s.searchRepo.Index(ctx, facility); err != nil {
 			// Log error but don't fail the request (eventual consistency)
 			log.Printf("Warning: Failed to index facility %s: %v", facility.ID, err)
@@ -69,6 +72,7 @@ func (s *FacilityService) Update(ctx context.Context, facility *entities.Facilit
 
 	// 2. Update index
 	if s.searchRepo != nil {
+		s.enrichFacilityForSearch(ctx, facility)
 		if err := s.searchRepo.Index(ctx, facility); err != nil {
 			log.Printf("Warning: Failed to update facility index %s: %v", facility.ID, err)
 		}
@@ -148,6 +152,16 @@ func (s *FacilityService) SearchResults(ctx context.Context, params repositories
 			UpdatedAt:         facility.UpdatedAt,
 		}
 
+		if facility.CapacityStatus != nil {
+			result.CapacityStatus = *facility.CapacityStatus
+		}
+		if facility.AvgWaitMinutes != nil {
+			result.AvgWaitMinutes = facility.AvgWaitMinutes
+		}
+		if facility.UrgentCareAvailable != nil {
+			result.UrgentCareAvailable = facility.UrgentCareAvailable
+		}
+
 		if s.procedureRepo != nil {
 			if facilityProcedures, err := s.procedureRepo.ListByFacility(ctx, facility.ID); err == nil {
 				price := priceRangeFromProcedures(facilityProcedures)
@@ -156,7 +170,7 @@ func (s *FacilityService) SearchResults(ctx context.Context, params repositories
 				}
 
 				if s.procedureCatalogRepo != nil {
-					result.ServicePrices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8)
+					result.ServicePrices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8, params.Query)
 					result.Services = serviceNamesFromPrices(result.ServicePrices)
 				}
 			}
@@ -230,6 +244,115 @@ func (s *FacilityService) Suggest(ctx context.Context, query string, lat, lon fl
 	return suggestions, nil
 }
 
+func (s *FacilityService) enrichFacilityForSearch(ctx context.Context, facility *entities.Facility) {
+	if facility == nil {
+		return
+	}
+
+	var providers []*entities.InsuranceProvider
+	if s.insuranceRepo != nil {
+		loaded, err := s.insuranceRepo.GetFacilityInsurance(ctx, facility.ID)
+		if err == nil {
+			providers = loaded
+			names := make([]string, 0, len(loaded))
+			for _, provider := range loaded {
+				if provider == nil || provider.Name == "" {
+					continue
+				}
+				names = append(names, provider.Name)
+			}
+			if len(names) > 0 {
+				facility.AcceptedInsurance = names
+			}
+		}
+	}
+
+	facility.Tags = buildSearchTags(ctx, facility.ID, providers, s.procedureRepo, s.procedureCatalogRepo)
+}
+
+func buildSearchTags(
+	ctx context.Context,
+	facilityID string,
+	providers []*entities.InsuranceProvider,
+	procedureRepo repositories.FacilityProcedureRepository,
+	procedureCatalogRepo repositories.ProcedureRepository,
+) []string {
+	builder := newSearchTagBuilder(maxSearchTags)
+
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		builder.add(provider.Name, provider.Code)
+		if builder.full() {
+			return builder.tags()
+		}
+	}
+
+	if procedureRepo == nil || procedureCatalogRepo == nil {
+		return builder.tags()
+	}
+
+	procedures, err := procedureRepo.ListByFacility(ctx, facilityID)
+	if err != nil {
+		return builder.tags()
+	}
+
+	for _, item := range procedures {
+		if item == nil {
+			continue
+		}
+		procedure, err := procedureCatalogRepo.GetByID(ctx, item.ProcedureID)
+		if err != nil || procedure == nil {
+			continue
+		}
+		builder.add(procedure.Name, procedure.Code, procedure.Category)
+		if builder.full() {
+			break
+		}
+	}
+
+	return builder.tags()
+}
+
+type searchTagBuilder struct {
+	seen  map[string]struct{}
+	list  []string
+	limit int
+}
+
+func newSearchTagBuilder(limit int) *searchTagBuilder {
+	if limit <= 0 {
+		limit = maxSearchTags
+	}
+	return &searchTagBuilder{seen: make(map[string]struct{}), limit: limit}
+}
+
+func (b *searchTagBuilder) add(values ...string) {
+	for _, value := range values {
+		if b.full() {
+			return
+		}
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := b.seen[normalized]; exists {
+			continue
+		}
+		b.seen[normalized] = struct{}{}
+		b.list = append(b.list, normalized)
+	}
+}
+
+func (b *searchTagBuilder) full() bool {
+	return b.limit > 0 && len(b.list) >= b.limit
+}
+
+func (b *searchTagBuilder) tags() []string {
+	return b.list
+}
+
 func matchesSuggestion(facility *entities.Facility, queryLower string) bool {
 	name := strings.ToLower(facility.Name)
 	if strings.Contains(name, queryLower) {
@@ -291,6 +414,7 @@ func servicePricesFromProcedures(
 	items []*entities.FacilityProcedure,
 	procedureRepo repositories.ProcedureRepository,
 	limit int,
+	query string,
 ) []entities.ServicePrice {
 	if limit <= 0 || len(items) == 0 {
 		return []entities.ServicePrice{}
@@ -312,8 +436,37 @@ func servicePricesFromProcedures(
 		return filtered[i].Price < filtered[j].Price
 	})
 
+	preferredQuery := strings.ToLower(strings.TrimSpace(query))
+
 	services := make([]entities.ServicePrice, 0, limit)
 	seen := make(map[string]struct{})
+
+	if preferredQuery != "" {
+		for _, item := range filtered {
+			if len(services) >= limit {
+				break
+			}
+			procedure, err := procedureRepo.GetByID(ctx, item.ProcedureID)
+			if err != nil || procedure == nil || procedure.Name == "" {
+				continue
+			}
+			if !matchesProcedure(preferredQuery, procedure) {
+				continue
+			}
+			if _, exists := seen[procedure.Name]; exists {
+				continue
+			}
+			seen[procedure.Name] = struct{}{}
+			services = append(services, entities.ServicePrice{
+				ProcedureID: item.ProcedureID,
+				Name:        procedure.Name,
+				Price:       item.Price,
+				Currency:    item.Currency,
+			})
+			break
+		}
+	}
+
 	for _, item := range filtered {
 		if len(services) >= limit {
 			break
@@ -335,6 +488,18 @@ func servicePricesFromProcedures(
 	}
 
 	return services
+}
+
+func matchesProcedure(query string, procedure *entities.Procedure) bool {
+	if procedure == nil {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(procedure.Name))
+	if name != "" && strings.Contains(name, query) {
+		return true
+	}
+	code := strings.ToLower(strings.TrimSpace(procedure.Code))
+	return code != "" && strings.Contains(code, query)
 }
 
 func serviceNamesFromPrices(items []entities.ServicePrice) []string {

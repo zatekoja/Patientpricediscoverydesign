@@ -249,6 +249,7 @@ func buildFacilityTags(facility *entities.Facility) []string {
 	}
 
 	builder := newTagBuilder(maxFacilityTags)
+	builder.add(facility.Tags...)
 	builder.add(
 		facility.Name,
 		facility.FacilityType,

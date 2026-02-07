@@ -23,7 +23,8 @@ type Router struct {
 
 	geolocationHandler *handlers.GeolocationHandler
 
-	mapsHandler *handlers.MapsHandler
+	mapsHandler     *handlers.MapsHandler
+	feedbackHandler *handlers.FeedbackHandler
 
 	providerPriceHandler *handlers.ProviderPriceHandler
 
@@ -45,6 +46,7 @@ func NewRouter(
 	geolocationHandler *handlers.GeolocationHandler,
 
 	mapsHandler *handlers.MapsHandler,
+	feedbackHandler *handlers.FeedbackHandler,
 
 	providerPriceHandler *handlers.ProviderPriceHandler,
 
@@ -66,7 +68,8 @@ func NewRouter(
 
 		geolocationHandler: geolocationHandler,
 
-		mapsHandler: mapsHandler,
+		mapsHandler:     mapsHandler,
+		feedbackHandler: feedbackHandler,
 
 		providerPriceHandler: providerPriceHandler,
 
@@ -126,6 +129,10 @@ func (r *Router) SetupRoutes() http.Handler {
 	// Maps endpoints
 
 	r.mux.HandleFunc("GET /api/maps/static", r.mapsHandler.GetStaticMap)
+
+	// Feedback endpoints
+
+	r.mux.HandleFunc("POST /api/feedback", r.feedbackHandler.SubmitFeedback)
 
 	// Provider data endpoints
 

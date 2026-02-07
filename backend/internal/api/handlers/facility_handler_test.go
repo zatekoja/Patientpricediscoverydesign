@@ -175,10 +175,10 @@ func TestFacilityHandler_SuggestFacilities_ReturnsServicePrices(t *testing.T) {
 	}
 
 	mockService.On("SearchResults", mock.Anything, mock.MatchedBy(func(p repositories.SearchParams) bool {
-		return p.Latitude == 6.5244 && p.Longitude == 3.3792 && p.RadiusKm == 50 && p.Limit == 3 && p.Query == "reliance"
+		return p.Latitude == 6.5244 && p.Longitude == 3.3792 && p.RadiusKm == 50 && p.Limit == 3 && p.Query == "MRI"
 	})).Return(expected, nil)
 
-	req := httptest.NewRequest("GET", "/api/facilities/suggest?lat=6.5244&lon=3.3792&limit=3&query=reliance", nil)
+	req := httptest.NewRequest("GET", "/api/facilities/suggest?lat=6.5244&lon=3.3792&limit=3&query=MRI", nil)
 	w := httptest.NewRecorder()
 
 	handler.SuggestFacilities(w, req)
@@ -190,7 +190,8 @@ func TestFacilityHandler_SuggestFacilities_ReturnsServicePrices(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, resp.Suggestions, 1)
 	assert.Equal(t, expected[0].ID, resp.Suggestions[0].ID)
-	assert.Equal(t, expected[0].ServicePrices[0].Name, resp.Suggestions[0].ServicePrices[0].Name)
-	assert.Equal(t, expected[0].ServicePrices[0].Price, resp.Suggestions[0].ServicePrices[0].Price)
+	assert.NotNil(t, resp.Suggestions[0].MatchedServicePrice)
+	assert.Equal(t, expected[0].ServicePrices[0].Name, resp.Suggestions[0].MatchedServicePrice.Name)
+	assert.Equal(t, expected[0].ServicePrices[0].Price, resp.Suggestions[0].MatchedServicePrice.Price)
 	assert.Equal(t, expected[0].Price.Currency, resp.Suggestions[0].Price.Currency)
 }

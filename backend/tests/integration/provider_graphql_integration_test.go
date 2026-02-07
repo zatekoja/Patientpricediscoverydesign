@@ -79,7 +79,7 @@ func TestProviderPriceCurrentGraphQLIntegration(t *testing.T) {
 	waitForProviderHealthy(t, baseURL)
 
 	providerClient := providerapi.NewClient(baseURL)
-	resolver := resolvers.NewResolver(nil, nil, nil, providerClient)
+	resolver := resolvers.NewResolver(nil, nil, nil, nil, nil, nil, nil, providerClient)
 	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
 		Resolvers: resolver,
 	}))

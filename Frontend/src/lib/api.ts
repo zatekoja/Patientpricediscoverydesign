@@ -3,6 +3,8 @@ import {
   FacilityResponse,
   FacilitySearchResponse,
   FacilitySuggestionResponse,
+  FeedbackRequest,
+  FeedbackResponse,
   SearchParams,
 } from '../types/api';
 
@@ -16,13 +18,28 @@ export const resolveApiBaseUrl = (env?: ApiEnv): string => {
   return '/api';
 };
 
-const metaEnv = (import.meta as unknown as { env?: ApiEnv }).env;
+const metaEnv = import.meta.env;
 export const API_BASE_URL = resolveApiBaseUrl(metaEnv);
 
 export interface GeocodeResponse {
   address: string;
   lat: number;
   lon: number;
+}
+
+export interface Coordinates {
+  Latitude: number;
+  Longitude: number;
+}
+
+export interface GeocodedAddress {
+  FormattedAddress: string;
+  Street: string;
+  City: string;
+  State: string;
+  ZipCode: string;
+  Country: string;
+  Coordinates: Coordinates;
 }
 
 class ApiClient {
@@ -100,6 +117,11 @@ class ApiClient {
     return this.request(`/geocode${query}`);
   }
 
+  async reverseGeocode(lat: number, lon: number): Promise<GeocodedAddress> {
+    const query = `?lat=${lat}&lon=${lon}`;
+    return this.request(`/reverse-geocode${query}`);
+  }
+
   async getAvailability(facilityId: string, from: Date, to: Date): Promise<{ slots: any[] }> {
     const query = new URLSearchParams({
       from: from.toISOString(),
@@ -115,6 +137,16 @@ class ApiClient {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(data),
+    });
+  }
+
+  async submitFeedback(payload: FeedbackRequest): Promise<FeedbackResponse> {
+    return this.request('/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     });
   }
 }

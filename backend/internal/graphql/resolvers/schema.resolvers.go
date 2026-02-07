@@ -14,18 +14,37 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
 )
 
 // Facility is the resolver for the facility field.
 func (r *appointmentResolver) Facility(ctx context.Context, obj *entities.Appointment) (*entities.Facility, error) {
-	// Return nil for now - would query facility by FacilityID
-	return nil, nil
+	return loaders.For(ctx).FacilityLoader.Load(ctx, obj.FacilityID)()
 }
 
 // Procedure is the resolver for the procedure field.
 func (r *appointmentResolver) Procedure(ctx context.Context, obj *entities.Appointment) (*entities.Procedure, error) {
-	// Return nil for now - would query procedure by ProcedureID
-	return nil, nil
+	// We need the procedure at this facility to get price/context
+	// First get global procedure using DataLoader
+	p, err := loaders.For(ctx).ProcedureLoader.Load(ctx, obj.ProcedureID)()
+	if err != nil {
+		return nil, fmt.Errorf("procedure not found: %w", err)
+	}
+
+	// Then try to get pricing context from FacilityProcedure
+	// Note: facilityProcedureRepo.GetByFacilityAndProcedure is not yet dataloaded,
+	// but it's less critical as it's a specific pair.
+	fp, err := r.facilityProcedureRepo.GetByFacilityAndProcedure(ctx, obj.FacilityID, obj.ProcedureID)
+	if err == nil {
+		// Return a copy to avoid mutating the cached global procedure
+		pCopy := *p
+		pCopy.FacilityID = fp.FacilityID
+		pCopy.Price = fp.Price
+		pCopy.Duration = fp.EstimatedDuration
+		return &pCopy, nil
+	}
+
+	return p, nil
 }
 
 // ProviderName is the resolver for the providerName field.
@@ -47,13 +66,24 @@ func (r *appointmentResolver) Duration(ctx context.Context, obj *entities.Appoin
 
 // Price is the resolver for the price field.
 func (r *appointmentResolver) Price(ctx context.Context, obj *entities.Appointment) (float64, error) {
-	// Return 0 for now - would be calculated from procedure price
-	return 0.0, nil
+	fp, err := r.facilityProcedureRepo.GetByFacilityAndProcedure(ctx, obj.FacilityID, obj.ProcedureID)
+	if err != nil {
+		return 0, nil
+	}
+	return fp.Price, nil
 }
 
 // InsuranceProvider is the resolver for the insuranceProvider field.
 func (r *appointmentResolver) InsuranceProvider(ctx context.Context, obj *entities.Appointment) (*entities.InsuranceProvider, error) {
-	// Return nil - would query by InsuranceProvider field
+	if obj.InsuranceProvider == "" {
+		return nil, nil
+	}
+	// Try as ID first
+	provider, err := r.insuranceRepo.GetByID(ctx, obj.InsuranceProvider)
+	if err == nil {
+		return provider, nil
+	}
+	// Fallback to searching by code/name if needed (TODO)
 	return nil, nil
 }
 
@@ -102,14 +132,34 @@ func (r *facilityResolver) WheelchairAccessible(ctx context.Context, obj *entiti
 
 // PriceRange is the resolver for the priceRange field.
 func (r *facilityResolver) PriceRange(ctx context.Context, obj *entities.Facility) (*generated.PriceRange, error) {
-	// Return nil for now - this would be calculated from procedure prices
-	return nil, nil
+	fps, err := r.facilityProcedureRepo.ListByFacility(ctx, obj.ID)
+	if err != nil || len(fps) == 0 {
+		return nil, nil
+	}
+
+	var min, max, sum float64
+	min = fps[0].Price
+	max = fps[0].Price
+	for _, fp := range fps {
+		if fp.Price < min {
+			min = fp.Price
+		}
+		if fp.Price > max {
+			max = fp.Price
+		}
+		sum += fp.Price
+	}
+
+	return &generated.PriceRange{
+		Min: min,
+		Max: max,
+		Avg: sum / float64(len(fps)),
+	}, nil
 }
 
 // InsuranceProviders is the resolver for the insuranceProviders field.
 func (r *facilityResolver) InsuranceProviders(ctx context.Context, obj *entities.Facility) ([]*entities.InsuranceProvider, error) {
-	// For now return empty list - would query insurance repository in full implementation
-	return []*entities.InsuranceProvider{}, nil
+	return r.insuranceRepo.GetFacilityInsurance(ctx, obj.ID)
 }
 
 // Specialties is the resolver for the specialties field.
@@ -120,14 +170,57 @@ func (r *facilityResolver) Specialties(ctx context.Context, obj *entities.Facili
 
 // Procedures is the resolver for the procedures field.
 func (r *facilityResolver) Procedures(ctx context.Context, obj *entities.Facility, limit *int, offset *int) (*generated.ProcedureConnection, error) {
-	// Return empty connection for now - would query procedures in full implementation
+	// Fetch facility procedures (pricing info)
+	fps, err := r.facilityProcedureRepo.ListByFacility(ctx, obj.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch facility procedures: %w", err)
+	}
+
+	// Apply limit and offset if provided
+	start := 0
+	if offset != nil {
+		start = *offset
+	}
+	if start > len(fps) {
+		start = len(fps)
+	}
+
+	end := len(fps)
+	if limit != nil {
+		end = start + *limit
+		if end > len(fps) {
+			end = len(fps)
+		}
+	}
+
+	pagedFps := fps[start:end]
+
+	// Extract IDs for batch fetching using DataLoader
+	nodes := make([]*entities.Procedure, 0, len(pagedFps))
+	for _, fp := range pagedFps {
+		// Fetch global procedure info using DataLoader
+		p, err := loaders.For(ctx).ProcedureLoader.Load(ctx, fp.ProcedureID)()
+		if err != nil {
+			// Skip if procedure not found
+			continue
+		}
+
+		// Create a copy to avoid side effects if the same procedure is in multiple results
+		pCopy := *p
+		pCopy.FacilityID = obj.ID
+		pCopy.Price = fp.Price
+		pCopy.Duration = fp.EstimatedDuration
+
+		nodes = append(nodes, &pCopy)
+	}
+
 	return &generated.ProcedureConnection{
-		Nodes: []*entities.Procedure{},
+		Nodes: nodes,
 		PageInfo: &generated.PageInfo{
-			HasNextPage:     false,
-			HasPreviousPage: false,
+			HasNextPage:     end < len(fps),
+			HasPreviousPage: start > 0,
 		},
-		TotalCount: 0,
+		TotalCount: len(fps),
 	}, nil
 }
 
@@ -215,14 +308,12 @@ func (r *procedureResolver) Category(ctx context.Context, obj *entities.Procedur
 
 // Price is the resolver for the price field.
 func (r *procedureResolver) Price(ctx context.Context, obj *entities.Procedure) (float64, error) {
-	// Return 0 for now - actual price comes from FacilityProcedure
-	return 0.0, nil
+	return obj.Price, nil
 }
 
 // Duration is the resolver for the duration field.
 func (r *procedureResolver) Duration(ctx context.Context, obj *entities.Procedure) (int, error) {
-	// Return default 30 minutes - would come from FacilityProcedure
-	return 30, nil
+	return obj.Duration, nil
 }
 
 // RequiresReferral is the resolver for the requiresReferral field.
@@ -239,37 +330,26 @@ func (r *procedureResolver) PreparationRequired(ctx context.Context, obj *entiti
 
 // Facility is the resolver for the facility field.
 func (r *procedureResolver) Facility(ctx context.Context, obj *entities.Procedure) (*entities.Facility, error) {
-	// Return nil for now - would query facility by relationship
-	return nil, nil
+	if obj.FacilityID == "" {
+		return nil, fmt.Errorf("facility context missing for procedure")
+	}
+	return loaders.For(ctx).FacilityLoader.Load(ctx, obj.FacilityID)()
 }
 
 // InsuranceCoverage is the resolver for the insuranceCoverage field.
 func (r *procedureResolver) InsuranceCoverage(ctx context.Context, obj *entities.Procedure) ([]*entities.InsuranceProvider, error) {
-	// Return empty list - would query insurance coverage
-	return []*entities.InsuranceProvider{}, nil
+	if obj.FacilityID == "" {
+		return []*entities.InsuranceProvider{}, nil
+	}
+	// For a procedure at a facility, coverage is typically the facility's accepted insurance
+	return r.insuranceRepo.GetFacilityInsurance(ctx, obj.FacilityID)
 }
 
 // Facility is the resolver for the facility field.
 func (r *queryResolver) Facility(ctx context.Context, id string) (*entities.Facility, error) {
-	// Try cache first
-	cacheKey := "facility:" + id
-	cached, err := r.cache.Get(ctx, cacheKey)
-	if err == nil && cached != nil {
-		if facility, ok := cached.(*entities.Facility); ok {
-			return facility, nil
-		}
-	}
-
-	// Cache miss - query database
-	facility, err := r.facilityRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("facility not found: %w", err)
-	}
-
-	// Store in cache (5 minutes TTL)
-	_ = r.cache.Set(ctx, cacheKey, facility, 5*time.Minute)
-
-	return facility, nil
+	// Use DataLoader which handles batching and can be wrapped with caching if needed
+	// For now, it will use the batch fetch GetByIDs
+	return loaders.For(ctx).FacilityLoader.Load(ctx, id)()
 }
 
 // Facilities is the resolver for the facilities field.
@@ -433,45 +513,158 @@ func (r *queryResolver) FacilitySuggestions(ctx context.Context, query string, l
 
 // Procedure is the resolver for the procedure field.
 func (r *queryResolver) Procedure(ctx context.Context, id string) (*entities.Procedure, error) {
-	// For now return not found - would query procedure repository in full implementation
-	return nil, fmt.Errorf("procedure not found")
+	// Try to get as a FacilityProcedure first (which includes price/context)
+	fp, err := r.facilityProcedureRepo.GetByID(ctx, id)
+	if err == nil {
+		p, err := r.procedureRepo.GetByID(ctx, fp.ProcedureID)
+		if err != nil {
+			return nil, fmt.Errorf("global procedure not found for facility procedure: %w", err)
+		}
+		p.FacilityID = fp.FacilityID
+		p.Price = fp.Price
+		p.Duration = fp.EstimatedDuration
+		return p, nil
+	}
+
+	// If not found, try as a global Procedure (price/facility will be missing/error)
+	p, err := r.procedureRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("procedure not found: %w", err)
+	}
+	return p, nil
 }
 
 // Procedures is the resolver for the procedures field.
 func (r *queryResolver) Procedures(ctx context.Context, filter generated.ProcedureSearchInput) (*generated.ProcedureConnection, error) {
-	// Return empty connection for now - would query procedures in full implementation
+	if filter.FacilityID != nil {
+		fps, err := r.facilityProcedureRepo.ListByFacility(ctx, *filter.FacilityID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list facility procedures: %w", err)
+		}
+
+		nodes := make([]*entities.Procedure, 0, len(fps))
+		for _, fp := range fps {
+			p, err := r.procedureRepo.GetByID(ctx, fp.ProcedureID)
+			if err != nil {
+				continue
+			}
+
+			// Apply category filter if present
+			if filter.Category != nil && p.Category != string(*filter.Category) {
+				continue
+			}
+
+			// Apply maxPrice filter if present
+			if filter.MaxPrice != nil && fp.Price > *filter.MaxPrice {
+				continue
+			}
+
+			p.FacilityID = fp.FacilityID
+			p.Price = fp.Price
+			p.Duration = fp.EstimatedDuration
+			nodes = append(nodes, p)
+		}
+
+		// Basic pagination
+		start := 0
+		if filter.Offset != nil {
+			start = *filter.Offset
+		}
+		if start > len(nodes) {
+			start = len(nodes)
+		}
+		end := len(nodes)
+		if filter.Limit != nil {
+			end = start + *filter.Limit
+			if end > len(nodes) {
+				end = len(nodes)
+			}
+		}
+
+		return &generated.ProcedureConnection{
+			Nodes: nodes[start:end],
+			PageInfo: &generated.PageInfo{
+				HasNextPage:     end < len(nodes),
+				HasPreviousPage: start > 0,
+			},
+			TotalCount: len(nodes),
+		}, nil
+	}
+
+	// Fallback to global procedures if no facility specified
+	repoFilter := repositories.ProcedureFilter{}
+	if filter.Category != nil {
+		repoFilter.Category = string(*filter.Category)
+	}
+	if filter.Limit != nil {
+		repoFilter.Limit = *filter.Limit
+	}
+	if filter.Offset != nil {
+		repoFilter.Offset = *filter.Offset
+	}
+
+	procs, err := r.procedureRepo.List(ctx, repoFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list global procedures: %w", err)
+	}
+
 	return &generated.ProcedureConnection{
-		Nodes: []*entities.Procedure{},
+		Nodes: procs,
 		PageInfo: &generated.PageInfo{
-			HasNextPage:     false,
-			HasPreviousPage: false,
+			HasNextPage:     len(procs) == repoFilter.Limit, // Approximate
+			HasPreviousPage: repoFilter.Offset > 0,
 		},
-		TotalCount: 0,
+		TotalCount: len(procs),
 	}, nil
 }
 
-// Appointment is the resolver for the appointment field.
+// Appointment is the resolver for the procedure field.
 func (r *queryResolver) Appointment(ctx context.Context, id string) (*entities.Appointment, error) {
-	// For now return not found - would query appointment repository in full implementation
-	return nil, fmt.Errorf("appointment not found")
+	appointment, err := r.appointmentRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("appointment not found: %w", err)
+	}
+	return appointment, nil
 }
 
 // Appointments is the resolver for the appointments field.
 func (r *queryResolver) Appointments(ctx context.Context, filter generated.AppointmentSearchInput) ([]*entities.Appointment, error) {
-	// Return empty list for now - would query appointments in full implementation
+	repoFilter := repositories.AppointmentFilter{}
+	if filter.Status != nil {
+		repoFilter.Status = *filter.Status
+	}
+	if filter.Limit != nil {
+		repoFilter.Limit = *filter.Limit
+	}
+	if filter.Offset != nil {
+		repoFilter.Offset = *filter.Offset
+	}
+
+	if filter.FacilityID != nil {
+		return r.appointmentRepo.ListByFacility(ctx, *filter.FacilityID, repoFilter)
+	}
+
+	// If no facility specified, for now return empty list or could list by user if auth was present
 	return []*entities.Appointment{}, nil
 }
 
 // InsuranceProvider is the resolver for the insuranceProvider field.
 func (r *queryResolver) InsuranceProvider(ctx context.Context, id string) (*entities.InsuranceProvider, error) {
-	// For now return not found - would query insurance repository in full implementation
-	return nil, fmt.Errorf("insurance provider not found")
+	return r.insuranceRepo.GetByID(ctx, id)
 }
 
 // InsuranceProviders is the resolver for the insuranceProviders field.
 func (r *queryResolver) InsuranceProviders(ctx context.Context, isActive *bool, state *string, limit *int, offset *int) ([]*entities.InsuranceProvider, error) {
-	// Return empty list for now - would query insurance providers in full implementation
-	return []*entities.InsuranceProvider{}, nil
+	filter := repositories.InsuranceFilter{
+		IsActive: isActive,
+	}
+	if limit != nil {
+		filter.Limit = *limit
+	}
+	if offset != nil {
+		filter.Offset = *offset
+	}
+	return r.insuranceRepo.List(ctx, filter)
 }
 
 // FacilityStats is the resolver for the facilityStats field.

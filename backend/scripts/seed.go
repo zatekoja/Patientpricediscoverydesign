@@ -166,10 +166,19 @@ func main() {
 		},
 	}
 
+	capacityStatuses := []string{"Available", "Limited", "Busy"}
+	avgWaits := []int{15, 30, 45}
+	urgentCareFlags := []bool{true, false, false}
+
 	fpRepo := database.NewFacilityProcedureAdapter(pgClient)
 	db := pgClient.DB()
 
-	for _, f := range facilities {
+	for i := range facilities {
+		facilities[i].CapacityStatus = &capacityStatuses[i%len(capacityStatuses)]
+		facilities[i].AvgWaitMinutes = &avgWaits[i%len(avgWaits)]
+		facilities[i].UrgentCareAvailable = &urgentCareFlags[i%len(urgentCareFlags)]
+
+		f := facilities[i]
 		if err := facilityService.Create(ctx, &f); err != nil {
 			log.Printf("Failed to create facility %s: %v", f.Name, err)
 			continue
