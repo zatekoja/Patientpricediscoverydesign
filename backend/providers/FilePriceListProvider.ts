@@ -7,6 +7,7 @@ import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData } from '../types/PriceData';
 import { parseCsvFile, parseDocxFile, PriceListParseContext } from '../ingestion/priceListParser';
 import { applyCuratedTags } from '../ingestion/tagHydration';
+import { ProcedureProfileService } from '../ingestion/procedureProfileService';
 import { recordProviderDataMetrics, recordProviderSyncMetrics } from '../observability/metrics';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 
@@ -21,9 +22,15 @@ export interface FilePriceListConfig {
 
 export class FilePriceListProvider extends BaseDataProvider<PriceData> {
   private fileConfig?: FilePriceListConfig;
+  private procedureProfileService?: ProcedureProfileService;
 
-  constructor(documentStore?: IDocumentStore<PriceData>, stateStore?: IProviderStateStore) {
+  constructor(
+    documentStore?: IDocumentStore<PriceData>,
+    stateStore?: IProviderStateStore,
+    procedureProfileService?: ProcedureProfileService
+  ) {
     super('file_price_list', documentStore, stateStore);
+    this.procedureProfileService = procedureProfileService;
   }
 
   validateConfig(config: Record<string, any>): boolean {
@@ -122,7 +129,10 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
             allData.push(...parsed);
           }
 
-          const hydrated = applyCuratedTags(allData);
+          let hydrated = applyCuratedTags(allData);
+          if (this.procedureProfileService) {
+            hydrated = await this.procedureProfileService.enrichRecords(hydrated, this.name);
+          }
           const offset = options?.offset || 0;
           const limit = options?.limit || hydrated.length;
           const sliced = hydrated.slice(offset, offset + limit);

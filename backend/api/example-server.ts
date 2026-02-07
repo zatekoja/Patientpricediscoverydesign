@@ -16,9 +16,11 @@ import { MongoProviderStateStore } from '../stores/MongoProviderStateStore';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
 import { FacilityProfile } from '../types/FacilityProfile';
+import { ProcedureProfile } from '../types/ProcedureProfile';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
+import { ProcedureProfileService } from '../ingestion/procedureProfileService';
 import {
   CapacityRequestService,
   SesEmailSender,
@@ -55,6 +57,7 @@ async function startServer() {
   const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
   const mongoFacilityCollection = process.env.PROVIDER_FACILITY_COLLECTION || 'facility_profiles';
   const mongoCapacityCollection = process.env.PROVIDER_CAPACITY_TOKEN_COLLECTION || 'capacity_request_tokens';
+  const mongoProcedureCollection = process.env.PROVIDER_PROCEDURE_COLLECTION || 'procedure_profiles';
   const mongoTTL = process.env.PROVIDER_MONGO_TTL_DAYS
     ? Number.parseInt(process.env.PROVIDER_MONGO_TTL_DAYS, 10)
     : 30;
@@ -94,6 +97,15 @@ async function startServer() {
       : undefined,
   };
   const facilityProfileService = new FacilityProfileService(facilityStore, llmConfig);
+
+  let procedureStore: IDocumentStore<ProcedureProfile>;
+  if (mongoURI) {
+    procedureStore = new MongoDocumentStore<ProcedureProfile>(mongoURI, mongoDB, mongoProcedureCollection);
+    console.log(`✓ Procedure profile store enabled (${mongoDB}.${mongoProcedureCollection})`);
+  } else {
+    procedureStore = new InMemoryDocumentStore<ProcedureProfile>('procedure-profiles');
+  }
+  const procedureProfileService = new ProcedureProfileService(procedureStore, llmConfig);
 
   let capacityTokenStore: IDocumentStore<CapacityRequestToken>;
   if (mongoURI) {
@@ -140,11 +152,15 @@ async function startServer() {
   let providerInitialized = false;
   let scheduler: DataSyncScheduler | undefined;
   let providerId = 'megalek_ateru_helper';
-  let provider: MegalekAteruHelper | FilePriceListProvider = new MegalekAteruHelper(documentStore, stateStore);
+  let provider: MegalekAteruHelper | FilePriceListProvider = new MegalekAteruHelper(
+    documentStore,
+    stateStore,
+    procedureProfileService
+  );
 
   if (useFileProvider) {
     providerId = 'file_price_list';
-    provider = new FilePriceListProvider(documentStore, stateStore);
+    provider = new FilePriceListProvider(documentStore, stateStore, procedureProfileService);
   }
 
   // Configuration (use environment variables or provide defaults for development)

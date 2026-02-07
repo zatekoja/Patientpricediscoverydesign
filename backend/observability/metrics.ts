@@ -121,6 +121,29 @@ const facilityProfileLLMTags = meter.createCounter('provider.facility.profile.ll
   description: 'Number of tags returned by facility profile LLM',
 });
 
+const procedureProfileCreated = meter.createCounter('provider.procedure.profile.created', {
+  description: 'Number of procedure profiles created',
+});
+const procedureProfileSkipped = meter.createCounter('provider.procedure.profile.skipped', {
+  description: 'Number of procedure profiles skipped (already exists)',
+});
+const procedureProfileFailed = meter.createCounter('provider.procedure.profile.failed', {
+  description: 'Number of procedure profile enrich failures',
+});
+const procedureProfileLLMCount = meter.createCounter('provider.procedure.profile.llm.count', {
+  description: 'Number of procedure profile LLM enrichment attempts',
+});
+const procedureProfileLLMErrors = meter.createCounter('provider.procedure.profile.llm.error.count', {
+  description: 'Number of procedure profile LLM errors',
+});
+const procedureProfileLLMDuration = meter.createHistogram('provider.procedure.profile.llm.duration_ms', {
+  description: 'Duration of procedure profile LLM calls',
+  unit: 'ms',
+});
+const procedureProfileLLMTags = meter.createCounter('provider.procedure.profile.llm.tags', {
+  description: 'Number of tags returned by procedure profile LLM',
+});
+
 type ProviderSyncState = {
   lastSyncMs?: number;
 };
@@ -389,5 +412,38 @@ export function recordFacilityProfileLLM(params: {
   }
   if (params.tags && params.tags > 0) {
     facilityProfileLLMTags.add(params.tags, { provider: params.provider });
+  }
+}
+
+export function recordProcedureProfileEnrichment(params: {
+  provider: string;
+  created: number;
+  skipped: number;
+  failed: number;
+}): void {
+  if (params.created > 0) {
+    procedureProfileCreated.add(params.created, { provider: params.provider });
+  }
+  if (params.skipped > 0) {
+    procedureProfileSkipped.add(params.skipped, { provider: params.provider });
+  }
+  if (params.failed > 0) {
+    procedureProfileFailed.add(params.failed, { provider: params.provider });
+  }
+}
+
+export function recordProcedureProfileLLM(params: {
+  provider: string;
+  success: boolean;
+  durationMs: number;
+  tags?: number;
+}): void {
+  procedureProfileLLMCount.add(1, { provider: params.provider, success: String(params.success) });
+  procedureProfileLLMDuration.record(params.durationMs, { provider: params.provider });
+  if (!params.success) {
+    procedureProfileLLMErrors.add(1, { provider: params.provider });
+  }
+  if (params.tags && params.tags > 0) {
+    procedureProfileLLMTags.add(params.tags, { provider: params.provider });
   }
 }

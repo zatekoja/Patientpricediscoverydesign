@@ -16,6 +16,12 @@ export interface PriceData {
   
   /** Procedure description */
   procedureDescription: string;
+
+  /** Procedure category (enriched) */
+  procedureCategory?: string;
+
+  /** Detailed procedure description (enriched) */
+  procedureDetails?: string;
   
   /** Price amount */
   price: number;
@@ -48,6 +54,9 @@ export interface PriceData {
     nextAvailable?: Date;
     timeSlots?: string[];
   };
+
+  /** Estimated duration in minutes (enriched) */
+  estimatedDurationMinutes?: number;
   
   /** Date when this price was effective */
   effectiveDate: Date;

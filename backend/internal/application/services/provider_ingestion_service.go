@@ -320,6 +320,17 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 
 	existing, err := s.procedureRepo.GetByCode(ctx, code)
 	if err == nil {
+		if record.ProcedureCategory != "" && existing.Category != record.ProcedureCategory {
+			existing.Category = record.ProcedureCategory
+		}
+		if record.ProcedureDetails != "" && existing.Description != record.ProcedureDetails {
+			existing.Description = record.ProcedureDetails
+		} else if existing.Description == "" {
+			existing.Description = record.ProcedureDescription
+		}
+		if updateErr := s.procedureRepo.Update(ctx, existing); updateErr != nil {
+			return existing, false, updateErr
+		}
 		return existing, false, nil
 	}
 	if !isNotFound(err) {
@@ -327,12 +338,20 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 	}
 
 	now := time.Now()
+	description := record.ProcedureDescription
+	if record.ProcedureDetails != "" {
+		description = record.ProcedureDetails
+	}
+	category := inferProcedureCategory(record.ProcedureDescription, record.Tags)
+	if record.ProcedureCategory != "" {
+		category = record.ProcedureCategory
+	}
 	procedure := &entities.Procedure{
 		ID:          buildProcedureID(code),
 		Name:        record.ProcedureDescription,
 		Code:        code,
-		Category:    inferProcedureCategory(record.ProcedureDescription, record.Tags),
-		Description: record.ProcedureDescription,
+		Category:    category,
+		Description: description,
 		IsActive:    true,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -351,6 +370,9 @@ func (s *ProviderIngestionService) ensureFacilityProcedure(ctx context.Context, 
 		existing.Price = record.Price
 		existing.Currency = record.Currency
 		existing.IsAvailable = true
+		if record.EstimatedDurationMin != nil {
+			existing.EstimatedDuration = *record.EstimatedDurationMin
+		}
 		existing.UpdatedAt = time.Now()
 		if updateErr := s.facilityProcedureRepo.Update(ctx, existing); updateErr != nil {
 			return false, updateErr
@@ -369,6 +391,12 @@ func (s *ProviderIngestionService) ensureFacilityProcedure(ctx context.Context, 
 		ProcedureID: procedureID,
 		Price:       record.Price,
 		Currency:    record.Currency,
+		EstimatedDuration: func() int {
+			if record.EstimatedDurationMin != nil {
+				return *record.EstimatedDurationMin
+			}
+			return 0
+		}(),
 		IsAvailable: true,
 		CreatedAt:   now,
 		UpdatedAt:   now,

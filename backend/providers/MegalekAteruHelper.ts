@@ -4,6 +4,7 @@ import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExtern
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
+import { ProcedureProfileService } from '../ingestion/procedureProfileService';
 import { buildFacilityId } from '../ingestion/facilityIds';
 import { recordProviderDataMetrics, recordProviderSyncMetrics } from '../observability/metrics';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
@@ -20,9 +21,15 @@ import { trace, SpanStatusCode } from '@opentelemetry/api';
 export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
   private sheetsConfig?: GoogleSheetsConfig;
   private googleSheetsClient?: sheets_v4.Sheets;
+  private procedureProfileService?: ProcedureProfileService;
   
-  constructor(documentStore?: IDocumentStore<PriceData>, stateStore?: IProviderStateStore) {
+  constructor(
+    documentStore?: IDocumentStore<PriceData>,
+    stateStore?: IProviderStateStore,
+    procedureProfileService?: ProcedureProfileService
+  ) {
     super('megalek_ateru_helper', documentStore, stateStore);
+    this.procedureProfileService = procedureProfileService;
   }
   
   validateConfig(config: Record<string, any>): boolean {
@@ -94,7 +101,10 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
       },
       async (span) => {
         try {
-          const data = await this.fetchFromGoogleSheets(options);
+          let data = await this.fetchFromGoogleSheets(options);
+          if (this.procedureProfileService) {
+            data = await this.procedureProfileService.enrichRecords(data, this.name);
+          }
           span.setAttribute('records_total', data.length);
           span.setStatus({ code: SpanStatusCode.OK });
           return {

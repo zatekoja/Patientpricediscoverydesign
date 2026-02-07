@@ -56,8 +56,11 @@ type PriceRecord struct {
 	FacilityID           string    `json:"facilityId"`
 	ProcedureCode        string    `json:"procedureCode"`
 	ProcedureDescription string    `json:"procedureDescription"`
+	ProcedureCategory    string    `json:"procedureCategory"`
+	ProcedureDetails     string    `json:"procedureDetails"`
 	Price                float64   `json:"price"`
 	Currency             string    `json:"currency"`
+	EstimatedDurationMin *int      `json:"estimatedDurationMinutes"`
 	EffectiveDate        time.Time `json:"effectiveDate"`
 	LastUpdated          time.Time `json:"lastUpdated"`
 	Source               string    `json:"source"`
