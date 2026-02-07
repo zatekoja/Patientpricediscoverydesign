@@ -15,8 +15,10 @@ import { MongoDocumentStore } from '../stores/MongoDocumentStore';
 import { MongoProviderStateStore } from '../stores/MongoProviderStateStore';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
+import { FacilityProfile } from '../types/FacilityProfile';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { FacilityProfileService } from '../ingestion/facilityProfileService';
 
 /**
  * Initialize and start the API server
@@ -40,14 +42,12 @@ async function startServer() {
     }
   }
 
-  // 1. Create the API server
-  const api = new DataProviderAPI();
-
   // 2. Create document store
   const mongoURI = process.env.PROVIDER_MONGO_URI;
   const mongoDB = process.env.PROVIDER_MONGO_DB || 'provider_data';
   const mongoCollection = process.env.PROVIDER_MONGO_COLLECTION || 'price_records';
   const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
+  const mongoFacilityCollection = process.env.PROVIDER_FACILITY_COLLECTION || 'facility_profiles';
   const mongoTTL = process.env.PROVIDER_MONGO_TTL_DAYS
     ? Number.parseInt(process.env.PROVIDER_MONGO_TTL_DAYS, 10)
     : 30;
@@ -65,6 +65,31 @@ async function startServer() {
     documentStore = new InMemoryDocumentStore<PriceData>('price-data-store');
     console.warn('⚠ Using in-memory provider store. Set PROVIDER_MONGO_URI for persistence.');
   }
+
+  let facilityStore: IDocumentStore<FacilityProfile>;
+  if (mongoURI) {
+    facilityStore = new MongoDocumentStore<FacilityProfile>(mongoURI, mongoDB, mongoFacilityCollection);
+    console.log(`✓ Facility profile store enabled (${mongoDB}.${mongoFacilityCollection})`);
+  } else {
+    facilityStore = new InMemoryDocumentStore<FacilityProfile>('facility-profiles');
+  }
+
+  const llmConfig = {
+    apiEndpoint: process.env.PROVIDER_LLM_API_ENDPOINT,
+    apiKey: process.env.PROVIDER_LLM_API_KEY,
+    model: process.env.PROVIDER_LLM_MODEL,
+    systemPrompt: process.env.PROVIDER_LLM_SYSTEM_PROMPT,
+    temperature: process.env.PROVIDER_LLM_TEMPERATURE
+      ? Number.parseFloat(process.env.PROVIDER_LLM_TEMPERATURE)
+      : undefined,
+    maxTags: process.env.PROVIDER_LLM_MAX_TAGS
+      ? Number.parseInt(process.env.PROVIDER_LLM_MAX_TAGS, 10)
+      : undefined,
+  };
+  const facilityProfileService = new FacilityProfileService(facilityStore, llmConfig);
+
+  // 1. Create the API server
+  const api = new DataProviderAPI({ facilityProfileService });
 
   // 3. Create and configure provider
   let providerInitialized = false;
@@ -137,6 +162,11 @@ async function startServer() {
       runImmediately: runInitialSync,
       onComplete: (result) => {
         console.log(`Scheduled sync completed: ${result.recordsProcessed} records, success: ${result.success}`);
+        if (result.success) {
+          facilityProfileService
+            .ensureProfilesFromProvider(provider, { providerId })
+            .catch((error) => console.error('Facility enrichment failed:', error.message));
+        }
       },
       onError: (error) => {
         console.error('Scheduled sync error:', error.message);

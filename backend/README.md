@@ -126,6 +126,12 @@ REDIS_DB=0
 GEOLOCATION_PROVIDER=mock
 GEOLOCATION_API_KEY=
 
+# Provider API (for ingesting price list facilities)
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1
+PROVIDER_INGEST_ON_START=false
+PROVIDER_INGEST_PROVIDER_ID=file_price_list
+PROVIDER_INGEST_PAGE_SIZE=500
+
 # OpenTelemetry Configuration
 OTEL_ENABLED=false
 OTEL_SERVICE_NAME=patient-price-discovery
@@ -192,6 +198,7 @@ go test -race ./...
 - `GET /api/provider/list` - List registered providers
 - `POST /api/provider/sync/trigger` - Trigger provider sync
 - `GET /api/provider/sync/status` - Provider sync status
+- `POST /api/provider/ingest` - Ingest provider data into core backend tables
 
 #### Future Endpoints (Phase 2+)
 - `GET /api/procedures` - List procedures

@@ -4,6 +4,7 @@ import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExtern
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
+import { buildFacilityId } from '../ingestion/facilityIds';
 import { recordProviderDataMetrics, recordProviderSyncMetrics } from '../observability/metrics';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 
@@ -462,9 +463,12 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
     const dataRows = rows.slice(1);
     
     return dataRows.map((row, index) => {
+      const facilityName = this.getCellValue(row, headers, columnMapping.facilityName || 'Facility Name');
+      const facilityId = buildFacilityId(this.name, facilityName);
       const priceData: PriceData = {
         id: `${this.name}_${Date.now()}_${index}`,
-        facilityName: this.getCellValue(row, headers, columnMapping.facilityName || 'Facility Name'),
+        facilityName,
+        facilityId: facilityId || undefined,
         procedureCode: this.getCellValue(row, headers, columnMapping.procedureCode || 'Procedure Code'),
         procedureDescription: this.getCellValue(row, headers, columnMapping.procedureDescription || 'Procedure Description'),
         price: parseFloat(this.getCellValue(row, headers, columnMapping.price || 'Price')) || 0,

@@ -177,6 +177,8 @@ services:
       - TYPESENSE_URL=http://typesense:8108
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
       - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
+      - PROVIDER_INGEST_ON_START=true
+      - PROVIDER_INGEST_PROVIDER_ID=file_price_list
       - GEOLOCATION_PROVIDER=google
       - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - OTEL_ENABLED=true

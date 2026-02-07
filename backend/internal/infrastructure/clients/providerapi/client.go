@@ -19,6 +19,8 @@ type Client interface {
 	ListProviders(ctx context.Context) (*ProviderListResponse, error)
 	TriggerSync(ctx context.Context, providerID string) (*SyncResponse, error)
 	GetSyncStatus(ctx context.Context, providerID string) (*SyncResponse, error)
+	GetFacilityProfile(ctx context.Context, facilityID string) (*FacilityProfile, error)
+	ListFacilityProfiles(ctx context.Context, limit, offset int) ([]FacilityProfile, error)
 }
 
 type HTTPClient struct {
@@ -51,6 +53,7 @@ type CurrentDataMetadata struct {
 type PriceRecord struct {
 	ID                   string    `json:"id"`
 	FacilityName         string    `json:"facilityName"`
+	FacilityID           string    `json:"facilityId"`
 	ProcedureCode        string    `json:"procedureCode"`
 	ProcedureDescription string    `json:"procedureDescription"`
 	Price                float64   `json:"price"`
@@ -59,6 +62,30 @@ type PriceRecord struct {
 	LastUpdated          time.Time `json:"lastUpdated"`
 	Source               string    `json:"source"`
 	Tags                 []string  `json:"tags"`
+}
+
+type FacilityProfile struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	FacilityType string   `json:"facilityType"`
+	Description  string   `json:"description"`
+	Tags         []string `json:"tags"`
+	Address      struct {
+		Street  string `json:"street"`
+		City    string `json:"city"`
+		State   string `json:"state"`
+		ZipCode string `json:"zipCode"`
+		Country string `json:"country"`
+	} `json:"address"`
+	Location struct {
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+	} `json:"location"`
+	PhoneNumber string    `json:"phoneNumber"`
+	Email       string    `json:"email"`
+	Website     string    `json:"website"`
+	LastUpdated time.Time `json:"lastUpdated"`
+	Source      string    `json:"source"`
 }
 
 type HistoricalDataRequest struct {
@@ -190,6 +217,40 @@ func (c *HTTPClient) GetSyncStatus(ctx context.Context, providerID string) (*Syn
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *HTTPClient) GetFacilityProfile(ctx context.Context, facilityID string) (*FacilityProfile, error) {
+	if strings.TrimSpace(facilityID) == "" {
+		return nil, fmt.Errorf("facility id is required")
+	}
+	endpoint := fmt.Sprintf("%s/facilities/%s", c.baseURL, url.PathEscape(facilityID))
+	out := &FacilityProfile{}
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) ListFacilityProfiles(ctx context.Context, limit, offset int) ([]FacilityProfile, error) {
+	parsed, err := url.Parse(fmt.Sprintf("%s/facilities", c.baseURL))
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		query.Set("offset", fmt.Sprintf("%d", offset))
+	}
+	parsed.RawQuery = query.Encode()
+	var response struct {
+		Data []FacilityProfile `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, parsed.String(), nil, &response); err != nil {
+		return nil, err
+	}
+	return response.Data, nil
 }
 
 func (c *HTTPClient) getData(ctx context.Context, path string, req CurrentDataRequest) (*CurrentDataResponse, error) {

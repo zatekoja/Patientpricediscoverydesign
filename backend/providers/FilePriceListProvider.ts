@@ -86,6 +86,7 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
               currency,
               defaultEffectiveDate,
               sourceFile: path.basename(file.path),
+              providerId: this.name,
             };
 
             const ext = path.extname(file.path).toLowerCase();

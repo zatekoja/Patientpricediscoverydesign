@@ -3,12 +3,14 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { PriceData } from '../types/PriceData';
+import { buildFacilityId } from './facilityIds';
 
 export interface PriceListParseContext {
   facilityName?: string;
   sourceFile?: string;
   currency?: string;
   defaultEffectiveDate?: Date;
+  providerId?: string;
 }
 
 interface HeaderMap {
@@ -63,6 +65,7 @@ function buildContext(filePath: string, context?: PriceListParseContext): PriceL
     sourceFile,
     currency: context?.currency || 'NGN',
     defaultEffectiveDate: context?.defaultEffectiveDate,
+    providerId: context?.providerId,
   };
 }
 
@@ -74,6 +77,7 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
   const facilityName =
     context.facilityName ||
     inferFacilityName(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
+  const facilityId = buildFacilityId(context.providerId, facilityName);
   const effectiveDate =
     context.defaultEffectiveDate ||
     inferEffectiveDate(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
@@ -120,6 +124,7 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
       priceData.push({
         id,
         facilityName,
+        facilityId: facilityId || undefined,
         procedureCode,
         procedureDescription: description,
         price: variant.price,

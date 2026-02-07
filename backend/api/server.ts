@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { IExternalDataProvider, DataProviderOptions } from '../interfaces/IExternalDataProvider';
 import { recordApiRequest } from '../observability/metrics';
+import { FacilityProfileService } from '../ingestion/facilityProfileService';
 
 /**
  * API Router for External Data Provider
@@ -19,13 +20,19 @@ class ProviderNotFoundError extends Error {
   }
 }
 
+export interface DataProviderAPIOptions {
+  facilityProfileService?: FacilityProfileService;
+}
+
 export class DataProviderAPI {
   private app: express.Application;
   private providers: ProviderRegistry = {};
   private defaultProviderId?: string;
+  private facilityProfileService?: FacilityProfileService;
 
-  constructor() {
+  constructor(options?: DataProviderAPIOptions) {
     this.app = express();
+    this.facilityProfileService = options?.facilityProfileService;
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -119,6 +126,10 @@ export class DataProviderAPI {
     // Provider endpoints
     router.get('/provider/health', this.handleGetProviderHealth.bind(this));
     router.get('/provider/list', this.handleListProviders.bind(this));
+
+    // Facility profile endpoints
+    router.get('/facilities', this.handleListFacilities.bind(this));
+    router.get('/facilities/:id', this.handleGetFacility.bind(this));
 
     // Sync endpoints
     router.post('/sync/trigger', this.handleTriggerSync.bind(this));
@@ -299,8 +310,11 @@ export class DataProviderAPI {
     try {
       const { providerId } = req.query;
       const provider = this.getProvider(providerId as string);
-
+      
       const result = await provider.syncData();
+      if (result.success) {
+        await this.enrichFacilities(provider, providerId as string | undefined);
+      }
       res.json(result);
     } catch (error) {
       next(error);
@@ -328,6 +342,55 @@ export class DataProviderAPI {
     } catch (error) {
       next(error);
     }
+  }
+
+  /**
+   * GET /api/v1/facilities
+   */
+  private async handleListFacilities(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.facilityProfileService) {
+        res.status(503).json({ error: 'Facility profiles not configured' });
+        return;
+      }
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+      const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+      const data = await this.facilityProfileService.listProfiles(limit, offset);
+      res.json({ data, count: data.length });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/v1/facilities/:id
+   */
+  private async handleGetFacility(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.facilityProfileService) {
+        res.status(503).json({ error: 'Facility profiles not configured' });
+        return;
+      }
+      const id = req.params.id;
+      const profile = await this.facilityProfileService.getProfile(id);
+      if (!profile) {
+        res.status(404).json({ error: 'Facility not found' });
+        return;
+      }
+      res.json(profile);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  private async enrichFacilities(provider: IExternalDataProvider, providerId?: string): Promise<void> {
+    if (!this.facilityProfileService) {
+      return;
+    }
+    await this.facilityProfileService.ensureProfilesFromProvider(provider, {
+      providerId: providerId || provider.getName(),
+      pageSize: 500,
+    });
   }
 
   /**

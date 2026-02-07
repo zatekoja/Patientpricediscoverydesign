@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -183,6 +185,21 @@ func main() {
 	feedbackHandler := handlers.NewFeedbackHandler(feedbackService, cacheProvider)
 
 	providerPriceHandler := handlers.NewProviderPriceHandler(providerClient)
+	pageSize := 0
+	if value := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_PAGE_SIZE")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			pageSize = parsed
+		}
+	}
+	ingestionService := services.NewProviderIngestionService(
+		providerClient,
+		facilityAdapter,
+		facilityService,
+		procedureAdapter,
+		facilityProcedureAdapter,
+		pageSize,
+	)
+	providerIngestionHandler := handlers.NewProviderIngestionHandler(ingestionService)
 
 	// Set up router
 
@@ -195,6 +212,7 @@ func main() {
 		mapsHandler,
 		feedbackHandler,
 		providerPriceHandler,
+		providerIngestionHandler,
 		metrics,
 	)
 
@@ -217,6 +235,24 @@ func main() {
 			log.Fatalf("Server failed to start: %v", err)
 		}
 	}()
+
+	// Optional: ingest provider data on startup
+	if strings.EqualFold(os.Getenv("PROVIDER_INGEST_ON_START"), "true") && providerClient != nil {
+		providerID := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_PROVIDER_ID"))
+		go func() {
+			ingestCtx, ingestCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer ingestCancel()
+			for attempt := 1; attempt <= 5; attempt++ {
+				summary, err := ingestionService.SyncCurrentData(ingestCtx, providerID)
+				if err == nil {
+					log.Printf("Provider ingestion completed: %+v", summary)
+					return
+				}
+				log.Printf("Provider ingestion failed (attempt %d): %v", attempt, err)
+				time.Sleep(5 * time.Second)
+			}
+		}()
+	}
 
 	// Wait for interrupt signal for graceful shutdown
 	quit := make(chan os.Signal, 1)

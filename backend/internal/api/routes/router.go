@@ -27,6 +27,7 @@ type Router struct {
 	feedbackHandler *handlers.FeedbackHandler
 
 	providerPriceHandler *handlers.ProviderPriceHandler
+	providerIngestionHandler *handlers.ProviderIngestionHandler
 
 	metrics *observability.Metrics
 }
@@ -49,6 +50,7 @@ func NewRouter(
 	feedbackHandler *handlers.FeedbackHandler,
 
 	providerPriceHandler *handlers.ProviderPriceHandler,
+	providerIngestionHandler *handlers.ProviderIngestionHandler,
 
 	metrics *observability.Metrics,
 
@@ -72,6 +74,7 @@ func NewRouter(
 		feedbackHandler: feedbackHandler,
 
 		providerPriceHandler: providerPriceHandler,
+		providerIngestionHandler: providerIngestionHandler,
 
 		metrics: metrics,
 	}
@@ -149,6 +152,10 @@ func (r *Router) SetupRoutes() http.Handler {
 	r.mux.HandleFunc("POST /api/provider/sync/trigger", r.providerPriceHandler.TriggerSync)
 
 	r.mux.HandleFunc("GET /api/provider/sync/status", r.providerPriceHandler.GetSyncStatus)
+
+	// Provider ingestion endpoint (hydrate core DB from provider API)
+
+	r.mux.HandleFunc("POST /api/provider/ingest", r.providerIngestionHandler.TriggerIngestion)
 
 	// Apply middleware in reverse order (last middleware wraps first)
 
