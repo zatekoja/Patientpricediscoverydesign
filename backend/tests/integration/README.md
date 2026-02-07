@@ -34,6 +34,22 @@ make test-integration
 make test-db-down
 ```
 
+### Provider API Integration Test (Docker)
+
+This test hits the **external provider API** running in Docker and validates all interface-backed endpoints.
+
+```bash
+# Start test services (includes provider API + OTEL collector)
+docker-compose -f docker-compose.test.yml up -d
+
+# Run provider API integration test
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 \
+node tests/integration/provider_api_integration_test.mjs
+
+# Cleanup
+docker-compose -f docker-compose.test.yml down -v
+```
+
 ### Individual Test Execution
 
 ```bash
