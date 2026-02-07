@@ -1,0 +1,2 @@
+ALTER TABLE procedures
+ALTER COLUMN name TYPE TEXT;

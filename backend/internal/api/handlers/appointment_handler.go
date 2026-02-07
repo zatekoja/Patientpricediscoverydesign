@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
+	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
 )
 
 // AppointmentService defines the interface for appointment operations
@@ -73,6 +74,22 @@ func (h *AppointmentHandler) GetAvailability(w http.ResponseWriter, r *http.Requ
 
 	slots, err := h.service.GetAvailableSlots(r.Context(), facilityID, from, to)
 	if err != nil {
+		if appErr, ok := err.(*apperrors.AppError); ok {
+			switch appErr.Type {
+			case apperrors.ErrorTypeNotFound:
+				respondWithError(w, http.StatusNotFound, appErr.Message)
+				return
+			case apperrors.ErrorTypeValidation:
+				respondWithError(w, http.StatusBadRequest, appErr.Message)
+				return
+			case apperrors.ErrorTypeExternal:
+				respondWithError(w, http.StatusBadGateway, appErr.Message)
+				return
+			default:
+				respondWithError(w, http.StatusInternalServerError, appErr.Message)
+				return
+			}
+		}
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

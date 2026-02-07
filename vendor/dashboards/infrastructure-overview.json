@@ -1,0 +1,211 @@
+{
+  "title": "Patient Price Discovery - Infrastructure Overview",
+  "description": "High-level overview of the entire system health and performance",
+  "tags": ["overview", "infrastructure", "sre"],
+  "layout": [
+    {
+      "title": "Service Status",
+      "panels": [
+        {
+          "title": "API Service Status",
+          "query": "sum(rate(http_server_request_count{service=\"patient-price-discovery\"}[5m])) >= 0",
+          "visualization": "stat",
+          "thresholds": [
+            {"value": 0, "color": "green"}
+          ],
+          "description": "API service availability"
+        },
+        {
+          "title": "GraphQL Service Status",
+          "query": "sum(rate(http_server_request_count{service=\"patient-price-discovery-graphql\"}[5m])) >= 0",
+          "visualization": "stat",
+          "thresholds": [
+            {"value": 0, "color": "green"}
+          ],
+          "description": "GraphQL service availability"
+        },
+        {
+          "title": "Provider API Status",
+          "query": "sum(rate(api_request_count{service=\"patient-price-discovery-provider\"}[5m])) >= 0",
+          "visualization": "stat",
+          "thresholds": [
+            {"value": 0, "color": "green"}
+          ],
+          "description": "Provider API availability"
+        },
+        {
+          "title": "SSE Service Status",
+          "query": "sse_active_connections{service=\"patient-price-discovery-sse\"} >= 0",
+          "visualization": "stat",
+          "thresholds": [
+            {"value": 0, "color": "green"}
+          ],
+          "description": "SSE service availability"
+        }
+      ]
+    },
+    {
+      "title": "Request Overview",
+      "panels": [
+        {
+          "title": "Total Request Rate",
+          "query": "sum(rate(http_server_request_count[5m]))",
+          "visualization": "time_series",
+          "description": "Total requests per second across all services"
+        },
+        {
+          "title": "Error Budget (Last 24h)",
+          "query": "100 - ((sum(rate(http_server_request_count{http_status_code=~\"5..\"}[24h])) / sum(rate(http_server_request_count[24h]))) * 100)",
+          "visualization": "gauge",
+          "thresholds": [
+            {"value": 0, "color": "red"},
+            {"value": 95, "color": "yellow"},
+            {"value": 99, "color": "green"}
+          ],
+          "description": "Percentage of successful requests (SLO: 99.5%)"
+        },
+        {
+          "title": "Average Response Time",
+          "query": "sum(rate(http_server_request_duration_sum[5m])) / sum(rate(http_server_request_duration_count[5m]))",
+          "visualization": "gauge",
+          "description": "Average request latency across all services"
+        },
+        {
+          "title": "Request Throughput by Service",
+          "query": "sum by (service) (rate(http_server_request_count[5m]))",
+          "visualization": "pie",
+          "description": "Request distribution across services"
+        }
+      ]
+    },
+    {
+      "title": "Database Health Summary",
+      "panels": [
+        {
+          "title": "PostgreSQL Health",
+          "query": "pg_up",
+          "visualization": "stat",
+          "description": "PostgreSQL availability"
+        },
+        {
+          "title": "Redis Health",
+          "query": "redis_up",
+          "visualization": "stat",
+          "description": "Redis availability"
+        },
+        {
+          "title": "MongoDB Health",
+          "query": "mongodb_up",
+          "visualization": "stat",
+          "description": "MongoDB availability"
+        },
+        {
+          "title": "Total DB Query Rate",
+          "query": "sum(rate(db_query_duration_count[5m]))",
+          "visualization": "time_series",
+          "description": "Database queries per second"
+        }
+      ]
+    },
+    {
+      "title": "Resource Utilization",
+      "panels": [
+        {
+          "title": "CPU Usage by Service",
+          "query": "sum by (service) (rate(process_cpu_seconds_total[5m])) * 100",
+          "visualization": "time_series",
+          "description": "CPU usage percentage by service"
+        },
+        {
+          "title": "Memory Usage by Service (MB)",
+          "query": "sum by (service) (process_resident_memory_bytes) / 1024 / 1024",
+          "visualization": "time_series",
+          "description": "Memory usage in megabytes by service"
+        },
+        {
+          "title": "Network I/O",
+          "query": "sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m]))",
+          "visualization": "time_series",
+          "description": "Total network throughput"
+        },
+        {
+          "title": "Disk Usage (%)",
+          "query": "(1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100",
+          "visualization": "gauge",
+          "thresholds": [
+            {"value": 0, "color": "green"},
+            {"value": 70, "color": "yellow"},
+            {"value": 90, "color": "red"}
+          ],
+          "description": "Disk utilization percentage"
+        }
+      ]
+    },
+    {
+      "title": "Error Tracking",
+      "panels": [
+        {
+          "title": "5xx Errors",
+          "query": "sum by (service) (rate(http_server_request_count{http_status_code=~\"5..\"}[5m]))",
+          "visualization": "time_series",
+          "description": "Server errors per second by service"
+        },
+        {
+          "title": "4xx Errors",
+          "query": "sum by (service) (rate(http_server_request_count{http_status_code=~\"4..\"}[5m]))",
+          "visualization": "time_series",
+          "description": "Client errors per second by service"
+        },
+        {
+          "title": "Top Errors (Last Hour)",
+          "query": "topk(10, sum by (error_message) (rate(error_count[1h])))",
+          "visualization": "table",
+          "description": "Most frequent errors"
+        }
+      ]
+    },
+    {
+      "title": "Application Metrics",
+      "panels": [
+        {
+          "title": "Provider Sync Rate",
+          "query": "rate(provider_sync_count[5m])",
+          "visualization": "time_series",
+          "description": "Provider data sync operations per second"
+        },
+        {
+          "title": "Cache Hit Ratio",
+          "query": "(sum(rate(cache_hit_count[5m])) / (sum(rate(cache_hit_count[5m])) + sum(rate(cache_miss_count[5m])))) * 100",
+          "visualization": "gauge",
+          "description": "Overall cache hit ratio"
+        },
+        {
+          "title": "Active SSE Connections",
+          "query": "sse_active_connections",
+          "visualization": "stat",
+          "description": "Number of active SSE connections"
+        },
+        {
+          "title": "Tag Generation Rate",
+          "query": "rate(provider_tag_generation_count[5m])",
+          "visualization": "time_series",
+          "description": "AI tag generation operations per second"
+        }
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "name": "interval",
+      "type": "interval",
+      "default": "5m"
+    },
+    {
+      "name": "environment",
+      "type": "constant",
+      "default": "production"
+    }
+  ],
+  "refresh": "30s"
+}
+

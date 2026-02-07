@@ -1,0 +1,216 @@
+{
+  "title": "Patient Price Discovery - TypeScript Provider Service",
+  "description": "Monitoring dashboard for the TypeScript provider API service",
+  "tags": ["provider", "backend", "typescript", "nodejs"],
+  "layout": [
+    {
+      "title": "Service Health",
+      "panels": [
+        {
+          "title": "Request Rate (req/s)",
+          "query": "rate(api_request_count[5m])",
+          "visualization": "time_series",
+          "description": "API requests per second"
+        },
+        {
+          "title": "Error Rate (%)",
+          "query": "(sum(rate(api_request_count{status=~\"5..\"}[5m])) / sum(rate(api_request_count[5m]))) * 100",
+          "visualization": "time_series",
+          "description": "Percentage of 5xx errors"
+        },
+        {
+          "title": "Request Duration (p95)",
+          "query": "histogram_quantile(0.95, rate(api_request_duration_ms_bucket[5m]))",
+          "visualization": "time_series",
+          "description": "95th percentile request latency"
+        },
+        {
+          "title": "Active Requests",
+          "query": "api_active_requests",
+          "visualization": "stat",
+          "description": "Currently active requests"
+        }
+      ]
+    },
+    {
+      "title": "Provider Sync Operations",
+      "panels": [
+        {
+          "title": "Sync Rate",
+          "query": "rate(provider_sync_count{success=\"true\"}[5m])",
+          "visualization": "time_series",
+          "description": "Successful provider syncs per second"
+        },
+        {
+          "title": "Sync Failures",
+          "query": "rate(provider_sync_count{success=\"false\"}[5m])",
+          "visualization": "time_series",
+          "description": "Failed provider syncs per second"
+        },
+        {
+          "title": "Records Processed",
+          "query": "rate(provider_records_processed[5m])",
+          "visualization": "time_series",
+          "description": "Records processed per second"
+        },
+        {
+          "title": "Sync Duration (p95)",
+          "query": "histogram_quantile(0.95, rate(provider_sync_duration_ms_bucket[5m]))",
+          "visualization": "time_series",
+          "description": "95th percentile sync duration"
+        },
+        {
+          "title": "Data Freshness (days)",
+          "query": "provider_data_freshness_days",
+          "visualization": "gauge",
+          "thresholds": [
+            {"value": 0, "color": "green"},
+            {"value": 3, "color": "yellow"},
+            {"value": 7, "color": "red"}
+          ],
+          "description": "Days since last successful sync"
+        }
+      ]
+    },
+    {
+      "title": "LLM Tag Generation",
+      "panels": [
+        {
+          "title": "Tag Generation Rate",
+          "query": "rate(provider_tag_generation_count[5m])",
+          "visualization": "time_series",
+          "description": "Tag generation operations per second"
+        },
+        {
+          "title": "Tag Generation Errors",
+          "query": "rate(provider_tag_generation_error_count[5m])",
+          "visualization": "time_series",
+          "description": "Tag generation errors per second"
+        },
+        {
+          "title": "Tags Generated",
+          "query": "rate(provider_tags_generated[5m])",
+          "visualization": "time_series",
+          "description": "Total tags generated per second"
+        },
+        {
+          "title": "Tag Generation Duration (p95)",
+          "query": "histogram_quantile(0.95, rate(provider_tag_generation_duration_ms_bucket[5m]))",
+          "visualization": "time_series",
+          "description": "95th percentile tag generation latency"
+        },
+        {
+          "title": "Tag Coverage",
+          "query": "avg(provider_tag_coverage) * 100",
+          "visualization": "gauge",
+          "description": "Percentage of records with tags"
+        }
+      ]
+    },
+    {
+      "title": "Node.js Runtime Metrics",
+      "panels": [
+        {
+          "title": "Heap Memory Usage (MB)",
+          "query": "process_resident_memory_bytes{service=\"patient-price-discovery-provider\"} / 1024 / 1024",
+          "visualization": "time_series",
+          "description": "Heap memory usage in megabytes"
+        },
+        {
+          "title": "Event Loop Lag (ms)",
+          "query": "nodejs_eventloop_lag_seconds * 1000",
+          "visualization": "time_series",
+          "thresholds": [
+            {"value": 0, "color": "green"},
+            {"value": 100, "color": "yellow"},
+            {"value": 500, "color": "red"}
+          ],
+          "description": "Event loop lag in milliseconds"
+        },
+        {
+          "title": "Active Handles",
+          "query": "nodejs_active_handles",
+          "visualization": "time_series",
+          "description": "Number of active handles"
+        },
+        {
+          "title": "GC Duration",
+          "query": "rate(nodejs_gc_duration_seconds_sum[5m]) / rate(nodejs_gc_duration_seconds_count[5m])",
+          "visualization": "time_series",
+          "description": "Average garbage collection duration"
+        }
+      ]
+    },
+    {
+      "title": "Data Quality Metrics",
+      "panels": [
+        {
+          "title": "Records per Facility",
+          "query": "avg(provider_records_per_facility)",
+          "visualization": "stat",
+          "description": "Average records per facility"
+        },
+        {
+          "title": "Missing Fields",
+          "query": "sum by (field) (rate(provider_missing_field_count[5m]))",
+          "visualization": "table",
+          "description": "Missing required fields by type"
+        },
+        {
+          "title": "Price Distribution",
+          "query": "histogram_quantile(0.50, rate(provider_price_value_bucket[5m]))",
+          "visualization": "time_series",
+          "description": "Median price value"
+        },
+        {
+          "title": "Price Range",
+          "query": "avg(provider_price_range)",
+          "visualization": "stat",
+          "description": "Average price range per sync"
+        }
+      ]
+    },
+    {
+      "title": "Capacity Management",
+      "panels": [
+        {
+          "title": "Capacity Requests",
+          "query": "rate(provider_capacity_request_count[5m])",
+          "visualization": "time_series",
+          "description": "Capacity update requests per second"
+        },
+        {
+          "title": "Capacity Request Errors",
+          "query": "rate(provider_capacity_request_error_count[5m])",
+          "visualization": "time_series",
+          "description": "Capacity request errors per second"
+        },
+        {
+          "title": "Tokens Issued vs Consumed",
+          "query": "rate(provider_capacity_token_issued[5m]) - rate(provider_capacity_token_consumed[5m])",
+          "visualization": "time_series",
+          "description": "Capacity token balance"
+        },
+        {
+          "title": "Capacity Updates",
+          "query": "rate(provider_capacity_update_count{success=\"true\"}[5m])",
+          "visualization": "time_series",
+          "description": "Successful capacity updates per second"
+        }
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "name": "interval",
+      "type": "interval",
+      "default": "5m"
+    },
+    {
+      "name": "provider",
+      "type": "query",
+      "query": "label_values(provider_sync_count, provider)"
+    }
+  ]
+}
+

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/rs/zerolog/log"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
@@ -38,8 +38,21 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
+
+	// Initialize structured logging
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "production"
+	}
+	observability.InitLogger(cfg.OTEL.ServiceName+"-graphql", env)
+
+	log.Info().
+		Str("service", cfg.OTEL.ServiceName+"-graphql").
+		Str("version", cfg.OTEL.ServiceVersion).
+		Str("env", env).
+		Msg("Starting GraphQL Server")
 
 	// Set up context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,48 +68,54 @@ func main() {
 			cfg.OTEL.Endpoint,
 		)
 		if err != nil {
-			log.Printf("Warning: Failed to set up OpenTelemetry: %v", err)
+			log.Warn().Err(err).Msg("Failed to set up OpenTelemetry")
 		} else {
 			defer func() {
 				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer shutdownCancel()
 				if err := shutdown(shutdownCtx); err != nil {
-					log.Printf("Error shutting down OpenTelemetry: %v", err)
+					log.Error().Err(err).Msg("Error shutting down OpenTelemetry")
 				}
 			}()
-			log.Println("OpenTelemetry initialized successfully")
+			log.Info().Msg("OpenTelemetry initialized successfully")
 		}
+	}
+
+	// Initialize metrics
+	metrics, err := observability.InitMetrics()
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize metrics")
 	}
 
 	// Initialize database client
 	pgClient, err := postgres.NewClient(&cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to initialize PostgreSQL client: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize PostgreSQL client")
 	}
 	defer pgClient.Close()
-	log.Println("PostgreSQL client initialized successfully")
+	log.Info().Msg("PostgreSQL client initialized successfully")
 
 	// Initialize Redis client
 	redisClient, err := redis.NewClient(&cfg.Redis)
 	if err != nil {
-		log.Printf("Warning: Failed to initialize Redis client: %v", err)
+		log.Warn().Err(err).Msg("Failed to initialize Redis client")
 	} else {
 		defer redisClient.Close()
-		log.Println("Redis client initialized successfully")
+		log.Info().Msg("Redis client initialized successfully")
 	}
 
 	// Initialize Typesense client
 	typesenseClient, err := typesense.NewClient(&cfg.Typesense)
 	if err != nil {
-		log.Fatalf("Failed to initialize Typesense client: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize Typesense client")
 	}
-	log.Println("Typesense client initialized successfully")
+	log.Info().Msg("Typesense client initialized successfully")
 
 	// Initialize Provider API client
 	var providerClient providerapi.Client
 	if cfg.ProviderAPI.BaseURL != "" {
 		providerClient = providerapi.NewClient(cfg.ProviderAPI.BaseURL)
-		log.Println("Provider API client initialized successfully")
+		log.Info().Msg("Provider API client initialized successfully")
 	}
 
 	// Initialize adapters
@@ -107,10 +126,10 @@ func main() {
 	if redisClient != nil {
 		domainCacheProvider := cache.NewRedisAdapter(redisClient)
 		facilityDBAdapter = database.NewCachedFacilityAdapter(baseFacilityDBAdapter, domainCacheProvider)
-		log.Println("✓ GraphQL: Facility adapter wrapped with caching layer")
+		log.Info().Msg("GraphQL: Facility adapter wrapped with caching layer")
 	} else {
 		facilityDBAdapter = baseFacilityDBAdapter
-		log.Println("⚠ GraphQL: Facility adapter running without cache (Redis unavailable)")
+		log.Warn().Msg("GraphQL: Facility adapter running without cache (Redis unavailable)")
 	}
 
 	appointmentDBAdapter := database.NewAppointmentAdapter(pgClient)
@@ -133,7 +152,7 @@ func main() {
 			domainCacheProvider,
 		)
 		go warmingService.StartPeriodicWarming(ctx, 5*time.Minute)
-		log.Println("✓ GraphQL: Cache warming service started (refreshes every 5 minutes)")
+		log.Info().Msg("GraphQL: Cache warming service started (refreshes every 5 minutes)")
 	}
 
 	// Initialize GraphQL resolver with dependencies
@@ -194,9 +213,11 @@ func main() {
 	// Apply middleware: Performance -> Logging -> CORS -> DataLoader
 	httpHandler := middleware.Compression( // Apply gzip compression
 		middleware.CacheControl( // Apply cache headers
-			middleware.LoggingMiddleware(
-				middleware.CORSMiddleware(
-					loaderMiddleware(srv),
+			middleware.ObservabilityMiddleware(metrics)(
+				middleware.LoggingMiddleware(
+					middleware.CORSMiddleware(
+						loaderMiddleware(srv),
+					),
 				),
 			),
 		),
@@ -208,7 +229,7 @@ func main() {
 	// Playground endpoint (dev only)
 	if os.Getenv("ENV") != "production" {
 		mux.Handle("/playground", playground.Handler("GraphQL Playground", "/graphql"))
-		log.Println("🚀 GraphQL Playground available at http://localhost:8081/playground")
+		log.Info().Msg("GraphQL Playground available at http://localhost:8081/playground")
 	}
 
 	// Create HTTP server
@@ -224,9 +245,9 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("🚀 GraphQL server starting on %s", serverAddr)
+		log.Info().Str("address", serverAddr).Msg("GraphQL server starting")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
+			log.Fatal().Err(err).Msg("Server failed to start")
 		}
 	}()
 
@@ -235,15 +256,15 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("GraphQL server shutting down...")
+	log.Info().Msg("GraphQL server shutting down...")
 
 	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Error during server shutdown: %v", err)
+		log.Error().Err(err).Msg("Error during server shutdown")
 	}
 
-	log.Println("GraphQL server stopped")
+	log.Info().Msg("GraphQL server stopped")
 }

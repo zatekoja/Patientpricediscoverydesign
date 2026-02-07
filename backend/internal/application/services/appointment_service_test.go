@@ -65,14 +65,66 @@ func (m *MockAppointmentProvider) CancelAppointment(ctx context.Context, externa
 	return args.Error(0)
 }
 
+type MockFacilityRepository struct {
+	mock.Mock
+}
+
+func (m *MockFacilityRepository) Create(ctx context.Context, facility *entities.Facility) error {
+	args := m.Called(ctx, facility)
+	return args.Error(0)
+}
+
+func (m *MockFacilityRepository) GetByID(ctx context.Context, id string) (*entities.Facility, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entities.Facility), args.Error(1)
+}
+
+func (m *MockFacilityRepository) GetByIDs(ctx context.Context, ids []string) ([]*entities.Facility, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entities.Facility), args.Error(1)
+}
+
+func (m *MockFacilityRepository) Update(ctx context.Context, facility *entities.Facility) error {
+	args := m.Called(ctx, facility)
+	return args.Error(0)
+}
+
+func (m *MockFacilityRepository) Delete(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockFacilityRepository) List(ctx context.Context, filter repositories.FacilityFilter) ([]*entities.Facility, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entities.Facility), args.Error(1)
+}
+
+func (m *MockFacilityRepository) Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error) {
+	args := m.Called(ctx, params)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entities.Facility), args.Error(1)
+}
+
 // Tests
 
 func TestAppointmentService_BookAppointment(t *testing.T) {
 	t.Run("successfully books appointment", func(t *testing.T) {
 		// Arrange
 		repo := new(MockAppointmentRepository)
+		facilityRepo := new(MockFacilityRepository)
 		provider := new(MockAppointmentProvider)
-		service := services.NewAppointmentService(repo, provider)
+		service := services.NewAppointmentService(repo, facilityRepo, provider, true)
 
 		appointment := &entities.Appointment{
 			FacilityID:  "facility-1",
@@ -102,12 +154,13 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 	t.Run("fails when provider fails", func(t *testing.T) {
 		// Arrange
 		repo := new(MockAppointmentRepository)
+		facilityRepo := new(MockFacilityRepository)
 		provider := new(MockAppointmentProvider)
-		service := services.NewAppointmentService(repo, provider)
+		service := services.NewAppointmentService(repo, facilityRepo, provider, true)
 
 		appointment := &entities.Appointment{
-			FacilityID: "facility-1",
-            ScheduledAt: time.Now().Add(24 * time.Hour),
+			FacilityID:  "facility-1",
+			ScheduledAt: time.Now().Add(24 * time.Hour),
 		}
 
 		provider.On("CreateAppointment", mock.Anything, appointment).Return("", "", errors.New("provider error"))

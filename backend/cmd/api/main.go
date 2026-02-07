@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	redislib "github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/events"
@@ -32,17 +33,46 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/typesense"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/secrets"
 )
 
 func main() {
+
+	// Load secrets from Vault (optional)
+	vaultCfg := secrets.LoadVaultConfigFromEnv(os.Getenv("VAULT_API_PATH"))
+	if vaultCfg.Enabled {
+		vaultResult, err := secrets.ApplyVaultSecrets(context.Background(), vaultCfg)
+		if err != nil {
+			log.Warn().Err(err).Msg("Vault secrets not loaded")
+		} else {
+			log.Info().
+				Str("path", vaultResult.Path).
+				Int("loaded", vaultResult.Loaded).
+				Int("skipped", vaultResult.Skipped).
+				Msg("Vault secrets loaded")
+		}
+	}
 
 	// Load configuration
 
 	cfg, err := config.Load()
 
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
+
+	// Initialize structured logging
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "production"
+	}
+	observability.InitLogger(cfg.OTEL.ServiceName, env)
+
+	log.Info().
+		Str("service", cfg.OTEL.ServiceName).
+		Str("version", cfg.OTEL.ServiceVersion).
+		Str("env", env).
+		Msg("Starting Patient Price Discovery API")
 
 	// Set up context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -58,41 +88,41 @@ func main() {
 			cfg.OTEL.Endpoint,
 		)
 		if err != nil {
-			log.Printf("Warning: Failed to set up OpenTelemetry: %v", err)
+			log.Warn().Err(err).Msg("Failed to set up OpenTelemetry")
 		} else {
 			defer func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				if err := shutdown(ctx); err != nil {
-					log.Printf("Error shutting down OpenTelemetry: %v", err)
+					log.Error().Err(err).Msg("Error shutting down OpenTelemetry")
 				}
 			}()
-			log.Println("OpenTelemetry initialized successfully")
+			log.Info().Msg("OpenTelemetry initialized successfully")
 		}
 	}
 
 	// Initialize metrics
 	metrics, err := observability.InitMetrics()
 	if err != nil {
-		log.Fatalf("Failed to initialize metrics: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize metrics")
 	}
 
 	// Initialize database client
 	pgClient, err := postgres.NewClient(&cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to initialize PostgreSQL client: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize PostgreSQL client")
 	}
 	defer pgClient.Close()
-	log.Println("PostgreSQL client initialized successfully")
+	log.Info().Msg("PostgreSQL client initialized successfully")
 
 	// Initialize Redis client
 	redisClient, err := redis.NewClient(&cfg.Redis)
 	if err != nil {
-		log.Printf("Warning: Failed to initialize Redis client: %v", err)
+		log.Warn().Err(err).Msg("Failed to initialize Redis client")
 		// Continue without Redis - the application can work without caching
 	} else {
 		defer redisClient.Close()
-		log.Println("Redis client initialized successfully")
+		log.Info().Msg("Redis client initialized successfully")
 	}
 
 	var cacheProvider providers.CacheProvider
@@ -103,16 +133,16 @@ func main() {
 	// Initialize Typesense client
 	typesenseClient, err := typesense.NewClient(&cfg.Typesense)
 	if err != nil {
-		log.Printf("Warning: Failed to initialize Typesense client: %v", err)
+		log.Warn().Err(err).Msg("Failed to initialize Typesense client")
 	} else {
-		log.Println("Typesense client initialized successfully")
+		log.Info().Msg("Typesense client initialized successfully")
 	}
 
 	// Initialize Provider API client
 	var providerClient providerapi.Client
 	if cfg.ProviderAPI.BaseURL != "" {
 		providerClient = providerapi.NewClient(cfg.ProviderAPI.BaseURL)
-		log.Println("Provider API client initialized successfully")
+		log.Info().Msg("Provider API client initialized successfully")
 	}
 
 	// Initialize adapters (facility adapter will be created after cache provider)
@@ -135,7 +165,7 @@ func main() {
 
 		if err := adapter.InitSchema(context.Background()); err != nil {
 
-			log.Printf("Warning: Failed to init Typesense schema: %v", err)
+			log.Warn().Err(err).Msg("Failed to init Typesense schema")
 
 		}
 
@@ -148,26 +178,26 @@ func main() {
 	var facilityAdapter repositories.FacilityRepository
 	if cacheProvider != nil {
 		facilityAdapter = database.NewCachedFacilityAdapter(baseFacilityAdapter, cacheProvider)
-		log.Println("✓ Facility adapter wrapped with caching layer")
+		log.Info().Msg("Facility adapter wrapped with caching layer")
 	} else {
 		facilityAdapter = baseFacilityAdapter
-		log.Println("⚠ Facility adapter running without cache (Redis unavailable)")
+		log.Warn().Msg("Facility adapter running without cache (Redis unavailable)")
 	}
 
 	// Initialize event bus for real-time updates
 	var eventBus providers.EventBus
 	if redisClient != nil {
 		eventBus = events.NewRedisEventBus(redisClient)
-		log.Println("Event bus initialized successfully")
+		log.Info().Msg("Event bus initialized successfully")
 	} else {
-		log.Println("Event bus disabled (Redis not available)")
+		log.Warn().Msg("Event bus disabled (Redis not available)")
 	}
 
 	var geolocationProvider providers.GeolocationProvider
 	switch cfg.Geolocation.Provider {
 	case "google":
 		if cfg.Geolocation.APIKey == "" {
-			log.Println("Warning: GEOLOCATION_API_KEY is not set; using mock geolocation provider")
+			log.Warn().Msg("GEOLOCATION_API_KEY is not set; using mock geolocation provider")
 			geolocationProvider = geolocation.NewMockGeolocationProvider()
 		} else {
 			geolocationProvider = geolocation.NewGoogleGeolocationProvider(cfg.Geolocation.APIKey, cacheProvider)
@@ -176,15 +206,24 @@ func main() {
 		geolocationProvider = geolocation.NewMockGeolocationProvider()
 	}
 
-	appointmentProvider := scheduling.NewCalendlyAdapter(os.Getenv("CALENDLY_API_KEY"))
+	calendlyAPIKey := strings.TrimSpace(os.Getenv("CALENDLY_API_KEY"))
+	allowMockScheduling := strings.EqualFold(os.Getenv("ALLOW_MOCK_SCHEDULING"), "true") || calendlyAPIKey == ""
+	if calendlyAPIKey == "" {
+		log.Warn().Msg("CALENDLY_API_KEY is not set; using mock scheduling provider")
+	}
+	appointmentProvider := scheduling.NewAppointmentProvider(scheduling.AppointmentProviderConfig{
+		CalendlyAPIKey:         calendlyAPIKey,
+		AllowMockFallback:      allowMockScheduling,
+		AllowMissingExternalID: allowMockScheduling,
+	})
 
 	var enrichmentProvider providers.ProcedureEnrichmentProvider
 	if cfg.OpenAI.APIKey == "" {
-		log.Println("Warning: OPENAI_API_KEY is not set; procedure enrichment disabled")
+		log.Warn().Msg("OPENAI_API_KEY is not set; procedure enrichment disabled")
 	} else {
 		openaiClient, err := openai.NewClient(&cfg.OpenAI)
 		if err != nil {
-			log.Printf("Warning: Failed to initialize OpenAI client: %v", err)
+			log.Warn().Err(err).Msg("Failed to initialize OpenAI client")
 		} else {
 			enrichmentProvider = openaiClient
 		}
@@ -203,7 +242,7 @@ func main() {
 	// Set event bus for real-time updates
 	if eventBus != nil {
 		facilityService.SetEventBus(eventBus)
-		log.Println("Event bus configured for facility service")
+		log.Info().Msg("Event bus configured for facility service")
 	}
 
 	// Initialize cache invalidation service
@@ -211,13 +250,13 @@ func main() {
 	if cacheProvider != nil && eventBus != nil {
 		cacheInvalidationService = services.NewCacheInvalidationService(cacheProvider, eventBus)
 		if err := cacheInvalidationService.Start(); err != nil {
-			log.Printf("Warning: Failed to start cache invalidation service: %v", err)
+			log.Warn().Err(err).Msg("Failed to start cache invalidation service")
 		} else {
-			log.Println("Cache invalidation service started successfully")
+			log.Info().Msg("Cache invalidation service started successfully")
 		}
 	}
 
-	appointmentService := services.NewAppointmentService(appointmentAdapter, appointmentProvider)
+	appointmentService := services.NewAppointmentService(appointmentAdapter, facilityAdapter, appointmentProvider, allowMockScheduling)
 	feedbackService := services.NewFeedbackService(feedbackAdapter)
 	procedureEnrichmentService := services.NewProcedureEnrichmentService(
 		procedureEnrichmentAdapter,
@@ -232,7 +271,7 @@ func main() {
 			cacheProvider,
 		)
 		go warmingService.StartPeriodicWarming(ctx, 5*time.Minute)
-		log.Println("✓ Cache warming service started (refreshes every 5 minutes)")
+		log.Info().Msg("Cache warming service started (refreshes every 5 minutes)")
 	}
 
 	// Initialize handlers
@@ -263,6 +302,8 @@ func main() {
 		facilityService,
 		procedureAdapter,
 		facilityProcedureAdapter,
+		geolocationProvider,
+		cacheProvider,
 		pageSize,
 	)
 	idempotencyTTL := 24 * time.Hour
@@ -281,7 +322,7 @@ func main() {
 	var cacheMiddleware *middleware.CacheMiddleware
 	if cacheProvider != nil {
 		cacheMiddleware = middleware.NewCacheMiddleware(cacheProvider)
-		log.Println("Cache middleware initialized successfully")
+		log.Info().Msg("Cache middleware initialized successfully")
 	}
 
 	// Set up router
@@ -314,9 +355,9 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Server starting on %s", serverAddr)
+		log.Info().Str("address", serverAddr).Msg("Server starting")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
+			log.Fatal().Err(err).Msg("Server failed to start")
 		}
 	}()
 
@@ -329,13 +370,72 @@ func main() {
 			for attempt := 1; attempt <= 5; attempt++ {
 				summary, err := ingestionService.SyncCurrentData(ingestCtx, providerID)
 				if err == nil {
-					log.Printf("Provider ingestion completed: %+v", summary)
+					log.Info().
+						Str("provider_id", providerID).
+						Int("facilities_created", summary.FacilitiesCreated).
+						Int("procedures_created", summary.ProceduresCreated).
+						Msg("Provider ingestion completed")
 					return
 				}
-				log.Printf("Provider ingestion failed (attempt %d): %v", attempt, err)
+				log.Warn().
+					Err(err).
+					Int("attempt", attempt).
+					Str("provider_id", providerID).
+					Msg("Provider ingestion failed")
 				time.Sleep(5 * time.Second)
 			}
 		}()
+	}
+
+	// Optional: periodic provider ingestion
+	ingestIntervalMinutes := 0
+	if value := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_INTERVAL_MINUTES")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			ingestIntervalMinutes = parsed
+		}
+	}
+	if ingestIntervalMinutes > 0 && providerClient != nil {
+		providerID := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_PROVIDER_ID"))
+		timeoutSeconds := 120
+		if value := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_TIMEOUT_SECONDS")); value != "" {
+			if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+				timeoutSeconds = parsed
+			}
+		}
+
+		var ingestRunning atomic.Bool
+		interval := time.Duration(ingestIntervalMinutes) * time.Minute
+		ticker := time.NewTicker(interval)
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					ticker.Stop()
+					return
+				case <-ticker.C:
+					if !ingestRunning.CompareAndSwap(false, true) {
+						log.Warn().Msg("Provider ingestion already running; skipping scheduled run")
+						continue
+					}
+					go func() {
+						defer ingestRunning.Store(false)
+						ingestCtx, ingestCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+						defer ingestCancel()
+						summary, err := ingestionService.SyncCurrentData(ingestCtx, providerID)
+						if err != nil {
+							log.Error().Err(err).Str("provider_id", providerID).Msg("Provider ingestion failed")
+							return
+						}
+						log.Info().
+							Str("provider_id", providerID).
+							Int("facilities_created", summary.FacilitiesCreated).
+							Int("procedures_created", summary.ProceduresCreated).
+							Msg("Provider ingestion completed")
+					}()
+				}
+			}
+		}()
+		log.Info().Int("interval_minutes", ingestIntervalMinutes).Msg("Provider ingestion scheduled")
 	}
 
 	// Wait for interrupt signal for graceful shutdown
@@ -343,20 +443,20 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Server shutting down...")
+	log.Info().Msg("Server shutting down...")
 
 	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Error during server shutdown: %v", err)
+		log.Error().Err(err).Msg("Error during server shutdown")
 	}
 
 	// Close event bus
 	if eventBus != nil {
 		if err := eventBus.Close(); err != nil {
-			log.Printf("Error closing event bus: %v", err)
+			log.Error().Err(err).Msg("Error closing event bus")
 		}
 	}
 
@@ -365,7 +465,7 @@ func main() {
 		cacheInvalidationService.Stop()
 	}
 
-	log.Println("Server stopped")
+	log.Info().Msg("Server stopped")
 
 	// Suppress unused variable warnings (would be used in production)
 	_ = geolocationProvider

@@ -122,6 +122,59 @@ services:
       timeout: 5s
       retries: 5
 
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: ppd_vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    command: "server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: ppd_vault_init
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    volumes:
+      - ../vault/init:/vault/init:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "for i in 1 2 3 4 5; do vault status >/dev/null 2>&1 && break; sleep 1; done;
+       vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
+       vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
+       exit 0"
+    restart: "no"
+
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: ppd_vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    command: "server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Typesense for search
   typesense:
     image: typesense/typesense:27.1
@@ -163,9 +216,24 @@ services:
       - PROVIDER_RUN_INITIAL_SYNC=true
       - PRICE_LIST_CURRENCY=NGN
       - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
+      - VAULT_ENABLED=${VAULT_ENABLED:-false}
+      - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN:-root}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_MOUNT=${VAULT_MOUNT:-secret}
+      - VAULT_PROVIDER_PATH=${VAULT_PROVIDER_PATH:-patient-price-discovery/provider}
+      - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
+      - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
+      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-false}
     depends_on:
-      - mongo
-      - signoz-otel-collector
+      mongo:
+        condition: service_healthy
+      signoz-otel-collector:
+        condition: service_started
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # SigNoz for observability (replaces OTEL collector)
@@ -256,8 +324,21 @@ services:
       - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
       - PROVIDER_INGEST_ON_START=true
       - PROVIDER_INGEST_PROVIDER_ID=file_price_list
+      - PROVIDER_INGEST_INTERVAL_MINUTES=60
+      - PROVIDER_INGEST_TIMEOUT_SECONDS=180
       - GEOLOCATION_PROVIDER=google
       - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - VAULT_ENABLED=${VAULT_ENABLED:-false}
+      - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN:-root}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_MOUNT=${VAULT_MOUNT:-secret}
+      - VAULT_API_PATH=${VAULT_API_PATH:-patient-price-discovery/api}
+      - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
+      - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
+      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-false}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
     depends_on:
@@ -269,6 +350,10 @@ services:
         condition: service_healthy
       provider-api:
         condition: service_started
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   sse:

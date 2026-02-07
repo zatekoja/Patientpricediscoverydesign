@@ -65,6 +65,42 @@ services:
       timeout: 5s
       retries: 5
 
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: ppd_vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    command: "server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: ppd_vault_init
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    volumes:
+      - ./vault/init:/vault/init:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "for i in 1 2 3 4 5; do vault status >/dev/null 2>&1 && break; sleep 1; done;
+       vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
+       vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
+       exit 0"
+    restart: "no"
+
   # ==========================================
   # Application Services
   # ==========================================
@@ -91,10 +127,21 @@ services:
       - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
       - PROVIDER_INGEST_ON_START=true
       - PROVIDER_INGEST_PROVIDER_ID=file_price_list
+      - PROVIDER_INGEST_INTERVAL_MINUTES=60
+      - PROVIDER_INGEST_TIMEOUT_SECONDS=180
       - GEOLOCATION_PROVIDER=google
       - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - VAULT_ENABLED=${VAULT_ENABLED:-false}
+      - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN:-root}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_MOUNT=${VAULT_MOUNT:-secret}
+      - VAULT_API_PATH=${VAULT_API_PATH:-patient-price-discovery/api}
+      - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
+      - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
+      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-false}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
     depends_on:
@@ -104,6 +151,10 @@ services:
         condition: service_healthy
       provider-api:
         condition: service_started
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   provider-api:
@@ -128,9 +179,22 @@ services:
       - PROVIDER_RUN_INITIAL_SYNC=true
       - PRICE_LIST_CURRENCY=NGN
       - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
+      - VAULT_ENABLED=${VAULT_ENABLED:-false}
+      - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN:-root}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_MOUNT=${VAULT_MOUNT:-secret}
+      - VAULT_PROVIDER_PATH=${VAULT_PROVIDER_PATH:-patient-price-discovery/provider}
+      - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
+      - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
+      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-false}
     depends_on:
-      - mongo
-      - signoz-otel-collector
+      mongo:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   sse:
@@ -228,10 +292,18 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # Observability (SigNoz)
+  # Observability (SigNoz v0.39.0 Fixed)
   # ==========================================
+  zookeeper:
+    image: zookeeper:3.7.0
+    container_name: ppd_zookeeper
+    environment:
+      - ZOO_SERVER_ID=1
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    restart: unless-stopped
+
   clickhouse:
-    image: clickhouse/clickhouse-server:23.11-alpine
+    image: clickhouse/clickhouse-server:24.1-alpine
     container_name: ppd_clickhouse
     environment:
       CLICKHOUSE_DB: signoz_metrics
@@ -242,27 +314,45 @@ services:
       - "8123:8123"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      - ./vendor/signoz/clickhouse-zookeeper.xml:/etc/clickhouse-server/config.d/zookeeper.xml:ro
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      test: ["CMD", "wget", "--spider", "-q", "127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    depends_on:
+      - zookeeper
+
+  signoz-schema-migrator:
+    image: signoz/signoz-schema-migrator:0.88.11
+    container_name: ppd_signoz_schema_migrator
+    command:
+      - "sync"
+      - "--dsn=tcp://clickhouse:9000?username=admin&password=admin"
+      - "--cluster-name=cluster"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
 
   signoz-otel-collector:
     image: signoz/signoz-otel-collector:0.88.11
     container_name: ppd_signoz_otel_collector
     command: ["--config=/etc/otel-collector-config.yaml"]
     ports:
-      - "4317:4317"   # OTLP gRPC receiver
-      - "4318:4318"   # OTLP HTTP receiver
+      - "4317:4317"
+      - "4318:4318"
     environment:
       - OTEL_RESOURCE_ATTRIBUTES=service.name=patient-price-discovery
+      - SIGNOZ_CLUSTER=cluster
     depends_on:
-      - clickhouse
+      clickhouse:
+        condition: service_healthy
+      signoz-schema-migrator:
+        condition: service_completed_successfully
     volumes:
       - ./backend/signoz-otel-collector-config.yaml:/etc/otel-collector-config.yaml
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "localhost:13133"]
+      test: ["CMD", "wget", "--spider", "-q", "127.0.0.1:13133"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -270,15 +360,20 @@ services:
   signoz-query-service:
     image: signoz/query-service:0.39.0
     container_name: ppd_signoz_query_service
-    command: ["-config=/root/config/prometheus.yml"]
+    command: ["-config=/root/config/prometheus.yml", "-storage=clickhouse"]
     ports:
-      - "8888:8080" # Changed from 8080 to 8888 to avoid conflict with backend
+      - "8888:8080"
     environment:
-      - ClickHouseUrl=tcp://clickhouse:9000
+      - ClickHouseUrl=tcp://admin:admin@clickhouse:9000
+      - STORAGE_TYPE=clickhouse
+      - SIGNOZ_CLUSTER=cluster
     depends_on:
-      - clickhouse
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - signoz_data:/var/lib/signoz
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "localhost:8080/api/v1/version"]
+      test: ["CMD", "wget", "--spider", "-q", "127.0.0.1:8080/api/v1/version"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -293,9 +388,66 @@ services:
     depends_on:
       - signoz-query-service
 
+  # ==========================================
+  # Log Collection (Fluent Bit)
+  # ==========================================
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: ppd_fluent_bit
+    volumes:
+      - ./backend/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./backend/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ./backend/enrich.lua:/fluent-bit/etc/enrich.lua:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - signoz-otel-collector
+    restart: unless-stopped
+
+  # ==========================================
+  # Database Metrics Exporters
+  # ==========================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: ppd_postgres_exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/patient_price_discovery?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.56.0
+    container_name: ppd_redis_exporter
+    environment:
+      REDIS_ADDR: "redis:6379"
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.40
+    container_name: ppd_mongodb_exporter
+    command:
+      - '--mongodb.uri=mongodb://mongo:27017'
+      - '--collect-all'
+    ports:
+      - "9216:9216"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
   typesense_data:
   mongo_data:
   clickhouse_data:
+  signoz_data:

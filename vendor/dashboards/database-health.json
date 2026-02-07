@@ -1,0 +1,166 @@
+{
+  "title": "Patient Price Discovery - Database Health",
+  "description": "Monitoring dashboard for PostgreSQL, Redis, MongoDB, and Typesense",
+  "tags": ["database", "infrastructure", "postgres", "redis", "mongodb"],
+  "layout": [
+    {
+      "title": "PostgreSQL",
+      "panels": [
+        {
+          "title": "Active Connections",
+          "query": "pg_stat_activity_count",
+          "visualization": "stat",
+          "description": "Current active PostgreSQL connections"
+        },
+        {
+          "title": "Transaction Rate",
+          "query": "rate(pg_stat_database_xact_commit[5m]) + rate(pg_stat_database_xact_rollback[5m])",
+          "visualization": "time_series",
+          "description": "Transactions per second"
+        },
+        {
+          "title": "Database Size (GB)",
+          "query": "pg_database_size_bytes / 1024 / 1024 / 1024",
+          "visualization": "gauge",
+          "description": "Total database size in gigabytes"
+        },
+        {
+          "title": "Slow Queries",
+          "query": "pg_stat_statements_mean_exec_time_seconds > 1",
+          "visualization": "table",
+          "description": "Queries taking more than 1 second"
+        },
+        {
+          "title": "Cache Hit Ratio (%)",
+          "query": "(sum(pg_stat_database_blks_hit) / (sum(pg_stat_database_blks_hit) + sum(pg_stat_database_blks_read))) * 100",
+          "visualization": "gauge",
+          "description": "PostgreSQL cache hit ratio"
+        },
+        {
+          "title": "Deadlocks",
+          "query": "rate(pg_stat_database_deadlocks[5m])",
+          "visualization": "time_series",
+          "description": "Deadlock rate per second"
+        }
+      ]
+    },
+    {
+      "title": "Redis",
+      "panels": [
+        {
+          "title": "Connected Clients",
+          "query": "redis_connected_clients",
+          "visualization": "stat",
+          "description": "Number of connected Redis clients"
+        },
+        {
+          "title": "Operations per Second",
+          "query": "rate(redis_commands_processed_total[5m])",
+          "visualization": "time_series",
+          "description": "Redis commands per second"
+        },
+        {
+          "title": "Memory Usage (MB)",
+          "query": "redis_memory_used_bytes / 1024 / 1024",
+          "visualization": "gauge",
+          "description": "Redis memory usage in megabytes"
+        },
+        {
+          "title": "Hit Rate (%)",
+          "query": "(redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total)) * 100",
+          "visualization": "gauge",
+          "description": "Redis cache hit rate"
+        },
+        {
+          "title": "Evicted Keys",
+          "query": "rate(redis_evicted_keys_total[5m])",
+          "visualization": "time_series",
+          "description": "Keys evicted per second"
+        },
+        {
+          "title": "Key Count",
+          "query": "redis_db_keys",
+          "visualization": "time_series",
+          "description": "Total number of keys"
+        }
+      ]
+    },
+    {
+      "title": "MongoDB",
+      "panels": [
+        {
+          "title": "Active Connections",
+          "query": "mongodb_connections{state=\"current\"}",
+          "visualization": "stat",
+          "description": "Current active MongoDB connections"
+        },
+        {
+          "title": "Operations per Second",
+          "query": "rate(mongodb_op_counters_total[5m])",
+          "visualization": "time_series",
+          "description": "MongoDB operations per second"
+        },
+        {
+          "title": "Query Execution Time (p95)",
+          "query": "histogram_quantile(0.95, rate(mongodb_mongod_metrics_query_executor_scanned_bucket[5m]))",
+          "visualization": "time_series",
+          "description": "95th percentile query execution time"
+        },
+        {
+          "title": "Document Operations",
+          "query": "sum by (type) (rate(mongodb_mongod_metrics_document_total[5m]))",
+          "visualization": "stacked_area",
+          "description": "Document operations by type (insert/update/delete)"
+        },
+        {
+          "title": "Memory Usage (MB)",
+          "query": "mongodb_memory{type=\"resident\"} / 1024 / 1024",
+          "visualization": "gauge",
+          "description": "MongoDB resident memory in megabytes"
+        },
+        {
+          "title": "Collection Count",
+          "query": "mongodb_mongod_db_collections_total",
+          "visualization": "stat",
+          "description": "Total number of collections"
+        }
+      ]
+    },
+    {
+      "title": "System Resources",
+      "panels": [
+        {
+          "title": "CPU Usage (%)",
+          "query": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "visualization": "time_series",
+          "description": "CPU utilization percentage"
+        },
+        {
+          "title": "Disk I/O",
+          "query": "rate(node_disk_io_time_seconds_total[5m])",
+          "visualization": "time_series",
+          "description": "Disk I/O time"
+        },
+        {
+          "title": "Network Traffic",
+          "query": "rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])",
+          "visualization": "time_series",
+          "description": "Network bytes per second"
+        }
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "name": "interval",
+      "type": "interval",
+      "default": "5m"
+    },
+    {
+      "name": "database",
+      "type": "query",
+      "query": "label_values(pg_database_size_bytes, datname)"
+    }
+  ]
+}
+

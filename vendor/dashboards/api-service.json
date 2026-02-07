@@ -1,0 +1,119 @@
+{
+  "title": "Patient Price Discovery - Go Services",
+  "description": "Monitoring dashboard for Go-based services (API, GraphQL, SSE)",
+  "tags": ["api", "graphql", "sse", "go", "golang"],
+  "layout": [
+    {
+      "title": "Service Health",
+      "panels": [
+        {
+          "title": "Request Rate (req/s)",
+          "query": "sum(rate(http_server_request_count{service=\"$service\"}[5m]))",
+          "visualization": "time_series",
+          "description": "HTTP requests per second"
+        },
+        {
+          "title": "Error Rate (%)",
+          "query": "(sum(rate(http_server_request_count{service=\"$service\", http_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_count{service=\"$service\"}[5m]))) * 100",
+          "visualization": "time_series",
+          "description": "Percentage of 5xx errors"
+        },
+        {
+          "title": "Request Duration (p95)",
+          "query": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{service=\"$service\"}[5m])))",
+          "visualization": "time_series",
+          "description": "95th percentile request latency"
+        },
+        {
+          "title": "Active Requests",
+          "query": "http_server_active_requests{service=\"$service\"}",
+          "visualization": "stat",
+          "description": "Currently active requests"
+        }
+      ]
+    },
+    {
+      "title": "Database Performance",
+      "panels": [
+        {
+          "title": "DB Query Rate",
+          "query": "sum(rate(db_query_duration_count{service=\"$service\"}[5m]))",
+          "visualization": "time_series",
+          "description": "Database queries per second"
+        },
+        {
+          "title": "DB Query Duration (p95)",
+          "query": "histogram_quantile(0.95, sum by (le) (rate(db_query_duration_bucket{service=\"$service\"}[5m])))",
+          "visualization": "time_series",
+          "description": "95th percentile DB query latency"
+        },
+        {
+          "title": "Cache Hit Ratio (%)",
+          "query": "(sum(rate(cache_hit_count{service=\"$service\"}[5m])) / (sum(rate(cache_hit_count{service=\"$service\"}[5m])) + sum(rate(cache_miss_count{service=\"$service\"}[5m])))) * 100",
+          "visualization": "gauge",
+          "description": "API cache hit ratio"
+        }
+      ]
+    },
+    {
+      "title": "Go Runtime Metrics",
+      "panels": [
+        {
+          "title": "Allocated Memory (MB)",
+          "query": "go_memstats_alloc_bytes{service=\"$service\"} / 1024 / 1024",
+          "visualization": "time_series",
+          "description": "Current allocated heap memory"
+        },
+        {
+          "title": "Goroutines",
+          "query": "go_goroutines{service=\"$service\"}",
+          "visualization": "time_series",
+          "description": "Number of active goroutines"
+        },
+        {
+          "title": "GC Duration (p95)",
+          "query": "histogram_quantile(0.95, sum by (le) (rate(go_gc_duration_seconds_bucket{service=\"$service\"}[5m])))",
+          "visualization": "time_series",
+          "description": "95th percentile GC pause duration"
+        },
+        {
+          "title": "Heap Objects",
+          "query": "go_memstats_heap_objects{service=\"$service\"}",
+          "visualization": "time_series",
+          "description": "Number of heap objects"
+        }
+      ]
+    },
+    {
+      "title": "Endpoint Performance",
+      "panels": [
+        {
+          "title": "Top 10 Slowest Endpoints",
+          "query": "topk(10, sum by (http_route) (rate(http_server_request_duration_sum{service=\"$service\"}[5m]) / rate(http_server_request_duration_count{service=\"$service\"}[5m])))",
+          "visualization": "table",
+          "description": "Endpoints with highest average latency"
+        },
+        {
+          "title": "Request Distribution by Route",
+          "query": "sum by (http_route) (rate(http_server_request_count{service=\"$service\"}[5m]))",
+          "visualization": "pie",
+          "description": "Request distribution across API routes"
+        }
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "name": "service",
+      "type": "query",
+      "query": "label_values(http_server_request_count, service)",
+      "default": "patient-price-discovery"
+    },
+    {
+      "name": "interval",
+      "type": "interval",
+      "default": "5m"
+    }
+  ],
+  "refresh": "30s"
+}

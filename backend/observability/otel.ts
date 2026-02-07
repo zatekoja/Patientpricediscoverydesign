@@ -5,6 +5,8 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { HostMetrics } from '@opentelemetry/host-metrics';
+import logger from './logger';
 
 const globalKey = Symbol.for('ppd.otel.initialized');
 const globalState = globalThis as unknown as { [key: symbol]: boolean };
@@ -61,16 +63,26 @@ if (otelEnabled && !globalState[globalKey]) {
 
   Promise.resolve(sdk.start())
     .then(() => {
-      console.log('[otel] tracing/metrics initialized');
+      logger.info('[otel] tracing/metrics initialized');
+
+      // Start host metrics collection for Node.js runtime metrics
+      if (metricReader) {
+        const hostMetrics = new HostMetrics({
+          meterProvider: sdk['_meterProvider'],
+          name: serviceName,
+        });
+        hostMetrics.start();
+        logger.info('[otel] Node.js runtime metrics collection started');
+      }
     })
     .catch((error: unknown) => {
-      console.error('[otel] failed to start', error);
+      logger.error({ error }, '[otel] failed to start');
     });
 
   const shutdown = () => {
     Promise.resolve(sdk.shutdown())
-      .then(() => console.log('[otel] shutdown complete'))
-      .catch((error: unknown) => console.error('[otel] shutdown error', error));
+      .then(() => logger.info('[otel] shutdown complete'))
+      .catch((error: unknown) => logger.error({ error }, '[otel] shutdown error'));
   };
 
   process.on('SIGTERM', shutdown);

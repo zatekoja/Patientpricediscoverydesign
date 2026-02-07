@@ -3,25 +3,36 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
 )
 
 // AppointmentService handles appointment booking logic
 type AppointmentService struct {
-	repo     repositories.AppointmentRepository
-	provider providers.AppointmentProvider
+	repo                   repositories.AppointmentRepository
+	facilityRepo           repositories.FacilityRepository
+	provider               providers.AppointmentProvider
+	allowMissingExternalID bool
 }
 
 // NewAppointmentService creates a new appointment service
-func NewAppointmentService(repo repositories.AppointmentRepository, provider providers.AppointmentProvider) *AppointmentService {
+func NewAppointmentService(
+	repo repositories.AppointmentRepository,
+	facilityRepo repositories.FacilityRepository,
+	provider providers.AppointmentProvider,
+	allowMissingExternalID bool,
+) *AppointmentService {
 	return &AppointmentService{
-		repo:     repo,
-		provider: provider,
+		repo:                   repo,
+		facilityRepo:           facilityRepo,
+		provider:               provider,
+		allowMissingExternalID: allowMissingExternalID,
 	}
 }
 
@@ -49,7 +60,7 @@ func (s *AppointmentService) BookAppointment(ctx context.Context, appointment *e
 	// appointment.MeetingLink = link
 	_ = externalID
 	_ = link
-	
+
 	appointment.CreatedAt = time.Now()
 	appointment.UpdatedAt = time.Now()
 
@@ -65,10 +76,26 @@ func (s *AppointmentService) BookAppointment(ctx context.Context, appointment *e
 
 // GetAvailableSlots returns available slots
 func (s *AppointmentService) GetAvailableSlots(ctx context.Context, facilityID string, from, to time.Time) ([]entities.AvailabilitySlot, error) {
-	// 1. Get facility external ID (mapping logic would go here)
-	// For Phase 1, assume facilityID IS the external ID or we look it up
-	externalID := facilityID 
+	if s.facilityRepo == nil {
+		return nil, apperrors.NewInternalError("facility repository not configured", nil)
+	}
 
-	// 2. Call provider
-	return s.provider.GetAvailableSlots(ctx, externalID, from, to)
+	facility, err := s.facilityRepo.GetByID(ctx, facilityID)
+	if err != nil {
+		if appErr, ok := err.(*apperrors.AppError); ok && appErr.Type == apperrors.ErrorTypeNotFound {
+			return nil, err
+		}
+		return nil, apperrors.NewNotFoundError("facility not found")
+	}
+
+	externalID := strings.TrimSpace(facility.SchedulingExternalID)
+	if externalID == "" && !s.allowMissingExternalID {
+		return nil, apperrors.NewValidationError("facility has no scheduling external id configured")
+	}
+
+	slots, err := s.provider.GetAvailableSlots(ctx, externalID, from, to)
+	if err != nil {
+		return nil, apperrors.NewExternalError("failed to fetch availability", err)
+	}
+	return slots, nil
 }

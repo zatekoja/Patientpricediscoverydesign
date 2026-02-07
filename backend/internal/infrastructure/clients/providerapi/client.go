@@ -47,7 +47,7 @@ type CurrentDataMetadata struct {
 	BatchID string `json:"batchId,omitempty"`
 	Type    string `json:"type,omitempty"`
 	Message string `json:"message,omitempty"`
-	HasMore bool   `json:"hasMore,omitempty"`
+	HasMore *bool  `json:"hasMore,omitempty"`
 }
 
 type PriceRecord struct {
@@ -68,15 +68,15 @@ type PriceRecord struct {
 }
 
 type FacilityProfile struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	FacilityType string   `json:"facilityType"`
-	Description  string   `json:"description"`
-	Tags         []string `json:"tags"`
-	CapacityStatus *string `json:"capacityStatus"`
-	AvgWaitMinutes *int    `json:"avgWaitMinutes"`
-	UrgentCareAvailable *bool `json:"urgentCareAvailable"`
-	Address      struct {
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	FacilityType        string   `json:"facilityType"`
+	Description         string   `json:"description"`
+	Tags                []string `json:"tags"`
+	CapacityStatus      *string  `json:"capacityStatus"`
+	AvgWaitMinutes      *int     `json:"avgWaitMinutes"`
+	UrgentCareAvailable *bool    `json:"urgentCareAvailable"`
+	Address             struct {
 		Street  string `json:"street"`
 		City    string `json:"city"`
 		State   string `json:"state"`

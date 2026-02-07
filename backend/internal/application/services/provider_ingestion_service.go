@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
@@ -26,12 +28,15 @@ type ProviderIngestionSummary struct {
 
 // ProviderIngestionService hydrates provider data into core backend storage.
 type ProviderIngestionService struct {
-	client               providerapi.Client
-	facilityRepo         repositories.FacilityRepository
-	facilityService      *FacilityService
-	procedureRepo        repositories.ProcedureRepository
+	client                providerapi.Client
+	facilityRepo          repositories.FacilityRepository
+	facilityService       *FacilityService
+	procedureRepo         repositories.ProcedureRepository
 	facilityProcedureRepo repositories.FacilityProcedureRepository
-	pageSize             int
+	geolocationProvider   providers.GeolocationProvider
+	geocodeCache          map[string]*providers.GeocodedAddress
+	cacheProvider         providers.CacheProvider
+	pageSize              int
 }
 
 func NewProviderIngestionService(
@@ -40,18 +45,23 @@ func NewProviderIngestionService(
 	facilityService *FacilityService,
 	procedureRepo repositories.ProcedureRepository,
 	facilityProcedureRepo repositories.FacilityProcedureRepository,
+	geolocationProvider providers.GeolocationProvider,
+	cacheProvider providers.CacheProvider,
 	pageSize int,
 ) *ProviderIngestionService {
 	if pageSize <= 0 {
 		pageSize = 500
 	}
 	return &ProviderIngestionService{
-		client:               client,
-		facilityRepo:         facilityRepo,
-		facilityService:      facilityService,
-		procedureRepo:        procedureRepo,
+		client:                client,
+		facilityRepo:          facilityRepo,
+		facilityService:       facilityService,
+		procedureRepo:         procedureRepo,
 		facilityProcedureRepo: facilityProcedureRepo,
-		pageSize:             pageSize,
+		geolocationProvider:   geolocationProvider,
+		geocodeCache:          map[string]*providers.GeocodedAddress{},
+		cacheProvider:         cacheProvider,
+		pageSize:              pageSize,
 	}
 }
 
@@ -106,7 +116,7 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 			if !exists {
 				var created bool
 				var ensureErr error
-				facility, created, ensureErr = s.ensureFacility(ctx, facilityID, record, profile)
+				facility, created, ensureErr = s.ensureFacility(ctx, facilityID, record, profile, mergeTags(record.Tags, profile))
 				if ensureErr != nil {
 					return summary, ensureErr
 				}
@@ -169,7 +179,7 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 			if resp.Metadata.Total > 0 && offset >= resp.Metadata.Total {
 				break
 			}
-			if resp.Metadata.HasMore == false && offset > 0 {
+			if resp.Metadata.HasMore != nil && !*resp.Metadata.HasMore && offset > 0 {
 				break
 			}
 		}
@@ -230,12 +240,23 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 		}
 	}
 
+	s.invalidateSearchCaches(ctx)
 	return summary, nil
 }
 
-func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string, record providerapi.PriceRecord, profile *providerapi.FacilityProfile) (*entities.Facility, bool, error) {
+func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string, record providerapi.PriceRecord, profile *providerapi.FacilityProfile, tags []string) (*entities.Facility, bool, error) {
 	facility, err := s.facilityRepo.GetByID(ctx, id)
 	if err == nil {
+		updated := s.ensureFacilityLocation(ctx, facility, record, profile, tags)
+		if updated {
+			if s.facilityService != nil {
+				if updateErr := s.facilityService.Update(ctx, facility); updateErr != nil {
+					return facility, false, updateErr
+				}
+			} else if updateErr := s.facilityRepo.Update(ctx, facility); updateErr != nil {
+				return facility, false, updateErr
+			}
+		}
 		return facility, false, nil
 	}
 
@@ -298,6 +319,8 @@ func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string
 		}
 	}
 
+	s.ensureFacilityLocation(ctx, facility, record, profile, tags)
+
 	if s.facilityService != nil {
 		if err := s.facilityService.Create(ctx, facility); err != nil {
 			return nil, false, err
@@ -310,6 +333,217 @@ func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string
 	}
 
 	return facility, true, nil
+}
+
+func (s *ProviderIngestionService) ensureFacilityLocation(ctx context.Context, facility *entities.Facility, record providerapi.PriceRecord, profile *providerapi.FacilityProfile, tags []string) bool {
+	if facility == nil || s.geolocationProvider == nil {
+		return false
+	}
+
+	query := buildGeocodeQuery(facility, record, profile, tags)
+	if query == "" {
+		return false
+	}
+
+	if hasLocation(facility.Location) && !shouldOverrideLocation(facility.Location, tags, query) {
+		return false
+	}
+
+	if cached, ok := s.geocodeCache[query]; ok && cached != nil {
+		applyGeocodedAddress(facility, cached)
+		return true
+	}
+
+	coords, err := s.geolocationProvider.Geocode(ctx, query)
+	if err != nil || coords == nil {
+		return false
+	}
+
+	region := inferRegionFromTags(tags)
+	geo := &providers.GeocodedAddress{
+		FormattedAddress: query,
+		City:             firstNonEmpty(facility.Address.City, region),
+		State:            facility.Address.State,
+		Country:          firstNonEmpty(facility.Address.Country, "Nigeria"),
+		Coordinates: providers.Coordinates{
+			Latitude:  coords.Latitude,
+			Longitude: coords.Longitude,
+		},
+	}
+	applyGeocodedAddress(facility, geo)
+	s.geocodeCache[query] = geo
+	return true
+}
+
+func applyGeocodedAddress(facility *entities.Facility, geo *providers.GeocodedAddress) {
+	if facility == nil || geo == nil {
+		return
+	}
+	facility.Location.Latitude = geo.Coordinates.Latitude
+	facility.Location.Longitude = geo.Coordinates.Longitude
+	if facility.Address.City == "" && geo.City != "" {
+		facility.Address.City = geo.City
+	}
+	if facility.Address.State == "" && geo.State != "" {
+		facility.Address.State = geo.State
+	}
+	if facility.Address.Country == "" && geo.Country != "" {
+		facility.Address.Country = geo.Country
+	}
+}
+
+func hasLocation(loc entities.Location) bool {
+	return loc.Latitude != 0 || loc.Longitude != 0
+}
+
+func shouldOverrideLocation(loc entities.Location, tags []string, query string) bool {
+	if isDefaultMockLocation(loc) {
+		return true
+	}
+	if isLikelyNigeria(tags, query) && isOutsideNigeria(loc) {
+		return true
+	}
+	return false
+}
+
+func isDefaultMockLocation(loc entities.Location) bool {
+	return nearlyEqual(loc.Latitude, 37.7749, 0.0001) && nearlyEqual(loc.Longitude, -122.4194, 0.0001)
+}
+
+func isOutsideNigeria(loc entities.Location) bool {
+	// Rough bounding box for Nigeria
+	if loc.Latitude >= 4.0 && loc.Latitude <= 14.5 && loc.Longitude >= 2.0 && loc.Longitude <= 15.5 {
+		return false
+	}
+	return true
+}
+
+func isLikelyNigeria(tags []string, query string) bool {
+	if strings.Contains(strings.ToLower(query), "nigeria") {
+		return true
+	}
+	for _, tag := range tags {
+		switch strings.ToLower(tag) {
+		case "nigeria", "lagos", "lagos_state", "abuja", "fct", "federal_capital_territory":
+			return true
+		}
+	}
+	return false
+}
+
+func nearlyEqual(a, b, epsilon float64) bool {
+	if a > b {
+		return a-b < epsilon
+	}
+	return b-a < epsilon
+}
+
+func buildGeocodeQuery(facility *entities.Facility, record providerapi.PriceRecord, profile *providerapi.FacilityProfile, tags []string) string {
+	parts := make([]string, 0, 4)
+
+	if profile != nil {
+		if profile.Address.Street != "" {
+			parts = append(parts, profile.Address.Street)
+		}
+		if profile.Address.City != "" {
+			parts = append(parts, profile.Address.City)
+		}
+		if profile.Address.State != "" {
+			parts = append(parts, profile.Address.State)
+		}
+		if profile.Address.Country != "" {
+			parts = append(parts, profile.Address.Country)
+		}
+	}
+
+	if len(parts) == 0 {
+		if facility.Address.Street != "" {
+			parts = append(parts, facility.Address.Street)
+		}
+		if facility.Address.City != "" {
+			parts = append(parts, facility.Address.City)
+		}
+		if facility.Address.State != "" {
+			parts = append(parts, facility.Address.State)
+		}
+		if facility.Address.Country != "" {
+			parts = append(parts, facility.Address.Country)
+		}
+	}
+
+	if len(parts) == 0 {
+		if record.FacilityName != "" {
+			parts = append(parts, record.FacilityName)
+		} else if facility.Name != "" {
+			parts = append(parts, facility.Name)
+		}
+	}
+
+	region := inferRegionFromTags(tags)
+	if region != "" {
+		parts = append(parts, region)
+	}
+
+	if !containsToken(parts, "Nigeria") {
+		parts = append(parts, "Nigeria")
+	}
+
+	return strings.TrimSpace(strings.Join(parts, ", "))
+}
+
+func inferRegionFromTags(tags []string) string {
+	for _, tag := range tags {
+		switch strings.ToLower(tag) {
+		case "lagos", "lagos_state":
+			return "Lagos"
+		case "abuja", "fct", "federal_capital_territory":
+			return "Abuja"
+		}
+	}
+	return ""
+}
+
+func containsToken(parts []string, token string) bool {
+	tokenLower := strings.ToLower(token)
+	for _, part := range parts {
+		if strings.Contains(strings.ToLower(part), tokenLower) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func mergeTags(a []string, profile *providerapi.FacilityProfile) []string {
+	combined := append([]string{}, a...)
+	if profile != nil && len(profile.Tags) > 0 {
+		combined = append(combined, profile.Tags...)
+	}
+	return normalizeTags(combined)
+}
+
+func (s *ProviderIngestionService) invalidateSearchCaches(ctx context.Context) {
+	if s.cacheProvider == nil {
+		return
+	}
+	patterns := []string{
+		"http:cache:*search*",
+		"http:cache:*suggest*",
+		"http:cache:*facilities*",
+	}
+	for _, pattern := range patterns {
+		if err := s.cacheProvider.DeletePattern(ctx, pattern); err != nil {
+			log.Printf("Warning: failed to invalidate cache pattern %s: %v", pattern, err)
+		}
+	}
 }
 
 func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record providerapi.PriceRecord) (*entities.Procedure, bool, error) {
