@@ -95,5 +95,65 @@ docker-logs: ## View Docker logs
 install-tools: ## Install development tools
 	go install github.com/vektra/mockery/v2@latest
 	go install golang.org/x/tools/cmd/goimports@latest
+	go install github.com/99designs/gqlgen@latest
+
+# GraphQL targets
+graphql-generate: ## Generate GraphQL code from schema
+	@echo "Generating GraphQL code..."
+	go run github.com/99designs/gqlgen generate
+	@echo "GraphQL code generated successfully!"
+
+graphql-init: ## Initialize GraphQL project (first time only)
+	go run github.com/99designs/gqlgen init
+
+run-graphql: ## Run GraphQL server (Query Service)
+	@echo "Running GraphQL server..."
+	go run cmd/graphql/main.go
+
+test-query: ## Run query service tests
+	@echo "Running query service tests..."
+	go test -v ./internal/query/...
+
+test-graphql: ## Run GraphQL resolver tests
+	@echo "Running GraphQL tests..."
+	go test -v ./internal/graphql/...
+
+build-graphql: ## Build GraphQL server binary
+	@echo "Building GraphQL server..."
+	go build -o bin/graphql cmd/graphql/main.go
+
+build-indexer: ## Build indexer binary
+	@echo "Building indexer..."
+	go build -o bin/indexer cmd/indexer/main.go
+
+index-data: ## Index all data from PostgreSQL to Typesense
+	@echo "Indexing data to Typesense..."
+	go run cmd/indexer/main.go --action=reindex
+
+index-data-dry-run: ## Dry run of data indexing
+	@echo "Dry run indexing..."
+	go run cmd/indexer/main.go --action=reindex --dry-run
+
+docker-logs-graphql: ## View GraphQL server logs
+	docker-compose logs -f graphql
+
+docker-up-graphql: ## Start GraphQL service
+	docker-compose up -d graphql
 
 .DEFAULT_GOAL := help
+# GraphQL Commands
+graphql-generate: ## Generate GraphQL code from schema
+	@echo "Generating GraphQL code..."
+	go run github.com/99designs/gqlgen generate
+graphql-build: ## Build GraphQL server
+	@echo "Building GraphQL server..."
+	go build -o bin/graphql-server ./cmd/graphql/
+graphql-run: ## Run GraphQL server
+	@echo "Running GraphQL server..."
+	go run ./cmd/graphql/
+test-graphql: ## Run GraphQL resolver tests
+	@echo "Running GraphQL tests..."
+	go test -v ./internal/graphql/resolvers/...
+test-query: ## Run query service tests
+	@echo "Running query service tests..."
+	go test -v ./internal/query/services/...

@@ -1,9 +1,12 @@
 with-expecter: true
 dir: "tests/mocks"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: "mocks"
 packages:
   github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories:
     interfaces:
       FacilityRepository:
+      FacilitySearchRepository:
       ProcedureRepository:
       FacilityProcedureRepository:
       AppointmentRepository:
@@ -15,3 +18,7 @@ packages:
     interfaces:
       GeolocationProvider:
       CacheProvider:
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/query/services:
+    interfaces:
+      SearchAdapter:
+      QueryCacheProvider:
