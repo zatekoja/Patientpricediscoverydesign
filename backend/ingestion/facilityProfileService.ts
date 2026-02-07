@@ -21,6 +21,12 @@ export interface FacilityEnrichmentSummary {
   failed: number;
 }
 
+export interface FacilityStatusUpdate {
+  capacityStatus?: string | null;
+  avgWaitMinutes?: number | null;
+  urgentCareAvailable?: boolean | null;
+}
+
 export class FacilityProfileService {
   private tracer = trace.getTracer('patient-price-discovery-provider');
 
@@ -39,6 +45,29 @@ export class FacilityProfileService {
 
   async listProfiles(limit: number, offset: number): Promise<FacilityProfile[]> {
     return this.store.query({}, { limit, offset, sortBy: 'lastUpdated', sortOrder: 'desc' });
+  }
+
+  async updateStatus(id: string, update: FacilityStatusUpdate): Promise<FacilityProfile> {
+    const profile = await this.store.get(id);
+    if (!profile) {
+      throw new Error('Facility not found');
+    }
+    const now = new Date();
+    if (update.capacityStatus !== undefined) {
+      profile.capacityStatus = update.capacityStatus ?? undefined;
+    }
+    if (update.avgWaitMinutes !== undefined) {
+      profile.avgWaitMinutes = update.avgWaitMinutes ?? undefined;
+    }
+    if (update.urgentCareAvailable !== undefined) {
+      profile.urgentCareAvailable = update.urgentCareAvailable ?? undefined;
+    }
+    profile.lastUpdated = now;
+    await this.store.put(id, profile, {
+      source: profile.source,
+      updatedAt: now.toISOString(),
+    });
+    return profile;
   }
 
   async ensureProfiles(

@@ -130,6 +130,7 @@ export class DataProviderAPI {
     // Facility profile endpoints
     router.get('/facilities', this.handleListFacilities.bind(this));
     router.get('/facilities/:id', this.handleGetFacility.bind(this));
+    router.patch('/facilities/:id/status', this.handleUpdateFacilityStatus.bind(this));
 
     // Sync endpoints
     router.post('/sync/trigger', this.handleTriggerSync.bind(this));
@@ -378,6 +379,40 @@ export class DataProviderAPI {
         return;
       }
       res.json(profile);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/v1/facilities/:id/status
+   */
+  private async handleUpdateFacilityStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.facilityProfileService) {
+        res.status(503).json({ error: 'Facility profiles not configured' });
+        return;
+      }
+      const id = req.params.id;
+      if (!id) {
+        res.status(400).json({ error: 'Facility id is required' });
+        return;
+      }
+
+      const payload = req.body || {};
+      const capacityStatus =
+        typeof payload.capacityStatus === 'string' ? payload.capacityStatus : undefined;
+      const avgWaitMinutes =
+        typeof payload.avgWaitMinutes === 'number' ? payload.avgWaitMinutes : undefined;
+      const urgentCareAvailable =
+        typeof payload.urgentCareAvailable === 'boolean' ? payload.urgentCareAvailable : undefined;
+
+      const updated = await this.facilityProfileService.updateStatus(id, {
+        capacityStatus,
+        avgWaitMinutes,
+        urgentCareAvailable,
+      });
+      res.json(updated);
     } catch (error) {
       next(error);
     }

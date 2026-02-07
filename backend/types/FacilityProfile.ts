@@ -4,6 +4,9 @@ export interface FacilityProfile {
   facilityType?: string;
   description?: string;
   tags?: string[];
+  capacityStatus?: string;
+  avgWaitMinutes?: number;
+  urgentCareAvailable?: boolean;
   address?: {
     street?: string;
     city?: string;

@@ -70,6 +70,9 @@ type FacilityProfile struct {
 	FacilityType string   `json:"facilityType"`
 	Description  string   `json:"description"`
 	Tags         []string `json:"tags"`
+	CapacityStatus *string `json:"capacityStatus"`
+	AvgWaitMinutes *int    `json:"avgWaitMinutes"`
+	UrgentCareAvailable *bool `json:"urgentCareAvailable"`
 	Address      struct {
 		Street  string `json:"street"`
 		City    string `json:"city"`

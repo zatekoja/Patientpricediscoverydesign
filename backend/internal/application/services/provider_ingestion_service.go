@@ -66,6 +66,8 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 	facilityCache := map[string]*entities.Facility{}
 	facilityTags := map[string]map[string]struct{}{}
 	facilityUpdated := map[string]bool{}
+	facilityNeedsUpdate := map[string]bool{}
+	facilityProfiles := map[string]*providerapi.FacilityProfile{}
 
 	for {
 		resp, err := s.client.GetCurrentData(ctx, providerapi.CurrentDataRequest{
@@ -92,11 +94,19 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 				continue
 			}
 
+			profile, ok := facilityProfiles[facilityID]
+			if !ok && s.client != nil {
+				if fetched, fetchErr := s.client.GetFacilityProfile(ctx, facilityID); fetchErr == nil {
+					profile = fetched
+				}
+				facilityProfiles[facilityID] = profile
+			}
+
 			facility, exists := facilityCache[facilityID]
 			if !exists {
 				var created bool
 				var ensureErr error
-				facility, created, ensureErr = s.ensureFacility(ctx, facilityID, record)
+				facility, created, ensureErr = s.ensureFacility(ctx, facilityID, record, profile)
 				if ensureErr != nil {
 					return summary, ensureErr
 				}
@@ -115,6 +125,23 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 						continue
 					}
 					facilityTags[facilityID][tag] = struct{}{}
+				}
+			}
+			if profile != nil && len(profile.Tags) > 0 {
+				if facilityTags[facilityID] == nil {
+					facilityTags[facilityID] = map[string]struct{}{}
+				}
+				for _, tag := range normalizeTags(profile.Tags) {
+					if tag == "" {
+						continue
+					}
+					facilityTags[facilityID][tag] = struct{}{}
+				}
+			}
+
+			if profile != nil {
+				if applyProfileStatus(facility, profile) {
+					facilityNeedsUpdate[facilityID] = true
 				}
 			}
 
@@ -182,10 +209,31 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 		}
 	}
 
+	for facilityID, needsUpdate := range facilityNeedsUpdate {
+		if !needsUpdate || facilityUpdated[facilityID] {
+			continue
+		}
+		facility := facilityCache[facilityID]
+		if facility == nil {
+			var err error
+			facility, err = s.facilityRepo.GetByID(ctx, facilityID)
+			if err != nil {
+				continue
+			}
+		}
+		if s.facilityService != nil {
+			if err := s.facilityService.Update(ctx, facility); err != nil {
+				return summary, err
+			}
+			summary.FacilitiesUpdated++
+			facilityUpdated[facilityID] = true
+		}
+	}
+
 	return summary, nil
 }
 
-func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string, record providerapi.PriceRecord) (*entities.Facility, bool, error) {
+func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string, record providerapi.PriceRecord, profile *providerapi.FacilityProfile) (*entities.Facility, bool, error) {
 	facility, err := s.facilityRepo.GetByID(ctx, id)
 	if err == nil {
 		return facility, false, nil
@@ -198,12 +246,6 @@ func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string
 	now := time.Now()
 	facilityName := record.FacilityName
 	facilityType := inferFacilityType(record.FacilityName, record.Tags)
-	var profile *providerapi.FacilityProfile
-	if s.client != nil {
-		if fetched, fetchErr := s.client.GetFacilityProfile(ctx, id); fetchErr == nil && fetched != nil {
-			profile = fetched
-		}
-	}
 	if profile != nil {
 		if profile.Name != "" {
 			facilityName = profile.Name
@@ -244,6 +286,15 @@ func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string
 		}
 		if len(profile.Tags) > 0 {
 			facility.Tags = profile.Tags
+		}
+		if profile.CapacityStatus != nil {
+			facility.CapacityStatus = profile.CapacityStatus
+		}
+		if profile.AvgWaitMinutes != nil {
+			facility.AvgWaitMinutes = profile.AvgWaitMinutes
+		}
+		if profile.UrgentCareAvailable != nil {
+			facility.UrgentCareAvailable = profile.UrgentCareAvailable
 		}
 	}
 
@@ -457,6 +508,34 @@ func normalizeTags(tags []string) []string {
 		normalized = append(normalized, trimmed)
 	}
 	return normalized
+}
+
+func applyProfileStatus(facility *entities.Facility, profile *providerapi.FacilityProfile) bool {
+	if facility == nil || profile == nil {
+		return false
+	}
+	changed := false
+
+	if profile.CapacityStatus != nil {
+		if facility.CapacityStatus == nil || *facility.CapacityStatus != *profile.CapacityStatus {
+			facility.CapacityStatus = profile.CapacityStatus
+			changed = true
+		}
+	}
+	if profile.AvgWaitMinutes != nil {
+		if facility.AvgWaitMinutes == nil || *facility.AvgWaitMinutes != *profile.AvgWaitMinutes {
+			facility.AvgWaitMinutes = profile.AvgWaitMinutes
+			changed = true
+		}
+	}
+	if profile.UrgentCareAvailable != nil {
+		if facility.UrgentCareAvailable == nil || *facility.UrgentCareAvailable != *profile.UrgentCareAvailable {
+			facility.UrgentCareAvailable = profile.UrgentCareAvailable
+			changed = true
+		}
+	}
+
+	return changed
 }
 
 func hashString(value string) string {

@@ -37,6 +37,8 @@ func TestClient_Integration(t *testing.T) {
 		"facility_type": "Hospital",
 		"location":      []float64{37.7749, -122.4194},
 		"rating":        4.5,
+		"created_at":    time.Now().Unix(),
+		"review_count":  0,
 		"is_active":     true,
 	}
 	err = client.IndexFacility(ctx, doc)

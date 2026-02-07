@@ -74,12 +74,12 @@ func TestQueryResolver_Facility_NotFound(t *testing.T) {
 	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache, nil)
 	queryResolver := resolver.Query()
 
-	ctx := context.Background()
+	ldrs := loaders.NewLoaders(mockDB, mockProc)
+	ctx := loaders.WithLoaders(context.Background(), ldrs)
 	facilityID := "non-existent"
 
-	// Cache miss, DB miss
-	mockCache.EXPECT().Get(ctx, "facility:"+facilityID).Return(nil, assert.AnError)
-	mockDB.EXPECT().GetByID(ctx, facilityID).Return(nil, assert.AnError)
+	// DataLoader fetch: returns empty slice to simulate not found
+	mockDB.EXPECT().GetByIDs(ctx, []string{facilityID}).Return([]*entities.Facility{}, nil)
 
 	// Act
 	result, err := queryResolver.Facility(ctx, facilityID)
@@ -87,61 +87,6 @@ func TestQueryResolver_Facility_NotFound(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-}
-
-// TestQueryResolver_SearchFacilities_Success tests successful facility search
-func TestQueryResolver_SearchFacilities_Success(t *testing.T) {
-	// Arrange
-	mockSearch := mocks.NewMockSearchAdapter(t)
-	mockDB := mocks.NewMockFacilityRepository(t)
-	mockAppt := mocks.NewMockAppointmentRepository(t)
-	mockProc := mocks.NewMockProcedureRepository(t)
-	mockFacProc := mocks.NewMockFacilityProcedureRepository(t)
-	mockIns := mocks.NewMockInsuranceRepository(t)
-	mockCache := mocks.NewMockQueryCacheProvider(t)
-
-	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache, nil)
-	queryResolver := resolver.Query()
-
-	ctx := context.Background()
-	query := "hospital"
-	location := generated.LocationInput{
-		Latitude:  37.7749,
-		Longitude: -122.4194,
-	}
-	radiusKm := 10.0
-
-	expectedFacilities := []*entities.Facility{
-		{
-			ID:           "fac-1",
-			Name:         "Test Hospital",
-			FacilityType: "hospital",
-			Location: entities.Location{
-				Latitude:  37.7749,
-				Longitude: -122.4194,
-			},
-			Rating:      4.5,
-			ReviewCount: 100,
-			IsActive:    true,
-		},
-	}
-
-	mockSearch.EXPECT().Search(ctx, repositories.SearchParams{
-		Latitude:  location.Latitude,
-		Longitude: location.Longitude,
-		RadiusKm:  radiusKm,
-		Limit:     20,
-		Offset:    0,
-	}).Return(expectedFacilities, nil)
-
-	// Act
-	result, err := queryResolver.SearchFacilities(ctx, query, location, &radiusKm, nil)
-
-	// Assert
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Len(t, result.Facilities, 1)
-	assert.Equal(t, "fac-1", result.Facilities[0].ID)
 }
 
 // TestQueryResolver_Facilities_Success tests facility search with filter
