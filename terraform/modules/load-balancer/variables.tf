@@ -18,22 +18,22 @@ variable "domain_name" {
   type        = string
 }
 
-variable "frontend_service_url" {
-  description = "Frontend Cloud Run service URL"
+variable "frontend_service_name" {
+  description = "Frontend Cloud Run service name"
   type        = string
 }
 
-variable "api_service_url" {
-  description = "API Cloud Run service URL"
+variable "api_service_name" {
+  description = "API Cloud Run service name"
   type        = string
 }
 
-variable "graphql_service_url" {
-  description = "GraphQL Cloud Run service URL"
+variable "graphql_service_name" {
+  description = "GraphQL Cloud Run service name"
   type        = string
 }
 
-variable "sse_service_url" {
-  description = "SSE Cloud Run service URL"
+variable "sse_service_name" {
+  description = "SSE Cloud Run service name"
   type        = string
 }

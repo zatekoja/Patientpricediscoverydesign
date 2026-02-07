@@ -36,11 +36,15 @@ resource "google_compute_subnetwork" "vpc_connector" {
 
 # Create VPC Access Connector for Cloud Run services to access VPC resources
 resource "google_vpc_access_connector" "connector" {
-  name          = "${var.environment}-ppd-connector"
-  project       = var.project_id
-  region        = var.region
-  network       = google_compute_network.main.name
-  ip_cidr_range = "10.8.0.0/28"
+  name    = "${var.environment}-ppd-connector"
+  project = var.project_id
+  region  = var.region
+  network = google_compute_network.main.name
+
+  subnet {
+    name    = google_compute_subnetwork.vpc_connector.name
+    project = var.project_id
+  }
 
   # Performance configuration
   min_instances = 2

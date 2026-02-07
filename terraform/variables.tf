@@ -51,3 +51,9 @@ variable "postgres_password" {
   sensitive   = true
   default     = ""
 }
+
+variable "typesense_url" {
+  description = "Typesense URL (optional, defaults to localhost)"
+  type        = string
+  default     = ""
+}

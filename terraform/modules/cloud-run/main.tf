@@ -66,17 +66,17 @@ resource "google_cloud_run_v2_service" "frontend" {
 
       env {
         name  = "VITE_API_URL"
-        value = "https://dev.api.ohealth-ng.com"
+        value = "https://${var.environment}.api.${var.domain_name}"
       }
 
       env {
         name  = "VITE_GRAPHQL_URL"
-        value = "https://dev.api.ohealth-ng.com/graphql"
+        value = "https://${var.environment}.api.${var.domain_name}/graphql"
       }
 
       env {
         name  = "VITE_SSE_URL"
-        value = "https://dev.api.ohealth-ng.com/sse"
+        value = "https://${var.environment}.api.${var.domain_name}/sse"
       }
     }
 
@@ -130,7 +130,12 @@ resource "google_cloud_run_v2_service" "api" {
 
       env {
         name  = "DB_HOST"
-        value = "/cloudsql/${var.postgres_connection_name}"
+        value = var.postgres_private_ip
+      }
+
+      env {
+        name  = "DB_PORT"
+        value = "5432"
       }
 
       env {
@@ -147,10 +152,15 @@ resource "google_cloud_run_v2_service" "api" {
         name = "DB_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = "dev-ppd-postgres-password"
+            secret  = var.postgres_password_secret_id
             version = "latest"
           }
         }
+      }
+
+      env {
+        name  = "DB_SSLMODE"
+        value = "require"
       }
 
       env {
@@ -161,6 +171,21 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "REDIS_PORT"
         value = tostring(var.redis_port)
+      }
+
+      env {
+        name  = "TYPESENSE_URL"
+        value = var.typesense_url != "" ? var.typesense_url : "http://typesense:8108"
+      }
+
+      env {
+        name = "TYPESENSE_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.typesense_api_key.secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
@@ -234,12 +259,37 @@ resource "google_cloud_run_v2_service" "graphql" {
 
       env {
         name  = "DB_HOST"
-        value = "/cloudsql/${var.postgres_connection_name}"
+        value = var.postgres_private_ip
+      }
+
+      env {
+        name  = "DB_PORT"
+        value = "5432"
       }
 
       env {
         name  = "DB_NAME"
         value = var.postgres_database_name
+      }
+
+      env {
+        name  = "DB_USER"
+        value = "postgres"
+      }
+
+      env {
+        name = "DB_PASSWORD"
+        value_source {
+          secret_key_ref {
+            secret  = var.postgres_password_secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name  = "DB_SSLMODE"
+        value = "require"
       }
 
       env {
@@ -250,6 +300,21 @@ resource "google_cloud_run_v2_service" "graphql" {
       env {
         name  = "REDIS_PORT"
         value = tostring(var.redis_port)
+      }
+
+      env {
+        name  = "TYPESENSE_URL"
+        value = var.typesense_url != "" ? var.typesense_url : "http://typesense:8108"
+      }
+
+      env {
+        name = "TYPESENSE_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.typesense_api_key.secret_id
+            version = "latest"
+          }
+        }
       }
     }
 

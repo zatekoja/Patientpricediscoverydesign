@@ -61,11 +61,12 @@ resource "google_project_service" "required_apis" {
 module "dns" {
   source = "./modules/dns"
 
-  project_id  = var.project_id
-  domain_name = var.domain_name
-  environment = var.environment
+  project_id       = var.project_id
+  domain_name      = var.domain_name
+  environment      = var.environment
+  load_balancer_ip = module.load_balancer.load_balancer_ip
 
-  depends_on = [google_project_service.required_apis]
+  depends_on = [google_project_service.required_apis, module.load_balancer]
 }
 
 # Networking Module
@@ -99,17 +100,21 @@ module "cloud_run" {
   project_id                = var.project_id
   region                    = var.region
   environment               = var.environment
+  domain_name               = var.domain_name
   vpc_connector_id          = module.networking.vpc_connector_id
   
   # Database connections
   postgres_connection_name  = module.databases.postgres_connection_name
   postgres_database_name    = module.databases.postgres_database_name
+  postgres_password_secret_id = module.databases.postgres_password_secret_id
+  postgres_private_ip       = module.databases.postgres_private_ip
   redis_host                = module.databases.redis_host
   redis_port                = module.databases.redis_port
 
   # API Keys (to be stored in Secret Manager)
   google_maps_api_key       = var.google_maps_api_key
   typesense_api_key         = var.typesense_api_key
+  typesense_url             = var.typesense_url
   openai_api_key            = var.openai_api_key
 
   depends_on = [
@@ -128,16 +133,15 @@ module "load_balancer" {
   environment             = var.environment
   domain_name             = var.domain_name
   
-  # Cloud Run service URLs
-  frontend_service_url    = module.cloud_run.frontend_service_url
-  api_service_url         = module.cloud_run.api_service_url
-  graphql_service_url     = module.cloud_run.graphql_service_url
-  sse_service_url         = module.cloud_run.sse_service_url
+  # Cloud Run service names
+  frontend_service_name   = module.cloud_run.frontend_service_name
+  api_service_name        = module.cloud_run.api_service_name
+  graphql_service_name    = module.cloud_run.graphql_service_name
+  sse_service_name        = module.cloud_run.sse_service_name
 
   depends_on = [
     google_project_service.required_apis,
     module.cloud_run,
-    module.dns
   ]
 }
 
@@ -149,12 +153,12 @@ output "dns_nameservers" {
 
 output "frontend_url" {
   description = "Frontend application URL"
-  value       = "https://dev.${var.domain_name}"
+  value       = "https://${var.environment}.${var.domain_name}"
 }
 
 output "api_url" {
   description = "API endpoint URL"
-  value       = "https://dev.api.${var.domain_name}"
+  value       = "https://${var.environment}.api.${var.domain_name}"
 }
 
 output "postgres_connection_name" {

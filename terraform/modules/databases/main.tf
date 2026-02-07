@@ -48,8 +48,6 @@ resource "google_sql_database_instance" "postgres" {
   }
 
   deletion_protection = true
-
-  depends_on = [var.network_self_link]
 }
 
 # Create PostgreSQL database

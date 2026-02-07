@@ -13,9 +13,9 @@ resource "google_compute_managed_ssl_certificate" "default" {
 
   managed {
     domains = [
-      "dev.${var.domain_name}",
-      "dev.api.${var.domain_name}",
-      "www.dev.${var.domain_name}"
+      "${var.environment}.${var.domain_name}",
+      "${var.environment}.api.${var.domain_name}",
+      "www.${var.environment}.${var.domain_name}"
     ]
   }
 }
@@ -109,7 +109,7 @@ resource "google_compute_region_network_endpoint_group" "frontend" {
   region                = var.region
 
   cloud_run {
-    service = replace(var.frontend_service_url, "https://", "")
+    service = var.frontend_service_name
   }
 }
 
@@ -120,7 +120,7 @@ resource "google_compute_region_network_endpoint_group" "api" {
   region                = var.region
 
   cloud_run {
-    service = replace(var.api_service_url, "https://", "")
+    service = var.api_service_name
   }
 }
 
@@ -131,7 +131,7 @@ resource "google_compute_region_network_endpoint_group" "graphql" {
   region                = var.region
 
   cloud_run {
-    service = replace(var.graphql_service_url, "https://", "")
+    service = var.graphql_service_name
   }
 }
 
@@ -142,7 +142,7 @@ resource "google_compute_region_network_endpoint_group" "sse" {
   region                = var.region
 
   cloud_run {
-    service = replace(var.sse_service_url, "https://", "")
+    service = var.sse_service_name
   }
 }
 
@@ -153,12 +153,12 @@ resource "google_compute_url_map" "default" {
   default_service = google_compute_backend_service.frontend.id
 
   host_rule {
-    hosts        = ["dev.api.${var.domain_name}"]
+    hosts        = ["${var.environment}.api.${var.domain_name}"]
     path_matcher = "api"
   }
 
   host_rule {
-    hosts        = ["dev.${var.domain_name}", "www.dev.${var.domain_name}"]
+    hosts        = ["${var.environment}.${var.domain_name}", "www.${var.environment}.${var.domain_name}"]
     path_matcher = "frontend"
   }
 

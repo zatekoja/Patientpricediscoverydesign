@@ -55,3 +55,24 @@ variable "openai_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "postgres_password_secret_id" {
+  description = "Secret Manager secret ID for PostgreSQL password"
+  type        = string
+}
+
+variable "postgres_private_ip" {
+  description = "PostgreSQL private IP address"
+  type        = string
+}
+
+variable "typesense_url" {
+  description = "Typesense URL"
+  type        = string
+  default     = ""
+}
+
+variable "domain_name" {
+  description = "Domain name for the application"
+  type        = string
+}
