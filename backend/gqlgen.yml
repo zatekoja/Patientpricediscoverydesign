@@ -25,6 +25,44 @@ autobind:
 
 # This section declares type mapping between the GraphQL and Go type systems.
 models:
-  DateTime:
+  ID:
     model:
-      - github.com/99designs/gqlgen/graphql.Time
+      - github.com/99designs/gqlgen/graphql.ID
+  Int:
+    model:
+      - github.com/99designs/gqlgen/graphql.Int
+  Float:
+    model:
+      - github.com/99designs/gqlgen/graphql.Float
+  String:
+    model:
+      - github.com/99designs/gqlgen/graphql.String
+  Boolean:
+    model:
+      - github.com/99designs/gqlgen/graphql.Boolean
+  # Map GraphQL types to domain entities
+  FacilitySearchResult:
+    model:
+      - github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities.GraphQLFacilitySearchResult
+    fields:
+      facilities:
+        resolver: true
+        fieldName: FacilitiesData
+      facets:
+        resolver: true
+        fieldName: FacetsData
+      pagination:
+        resolver: true
+        fieldName: PaginationData
+      totalCount:
+        resolver: true
+        fieldName: TotalCountValue
+      searchTime:
+        resolver: true
+        fieldName: SearchTimeMs
+  FacilityFacets:
+    model:
+      - github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities.SearchFacets
+  PaginationInfo:
+    model:
+      - github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities.PaginationInfo

@@ -1,6 +1,23 @@
-import { Facility, FacilityResponse, SearchParams } from '../types/api';
+import {
+  Facility,
+  FacilityResponse,
+  FacilitySearchResponse,
+  FacilitySuggestionResponse,
+  SearchParams,
+} from '../types/api';
 
-export const API_BASE_URL = 'http://localhost:8080/api';
+type ApiEnv = {
+  VITE_API_BASE_URL?: string;
+};
+
+export const resolveApiBaseUrl = (env?: ApiEnv): string => {
+  const envBaseUrl = env?.VITE_API_BASE_URL?.trim();
+  if (envBaseUrl) return envBaseUrl;
+  return '/api';
+};
+
+const metaEnv = (import.meta as unknown as { env?: ApiEnv }).env;
+export const API_BASE_URL = resolveApiBaseUrl(metaEnv);
 
 export interface GeocodeResponse {
   address: string;
@@ -30,7 +47,7 @@ class ApiClient {
     return this.request<FacilityResponse>(`/facilities${query}`);
   }
 
-  async searchFacilities(params: SearchParams): Promise<FacilityResponse> {
+  async searchFacilities(params: SearchParams): Promise<FacilitySearchResponse> {
     const queryParams = new URLSearchParams({
       lat: params.lat.toString(),
       lon: params.lon.toString(),
@@ -40,12 +57,33 @@ class ApiClient {
     if (params.radius) queryParams.append('radius', params.radius.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
     if (params.offset) queryParams.append('offset', params.offset.toString());
+    if (params.insurance_provider) queryParams.append('insurance_provider', params.insurance_provider);
+    if (params.min_price != null) queryParams.append('min_price', params.min_price.toString());
+    if (params.max_price != null) queryParams.append('max_price', params.max_price.toString());
 
-    return this.request<FacilityResponse>(`/facilities/search?${queryParams.toString()}`);
+    return this.request<FacilitySearchResponse>(`/facilities/search?${queryParams.toString()}`);
   }
 
   async getFacility(id: string): Promise<Facility> {
     return this.request<Facility>(`/facilities/${id}`);
+  }
+
+  async suggestFacilities(
+    params: { query: string; lat: number; lon: number; limit?: number },
+    signal?: AbortSignal
+  ): Promise<FacilitySuggestionResponse> {
+    const queryParams = new URLSearchParams({
+      query: params.query,
+      lat: params.lat.toString(),
+      lon: params.lon.toString(),
+    });
+
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    return this.request<FacilitySuggestionResponse>(
+      `/facilities/suggest?${queryParams.toString()}`,
+      { signal }
+    );
   }
 
   async getProcedures(category?: string): Promise<{ procedures: any[]; count: number }> {

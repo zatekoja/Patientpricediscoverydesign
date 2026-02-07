@@ -3,6 +3,9 @@ package services
 import (
 	"context"
 	"log"
+	"math"
+	"sort"
+	"strings"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
@@ -10,15 +13,27 @@ import (
 
 // FacilityService handles business logic for facilities
 type FacilityService struct {
-	repo       repositories.FacilityRepository
-	searchRepo repositories.FacilitySearchRepository
+	repo                 repositories.FacilityRepository
+	searchRepo           repositories.FacilitySearchRepository
+	procedureRepo        repositories.FacilityProcedureRepository
+	procedureCatalogRepo repositories.ProcedureRepository
+	insuranceRepo        repositories.InsuranceRepository
 }
 
 // NewFacilityService creates a new facility service
-func NewFacilityService(repo repositories.FacilityRepository, searchRepo repositories.FacilitySearchRepository) *FacilityService {
+func NewFacilityService(
+	repo repositories.FacilityRepository,
+	searchRepo repositories.FacilitySearchRepository,
+	procedureRepo repositories.FacilityProcedureRepository,
+	procedureCatalogRepo repositories.ProcedureRepository,
+	insuranceRepo repositories.InsuranceRepository,
+) *FacilityService {
 	return &FacilityService{
-		repo:       repo,
-		searchRepo: searchRepo,
+		repo:                 repo,
+		searchRepo:           searchRepo,
+		procedureRepo:        procedureRepo,
+		procedureCatalogRepo: procedureCatalogRepo,
+		insuranceRepo:        insuranceRepo,
 	}
 }
 
@@ -87,7 +102,270 @@ func (s *FacilityService) List(ctx context.Context, filter repositories.Facility
 // Search searches facilities using search engine if available, falling back to database
 func (s *FacilityService) Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error) {
 	if s.searchRepo != nil {
-		return s.searchRepo.Search(ctx, params)
+		facilities, err := s.searchRepo.Search(ctx, params)
+		if err == nil {
+			return facilities, nil
+		}
+		log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
 	}
 	return s.repo.Search(ctx, params)
+}
+
+// SearchResults returns enriched facility search results for the UI.
+func (s *FacilityService) SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error) {
+	facilities, err := s.Search(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]entities.FacilitySearchResult, 0, len(facilities))
+	for _, facility := range facilities {
+		if facility == nil {
+			continue
+		}
+
+		// If search results are partial (e.g., Typesense), load full record from DB.
+		if s.searchRepo != nil {
+			full, err := s.repo.GetByID(ctx, facility.ID)
+			if err == nil && full != nil {
+				facility = full
+			}
+		}
+
+		result := entities.FacilitySearchResult{
+			ID:                facility.ID,
+			Name:              facility.Name,
+			FacilityType:      facility.FacilityType,
+			Address:           facility.Address,
+			Location:          facility.Location,
+			PhoneNumber:       facility.PhoneNumber,
+			Website:           facility.Website,
+			Rating:            facility.Rating,
+			ReviewCount:       facility.ReviewCount,
+			DistanceKm:        haversineKm(params.Latitude, params.Longitude, facility.Location.Latitude, facility.Location.Longitude),
+			Services:          []string{},
+			AcceptedInsurance: []string{},
+			UpdatedAt:         facility.UpdatedAt,
+		}
+
+		if s.procedureRepo != nil {
+			if facilityProcedures, err := s.procedureRepo.ListByFacility(ctx, facility.ID); err == nil {
+				price := priceRangeFromProcedures(facilityProcedures)
+				if price != nil {
+					result.Price = price
+				}
+
+				if s.procedureCatalogRepo != nil {
+					result.ServicePrices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8)
+					result.Services = serviceNamesFromPrices(result.ServicePrices)
+				}
+			}
+		}
+
+		if s.insuranceRepo != nil {
+			if providers, err := s.insuranceRepo.GetFacilityInsurance(ctx, facility.ID); err == nil {
+				for _, provider := range providers {
+					if provider == nil {
+						continue
+					}
+					result.AcceptedInsurance = append(result.AcceptedInsurance, provider.Name)
+				}
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+// Suggest returns facility suggestions for a query.
+func (s *FacilityService) Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return []*entities.Facility{}, nil
+	}
+
+	if limit <= 0 {
+		limit = 5
+	}
+
+	if s.searchRepo != nil {
+		if suggestRepo, ok := s.searchRepo.(interface {
+			Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error)
+		}); ok {
+			return suggestRepo.Suggest(ctx, trimmed, lat, lon, limit)
+		}
+	}
+
+	params := repositories.SearchParams{
+		Latitude:  lat,
+		Longitude: lon,
+		RadiusKm:  50,
+		Limit:     100,
+		Offset:    0,
+	}
+
+	facilities, err := s.repo.Search(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	queryLower := strings.ToLower(trimmed)
+	suggestions := make([]*entities.Facility, 0, limit)
+	for _, facility := range facilities {
+		if facility == nil {
+			continue
+		}
+
+		if matchesSuggestion(facility, queryLower) {
+			suggestions = append(suggestions, facility)
+		}
+
+		if len(suggestions) >= limit {
+			break
+		}
+	}
+
+	return suggestions, nil
+}
+
+func matchesSuggestion(facility *entities.Facility, queryLower string) bool {
+	name := strings.ToLower(facility.Name)
+	if strings.Contains(name, queryLower) {
+		return true
+	}
+
+	if facility.FacilityType != "" && strings.Contains(strings.ToLower(facility.FacilityType), queryLower) {
+		return true
+	}
+
+	if facility.Address.City != "" && strings.Contains(strings.ToLower(facility.Address.City), queryLower) {
+		return true
+	}
+
+	if facility.Address.State != "" && strings.Contains(strings.ToLower(facility.Address.State), queryLower) {
+		return true
+	}
+
+	return false
+}
+
+func priceRangeFromProcedures(items []*entities.FacilityProcedure) *entities.FacilityPriceRange {
+	if len(items) == 0 {
+		return nil
+	}
+
+	minPrice := math.MaxFloat64
+	maxPrice := 0.0
+	currency := ""
+
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if item.Price < minPrice {
+			minPrice = item.Price
+		}
+		if item.Price > maxPrice {
+			maxPrice = item.Price
+		}
+		if currency == "" && item.Currency != "" {
+			currency = item.Currency
+		}
+	}
+
+	if minPrice == math.MaxFloat64 {
+		return nil
+	}
+
+	return &entities.FacilityPriceRange{
+		Min:      minPrice,
+		Max:      maxPrice,
+		Currency: currency,
+	}
+}
+
+func servicePricesFromProcedures(
+	ctx context.Context,
+	items []*entities.FacilityProcedure,
+	procedureRepo repositories.ProcedureRepository,
+	limit int,
+) []entities.ServicePrice {
+	if limit <= 0 || len(items) == 0 {
+		return []entities.ServicePrice{}
+	}
+
+	filtered := make([]*entities.FacilityProcedure, 0, len(items))
+	for _, item := range items {
+		if item == nil || !item.IsAvailable {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	if len(filtered) == 0 {
+		return []entities.ServicePrice{}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Price < filtered[j].Price
+	})
+
+	services := make([]entities.ServicePrice, 0, limit)
+	seen := make(map[string]struct{})
+	for _, item := range filtered {
+		if len(services) >= limit {
+			break
+		}
+		procedure, err := procedureRepo.GetByID(ctx, item.ProcedureID)
+		if err != nil || procedure == nil || procedure.Name == "" {
+			continue
+		}
+		if _, exists := seen[procedure.Name]; exists {
+			continue
+		}
+		seen[procedure.Name] = struct{}{}
+		services = append(services, entities.ServicePrice{
+			ProcedureID: item.ProcedureID,
+			Name:        procedure.Name,
+			Price:       item.Price,
+			Currency:    item.Currency,
+		})
+	}
+
+	return services
+}
+
+func serviceNamesFromPrices(items []entities.ServicePrice) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.Name == "" {
+			continue
+		}
+		names = append(names, item.Name)
+	}
+	return names
+}
+
+func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusKm = 6371.0
+	lat1Rad := toRadians(lat1)
+	lat2Rad := toRadians(lat2)
+	deltaLat := toRadians(lat2 - lat1)
+	deltaLon := toRadians(lon2 - lon1)
+
+	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
+			math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
+
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadiusKm * c
+}
+
+func toRadians(degrees float64) float64 {
+	return degrees * (math.Pi / 180)
 }

@@ -89,6 +89,8 @@ func (r *Router) SetupRoutes() http.Handler {
 
 	r.mux.HandleFunc("GET /api/facilities/search", r.facilityHandler.SearchFacilities)
 
+	r.mux.HandleFunc("GET /api/facilities/suggest", r.facilityHandler.SuggestFacilities)
+
 	r.mux.HandleFunc("GET /api/facilities/{id}", r.facilityHandler.GetFacility)
 
 	// Appointment endpoints

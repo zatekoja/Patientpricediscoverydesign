@@ -1,31 +1,81 @@
-import { MapPin, DollarSign, Calendar, Clock, Star, CheckCircle2 } from "lucide-react";
-
-export interface UIFacility {
-  id: string;
-  name: string;
-  type: string;
-  distance: number;
-  price: number;
-  rating: number;
-  reviews: number;
-  nextAvailable: string;
-  address: string;
-  insurance: string[];
-  services: string[];
-  urgent: boolean;
-  capacity: string;
-  waitTime: string;
-  lat?: number;
-  lon?: number;
-}
+import { MapPin, Banknote, Calendar, Clock, Star, CheckCircle2 } from "lucide-react";
+import type { UIFacility } from "../../lib/mappers";
 
 interface SearchResultsProps {
   facilities: UIFacility[];
   loading: boolean;
+  searchStatus?: "idle" | "loading" | "ok" | "error";
+  searchDurationMs?: number | null;
+  lastSearchAt?: Date | null;
   onSelectFacility: (facility: UIFacility) => void;
 }
 
-export function SearchResults({ facilities, loading, onSelectFacility }: SearchResultsProps) {
+export function SearchResults({
+  facilities,
+  loading,
+  searchStatus = "idle",
+  searchDurationMs = null,
+  lastSearchAt = null,
+  onSelectFacility,
+}: SearchResultsProps) {
+  const formatUpdate = (iso?: string) => {
+    if (!iso) return null;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString("en-NG", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const computeNextUpdate = (iso?: string) => {
+    if (!iso) return null;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setHours(date.getHours() + 24);
+    return date.toLocaleString("en-NG", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const statusLabel = {
+    idle: "Idle",
+    loading: "Searching...",
+    ok: "Search OK",
+    error: "Search error",
+  }[searchStatus];
+
+  const statusColor = {
+    idle: "bg-gray-300",
+    loading: "bg-blue-500",
+    ok: "bg-green-500",
+    error: "bg-red-500",
+  }[searchStatus];
+
+  const formatCurrency = (value: number, currency?: string | null) => {
+    const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
+    return `${symbol}${Math.round(value).toLocaleString()}`;
+  };
+
+  const formatNextAvailable = (iso?: string | null) => {
+    if (!iso) return "Check availability";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "Check availability";
+    return date.toLocaleString("en-NG", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-12">
@@ -52,16 +102,33 @@ export function SearchResults({ facilities, loading, onSelectFacility }: SearchR
           <p className="text-sm text-gray-600 mt-1">
             Showing results near your location
           </p>
+          <div className="mt-2 text-xs text-gray-500">
+            Transparency: facility data refreshes every 24 hours.
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-700">Sort by:</label>
-          <select className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option>Distance</option>
-            <option>Price (Low to High)</option>
-            <option>Price (High to Low)</option>
-            <option>Rating</option>
-            <option>Availability</option>
-          </select>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2 text-xs text-gray-600">
+            <span className={`h-2 w-2 rounded-full ${statusColor}`} />
+            <span>{statusLabel}</span>
+            {searchDurationMs != null && (
+              <span>· {Math.round(searchDurationMs)} ms</span>
+            )}
+            {lastSearchAt && (
+              <span>
+                · {lastSearchAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Sort by:</label>
+            <select className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option>Distance</option>
+              <option>Price (Low to High)</option>
+              <option>Price (High to Low)</option>
+              <option>Rating</option>
+              <option>Availability</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -80,7 +147,7 @@ export function SearchResults({ facilities, loading, onSelectFacility }: SearchR
                       <h3 className="text-lg font-semibold text-gray-900">
                         {facility.name}
                       </h3>
-                      {facility.urgent && (
+                      {facility.urgentCareAvailable && (
                         <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">
                           Urgent Care Available
                         </span>
@@ -105,16 +172,18 @@ export function SearchResults({ facilities, loading, onSelectFacility }: SearchR
                     <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {facility.distance.toFixed(1)} km away
+                        {facility.distanceKm.toFixed(2)} km away
                       </p>
                       <p className="text-xs text-gray-600">{facility.address}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
-                    <DollarSign className="w-4 h-4 text-gray-400 mt-0.5" />
+                    <Banknote className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        ₦{facility.price.toLocaleString()}
+                        {facility.priceMin != null
+                          ? formatCurrency(facility.priceMin, facility.currency)
+                          : "Call for pricing"}
                       </p>
                       <p className="text-xs text-gray-600">Estimated cost</p>
                     </div>
@@ -123,57 +192,78 @@ export function SearchResults({ facilities, loading, onSelectFacility }: SearchR
                     <Calendar className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {facility.nextAvailable}
+                        {formatNextAvailable(facility.nextAvailableAt)}
                       </p>
                       <p className="text-xs text-gray-600">Next available</p>
                     </div>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <Clock className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {facility.waitTime}
-                      </p>
-                      <p className="text-xs text-gray-600">Avg. wait time</p>
+                  {facility.avgWaitMinutes != null && (
+                    <div className="flex items-start gap-2">
+                      <Clock className="w-4 h-4 text-gray-400 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {facility.avgWaitMinutes} min
+                        </p>
+                        <p className="text-xs text-gray-600">Avg. wait time</p>
+                      </div>
                     </div>
-                  </div>
+                  )}
+                </div>
+
+                <div className="text-xs text-gray-500 mb-4">
+                  {formatUpdate(facility.updatedAt) && (
+                    <span>
+                      Last updated: {formatUpdate(facility.updatedAt)}
+                    </span>
+                  )}
+                  {computeNextUpdate(facility.updatedAt) && (
+                    <span>
+                      {" "}· Next update: {computeNextUpdate(facility.updatedAt)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Services & Insurance */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-600" />
-                    <span className="text-sm text-gray-700">
-                      Services: {facility.services.join(", ")}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-600" />
-                    <span className="text-sm text-gray-700">
-                      Insurance: {facility.insurance.slice(0, 3).join(", ")}
-                      {facility.insurance.length > 3 && ` +${facility.insurance.length - 3} more`}
-                    </span>
-                  </div>
+                  {facility.services.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      <span className="text-sm text-gray-700">
+                        Services: {facility.services.join(", ")}
+                      </span>
+                    </div>
+                  )}
+                  {facility.insurance.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      <span className="text-sm text-gray-700">
+                        Insurance: {facility.insurance.slice(0, 3).join(", ")}
+                        {facility.insurance.length > 3 && ` +${facility.insurance.length - 3} more`}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Right Side - Capacity Status */}
               <div className="text-right">
-                <div
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg mb-6 ${
-                    facility.capacity === "Available"
-                      ? "bg-green-100 text-green-800"
-                      : "bg-yellow-100 text-yellow-800"
-                  }`}
-                >
+                {facility.capacityStatus && (
                   <div
-                    className={`w-2 h-2 rounded-full ${
-                      facility.capacity === "Available" ? "bg-green-600" : "bg-yellow-600"
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg mb-6 ${
+                      facility.capacityStatus === "Available"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-yellow-100 text-yellow-800"
                     }`}
-                  />
-                  <span className="text-sm font-medium">{facility.capacity}</span>
-                </div>
-                <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  >
+                    <div
+                      className={`w-2 h-2 rounded-full ${
+                        facility.capacityStatus === "Available" ? "bg-green-600" : "bg-yellow-600"
+                      }`}
+                    />
+                    <span className="text-sm font-medium">{facility.capacityStatus}</span>
+                  </div>
+                )}
+                <button className="px-6 py-2 bg-transparent text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
                   View Details
                 </button>
               </div>

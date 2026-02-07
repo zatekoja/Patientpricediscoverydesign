@@ -39,6 +39,9 @@ func TestTypesenseAdapter(t *testing.T) {
 	// Context
 	ctx := context.Background()
 
+	// Ensure clean collection for schema updates
+	_, _ = client.Client().Collection(typesense.FacilitiesCollection).Delete(ctx)
+
 	// 1. Init Schema
 	err = adapter.InitSchema(ctx)
 	require.NoError(t, err)
@@ -49,6 +52,12 @@ func TestTypesenseAdapter(t *testing.T) {
 		Name:         "Typesense Search Hospital",
 		FacilityType: "hospital",
 		IsActive:     true,
+		Address: entities.Address{
+			City:    "Ikeja",
+			State:   "Lagos",
+			Country: "Nigeria",
+		},
+		AcceptedInsurance: []string{"NHIS"},
 		Location: entities.Location{
 			Latitude:  37.7749,
 			Longitude: -122.4194,
@@ -79,7 +88,40 @@ func TestTypesenseAdapter(t *testing.T) {
 	assert.Equal(t, facility.ID, results[0].ID)
 	assert.Equal(t, facility.Name, results[0].Name)
 
+	// 3b. Search by tag (city)
+	tagParams := repositories.SearchParams{
+		Query:     "ikeja",
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		RadiusKm:  10,
+		Limit:     10,
+		Offset:    0,
+	}
+
+	tagResults, err := adapter.Search(ctx, tagParams)
+	require.NoError(t, err)
+	assert.True(t, containsFacility(tagResults, facility.ID))
+
+	// 3c. Suggest by tag
+	suggestions, err := adapter.Suggest(ctx, "ikeja", 37.7749, -122.4194, 5)
+	require.NoError(t, err)
+	assert.True(t, containsFacility(suggestions, facility.ID))
+
+	// 3d. Suggest with typo tolerance
+	typoSuggestions, err := adapter.Suggest(ctx, "ikejx", 37.7749, -122.4194, 5)
+	require.NoError(t, err)
+	assert.True(t, containsFacility(typoSuggestions, facility.ID))
+
 	// 4. Delete
 	err = adapter.Delete(ctx, facility.ID)
 	require.NoError(t, err)
+}
+
+func containsFacility(results []*entities.Facility, id string) bool {
+	for _, facility := range results {
+		if facility != nil && facility.ID == id {
+			return true
+		}
+	}
+	return false
 }

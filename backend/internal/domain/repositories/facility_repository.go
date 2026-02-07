@@ -23,41 +23,30 @@ type FacilityRepository interface {
 	// List retrieves facilities with filters
 	List(ctx context.Context, filter FacilityFilter) ([]*entities.Facility, error)
 
-	       // Search searches facilities by location and criteria
+	// Search searches facilities by location and criteria
 
-	       Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
+	Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
+}
 
-	}
+// FacilitySearchRepository defines the interface for facility search operations (e.g. Typesense)
 
-	
+type FacilitySearchRepository interface {
 
-	// FacilitySearchRepository defines the interface for facility search operations (e.g. Typesense)
+	// Search searches facilities
 
-	type FacilitySearchRepository interface {
+	Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
 
-	       // Search searches facilities
+	// Index indexes a facility
 
-	       Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
+	Index(ctx context.Context, facility *entities.Facility) error
 
-	       
+	// Delete removes a facility from index
 
-	       // Index indexes a facility
+	Delete(ctx context.Context, id string) error
+}
 
-	       Index(ctx context.Context, facility *entities.Facility) error
+// FacilityFilter defines filters for listing facilities
 
-	       
-
-	       // Delete removes a facility from index
-
-	       Delete(ctx context.Context, id string) error
-
-	}
-
-	
-
-	// FacilityFilter defines filters for listing facilities
-
-	
 type FacilityFilter struct {
 	FacilityType string
 	IsActive     *bool
@@ -67,13 +56,14 @@ type FacilityFilter struct {
 
 // SearchParams defines parameters for facility search
 type SearchParams struct {
-	Latitude         float64
-	Longitude        float64
-	RadiusKm         float64
-	ProcedureID      string
+	Query             string
+	Latitude          float64
+	Longitude         float64
+	RadiusKm          float64
+	ProcedureID       string
 	InsuranceProvider string
-	MinPrice         *float64
-	MaxPrice         *float64
-	Limit            int
-	Offset           int
+	MinPrice          *float64
+	MaxPrice          *float64
+	Limit             int
+	Offset            int
 }

@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import {
   X,
   MapPin,
-  DollarSign,
-  Calendar,
+  Banknote,
   Clock,
   Star,
   Phone,
@@ -15,7 +14,26 @@ import {
 import { api } from "../../lib/api";
 
 interface FacilityModalProps {
-  facility: any;
+  facility: {
+    id: string;
+    name: string;
+    type: string;
+    distanceKm: number;
+    priceMin?: number | null;
+    priceMax?: number | null;
+    currency?: string | null;
+    rating: number;
+    reviews: number;
+    address: string;
+    phoneNumber?: string | null;
+    website?: string | null;
+    services: string[];
+    servicePrices: { name: string; price: number; currency: string }[];
+    insurance: string[];
+    capacityStatus?: string | null;
+    avgWaitMinutes?: number | null;
+    urgentCareAvailable?: boolean | null;
+  };
   onClose: () => void;
 }
 
@@ -24,6 +42,10 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
   const [loading, setLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [booking, setBooking] = useState(false);
+  const formatCurrency = (value: number, currency?: string | null) => {
+    const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
+    return `${symbol}${Math.round(value).toLocaleString()}`;
+  };
 
   useEffect(() => {
     const fetchSlots = async () => {
@@ -72,14 +94,14 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
   }, {});
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-transparent backdrop-blur-[2px] flex items-center justify-center z-50 p-3 sm:p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-2xl font-bold text-gray-900">{facility.name}</h2>
-              {facility.urgent && (
+              {facility.urgentCareAvailable && (
                 <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">
                   Urgent Care Available
                 </span>
@@ -109,40 +131,42 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             <div className="bg-blue-50 rounded-lg p-4">
               <MapPin className="w-5 h-5 text-blue-600 mb-2" />
               <p className="text-2xl font-bold text-gray-900 mb-1">
-                {facility.distance} km
+                {facility.distanceKm.toFixed(2)} km
               </p>
               <p className="text-sm text-gray-600">Distance</p>
             </div>
             <div className="bg-green-50 rounded-lg p-4">
-              <DollarSign className="w-5 h-5 text-green-600 mb-2" />
+              <Banknote className="w-5 h-5 text-green-600 mb-2" />
               <p className="text-2xl font-bold text-gray-900 mb-1">
-                ₦{facility.price.toLocaleString()}
+                {facility.priceMin != null
+                  ? formatCurrency(facility.priceMin, facility.currency)
+                  : "Not available"}
               </p>
               <p className="text-sm text-gray-600">Estimated Cost</p>
             </div>
             <div className="bg-purple-50 rounded-lg p-4">
               <Clock className="w-5 h-5 text-purple-600 mb-2" />
               <p className="text-2xl font-bold text-gray-900 mb-1">
-                {facility.waitTime}
+                {facility.avgWaitMinutes != null ? `${facility.avgWaitMinutes} min` : "Not available"}
               </p>
               <p className="text-sm text-gray-600">Avg. Wait</p>
             </div>
             <div
               className={`rounded-lg p-4 ${
-                facility.capacity === "Available"
+                facility.capacityStatus === "Available"
                   ? "bg-green-50"
                   : "bg-yellow-50"
               }`}
             >
               <AlertCircle
                 className={`w-5 h-5 mb-2 ${
-                  facility.capacity === "Available"
+                  facility.capacityStatus === "Available"
                     ? "text-green-600"
                     : "text-yellow-600"
                 }`}
               />
               <p className="text-2xl font-bold text-gray-900 mb-1">
-                {facility.capacity}
+                {facility.capacityStatus || "Not available"}
               </p>
               <p className="text-sm text-gray-600">Capacity</p>
             </div>
@@ -168,10 +192,14 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
                   <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
                   <div>
                     <p className="font-semibold text-gray-900 mb-1">Phone</p>
-                    <p className="text-sm text-gray-600">(555) 123-4567</p>
-                    <button className="text-sm text-blue-600 hover:underline mt-1">
-                      Call Now
-                    </button>
+                    <p className="text-sm text-gray-600">
+                      {facility.phoneNumber || "Not available"}
+                    </p>
+                    {facility.phoneNumber && (
+                      <button className="text-sm text-blue-600 hover:underline mt-1">
+                        Call Now
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -180,12 +208,18 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
               <Globe className="w-5 h-5 text-gray-400 mt-0.5" />
               <div>
                 <p className="font-semibold text-gray-900 mb-1">Website</p>
-                <a
-                  href="#"
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  www.{facility.name.toLowerCase().replace(/[^a-z]/g, "")}.com
-                </a>
+                {facility.website ? (
+                  <a
+                    href={facility.website}
+                    className="text-sm text-blue-600 hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {facility.website}
+                  </a>
+                ) : (
+                  <p className="text-sm text-gray-600">Not available</p>
+                )}
               </div>
             </div>
           </div>
@@ -195,17 +229,38 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             <h3 className="font-semibold text-gray-900 mb-3">
               Available Services
             </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {facility.services.map((service: string, index: number) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-3"
-                >
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <span className="text-sm text-gray-900">{service}</span>
-                </div>
-              ))}
-            </div>
+            {facility.servicePrices.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                {facility.servicePrices.map((service, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <span className="text-sm text-gray-900">{service.name}</span>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-900">
+                      {formatCurrency(service.price, service.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : facility.services.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                {facility.services.map((service: string, index: number) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-3"
+                  >
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    <span className="text-sm text-gray-900">{service}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Services not listed.</p>
+            )}
           </div>
 
           {/* Insurance */}
@@ -213,16 +268,20 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             <h3 className="font-semibold text-gray-900 mb-3">
               Accepted Insurance
             </h3>
-            <div className="flex flex-wrap gap-2">
-              {facility.insurance.map((ins: string, index: number) => (
-                <span
-                  key={index}
-                  className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm"
-                >
-                  {ins}
-                </span>
-              ))}
-            </div>
+            {facility.insurance.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {facility.insurance.map((ins: string, index: number) => (
+                  <span
+                    key={index}
+                    className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm"
+                  >
+                    {ins}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Insurance information not available.</p>
+            )}
           </div>
 
           {/* Available Appointments */}
@@ -262,28 +321,22 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
             )}
           </div>
 
-          {/* Price Breakdown */}
+          {/* Price Overview */}
           <div className="mb-6">
             <h3 className="font-semibold text-gray-900 mb-3">
-              Price Breakdown (Estimated)
+              Price Overview
             </h3>
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Procedure Fee</span>
-                <span className="text-gray-900">₦{(facility.price - 5000).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Consultation Fee</span>
-                <span className="text-gray-900">₦5,000</span>
-              </div>
-              <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
-                <span className="text-gray-900">Total Estimated Cost</span>
-                <span className="text-gray-900">₦{facility.price.toLocaleString()}</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                * Final cost may vary based on insurance coverage and specific
-                requirements
-              </p>
+            <div className="bg-gray-50 rounded-lg p-4">
+              {facility.priceMin != null ? (
+                <p className="text-sm text-gray-700">
+                  Estimated range: {formatCurrency(facility.priceMin, facility.currency)}
+                  {facility.priceMax != null && facility.priceMax !== facility.priceMin
+                    ? ` - ${formatCurrency(facility.priceMax, facility.currency)}`
+                    : ""}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-500">Pricing not available yet.</p>
+              )}
             </div>
           </div>
 

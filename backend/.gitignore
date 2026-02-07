@@ -57,6 +57,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Generated GraphQL code
+internal/graphql/generated/
+
 # Database
 *.db
 *.sqlite

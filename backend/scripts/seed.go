@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,11 +36,32 @@ func main() {
 	}
 
 	facilityRepo := database.NewFacilityAdapter(pgClient)
-	facilityService := services.NewFacilityService(facilityRepo, searchRepo)
 	procedureRepo := database.NewProcedureAdapter(pgClient)
 	insuranceRepo := database.NewInsuranceAdapter(pgClient)
+	facilityProcedureRepo := database.NewFacilityProcedureAdapter(pgClient)
+	facilityService := services.NewFacilityService(facilityRepo, searchRepo, facilityProcedureRepo, procedureRepo, insuranceRepo)
 
 	ctx := context.Background()
+
+	if os.Getenv("RESET_DB") == "true" {
+		log.Println("RESET_DB=true detected, truncating tables before seeding")
+		_, err := pgClient.DB().ExecContext(ctx, `
+			TRUNCATE TABLE
+				facility_insurance,
+				facility_procedures,
+				availability_slots,
+				appointments,
+				reviews,
+				facilities,
+				procedures,
+				insurance_providers,
+				users
+			RESTART IDENTITY CASCADE
+		`)
+		if err != nil {
+			log.Fatalf("Failed to reset tables: %v", err)
+		}
+	}
 
 	// 1. Seed Procedures
 	procedures := []entities.Procedure{
@@ -145,6 +167,7 @@ func main() {
 	}
 
 	fpRepo := database.NewFacilityProcedureAdapter(pgClient)
+	db := pgClient.DB()
 
 	for _, f := range facilities {
 		if err := facilityService.Create(ctx, &f); err != nil {
@@ -156,7 +179,7 @@ func main() {
 		for i, p := range procedures {
 			// Each facility only offers 3 random procedures
 			if i%2 == 0 {
-				price := float64(25000 + (i * 5000))
+				price := float64(20000 + (i * 7500))
 				fp := &entities.FacilityProcedure{
 					ID:                uuid.New().String(),
 					FacilityID:        f.ID,
@@ -171,6 +194,25 @@ func main() {
 				if err := fpRepo.Create(ctx, fp); err != nil {
 					log.Printf("Failed to link procedure %s to facility %s: %v", p.Name, f.Name, err)
 				}
+			}
+		}
+
+		// Add accepted insurance providers (every other provider for variety)
+		for i, provider := range insuranceProviders {
+			if i%2 != 0 {
+				continue
+			}
+			_, err := db.ExecContext(
+				ctx,
+				`INSERT INTO facility_insurance (id, facility_id, insurance_provider_id, is_accepted, created_at, updated_at)
+				 VALUES ($1, $2, $3, true, NOW(), NOW())
+				 ON CONFLICT (facility_id, insurance_provider_id) DO NOTHING`,
+				uuid.New().String(),
+				f.ID,
+				provider.ID,
+			)
+			if err != nil {
+				log.Printf("Failed to link insurance provider %s to facility %s: %v", provider.Name, f.Name, err)
 			}
 		}
 	}

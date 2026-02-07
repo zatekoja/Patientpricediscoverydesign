@@ -71,8 +71,8 @@ func (c *Client) InitSchema(ctx context.Context) error {
 				Type: "string",
 			},
 			{
-				Name: "facility_type",
-				Type: "string",
+				Name:  "facility_type",
+				Type:  "string",
 				Facet: pointer.True(),
 			},
 			{
@@ -80,35 +80,48 @@ func (c *Client) InitSchema(ctx context.Context) error {
 				Type: "geopoint",
 			},
 			{
-				Name: "price",
-				Type: "float",
-				Facet: pointer.True(),
+				Name:     "price",
+				Type:     "float",
+				Facet:    pointer.True(),
 				Optional: pointer.True(),
 			},
 			{
-				Name: "rating",
-				Type: "float",
+				Name:  "rating",
+				Type:  "float",
 				Facet: pointer.True(),
+			},
+			{
+				Name: "review_count",
+				Type: "int32",
+			},
+			{
+				Name: "created_at",
+				Type: "int64",
 			},
 			{
 				Name: "is_active",
 				Type: "bool",
 			},
 			{
-				Name: "insurance",
-				Type: "string[]",
-				Facet: pointer.True(),
+				Name:     "insurance",
+				Type:     "string[]",
+				Facet:    pointer.True(),
+				Optional: pointer.True(),
+			},
+			{
+				Name:     "tags",
+				Type:     "string[]",
 				Optional: pointer.True(),
 			},
 		},
-		DefaultSortingField: pointer.String("rating"),
+		DefaultSortingField: pointer.String("created_at"),
 	}
 
 	_, err = c.client.Collections().Create(ctx, schema)
 	if err != nil {
 		return fmt.Errorf("failed to create collection: %w", err)
 	}
-	
+
 	log.Println("Created Typesense collection 'facilities'")
 	return nil
 }

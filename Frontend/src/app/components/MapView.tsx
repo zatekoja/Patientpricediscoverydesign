@@ -1,6 +1,6 @@
 import { Navigation } from "lucide-react";
 import { API_BASE_URL } from "../../lib/api";
-import { UIFacility } from "./SearchResults";
+import type { UIFacility } from "../../lib/mappers";
 
 interface MapViewProps {
   facilities: UIFacility[];
@@ -9,6 +9,10 @@ interface MapViewProps {
 }
 
 export function MapView({ facilities, center, onSelectFacility }: MapViewProps) {
+  const formatCurrency = (value: number, currency?: string | null) => {
+    const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
+    return `${symbol}${Math.round(value).toLocaleString()}`;
+  };
   const mapParams = new URLSearchParams({
     center: `${center.lat},${center.lon}`,
     zoom: "12",
@@ -68,24 +72,30 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
                     <h4 className="font-semibold text-gray-900 text-sm">
                       {facility.name}
                     </h4>
-                    <div
-                      className={`w-2 h-2 rounded-full mt-1 ${
-                        facility.capacity === "Available"
-                          ? "bg-green-600"
-                          : "bg-yellow-600"
-                      }`}
-                    />
+                    {facility.capacityStatus && (
+                      <div
+                        className={`w-2 h-2 rounded-full mt-1 ${
+                          facility.capacityStatus === "Available"
+                            ? "bg-green-600"
+                            : "bg-yellow-600"
+                        }`}
+                      />
+                    )}
                   </div>
                   <div className="space-y-1 text-xs text-gray-600">
                     <div className="flex items-center justify-between">
-                      <span>{facility.distance} km away</span>
+                      <span>{facility.distanceKm.toFixed(2)} km away</span>
                       <span className="font-semibold text-gray-900">
-                        ₦{facility.price.toLocaleString()}
+                        {facility.priceMin != null
+                          ? formatCurrency(facility.priceMin, facility.currency)
+                          : "Price N/A"}
                       </span>
                     </div>
-                    <div className="text-green-700">
-                      Next: {facility.nextAvailable}
-                    </div>
+                    {facility.nextAvailableAt && (
+                      <div className="text-green-700">
+                        Next: {new Date(facility.nextAvailableAt).toLocaleDateString("en-NG", { month: "short", day: "numeric" })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
