@@ -216,6 +216,8 @@ services:
     build:
       context: .
       dockerfile: Frontend/frontend.Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
     container_name: ppd_frontend
     ports:
       - "3000:80"

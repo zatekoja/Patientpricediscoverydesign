@@ -12,6 +12,10 @@ RUN npm install
 # Copy source code
 COPY .. .
 
+# Pass through Vite build-time env vars
+ARG VITE_GOOGLE_MAPS_API_KEY
+ENV VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
+
 # Build the application
 WORKDIR /app/Frontend/src
 RUN npx vite build --config vite.config.ts

@@ -13,8 +13,8 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 )
 
 // Facility is the resolver for the facility field.
@@ -304,16 +304,6 @@ func (r *insuranceProviderResolver) ProceduresCount(ctx context.Context, obj *en
 // Category is the resolver for the category field.
 func (r *procedureResolver) Category(ctx context.Context, obj *entities.Procedure) (generated.ProcedureCategory, error) {
 	return generated.ProcedureCategory(obj.Category), nil
-}
-
-// Price is the resolver for the price field.
-func (r *procedureResolver) Price(ctx context.Context, obj *entities.Procedure) (float64, error) {
-	return obj.Price, nil
-}
-
-// Duration is the resolver for the duration field.
-func (r *procedureResolver) Duration(ctx context.Context, obj *entities.Procedure) (int, error) {
-	return obj.Duration, nil
 }
 
 // RequiresReferral is the resolver for the requiresReferral field.
@@ -785,3 +775,18 @@ type facilitySearchResultResolver struct{ *Resolver }
 type insuranceProviderResolver struct{ *Resolver }
 type procedureResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
+
+// !!! WARNING !!!
+// The code below was going to be deleted when updating resolvers. It has been copied here so you have
+// one last chance to move it out of harms way if you want. There are two reasons this happens:
+//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
+//    it when you're done.
+//  - You have helper methods in this file. Move them out to keep these resolver files clean.
+/*
+	func (r *procedureResolver) Price(ctx context.Context, obj *entities.Procedure) (float64, error) {
+	return obj.Price, nil
+}
+func (r *procedureResolver) Duration(ctx context.Context, obj *entities.Procedure) (int, error) {
+	return obj.Duration, nil
+}
+*/

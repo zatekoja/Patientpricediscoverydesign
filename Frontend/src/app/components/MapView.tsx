@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigation } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker, Pin, InfoWindow } from "@vis.gl/react-google-maps";
 import { API_BASE_URL } from "../../lib/api";
 import type { UIFacility } from "../../lib/mappers";
+import fallbackMap from "../../assets/fallback-image-asset.png";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
@@ -15,6 +16,32 @@ interface MapViewProps {
 export function MapView({ facilities, center, onSelectFacility }: MapViewProps) {
   const [selectedMarker, setSelectedMarker] = useState<UIFacility | null>(null);
   const [hoveredFacilityId, setHoveredFacilityId] = useState<string | null>(null);
+  const [staticMapError, setStaticMapError] = useState(false);
+  const mapHeightClass = "h-[45vh] sm:h-[50vh] lg:h-[calc(100vh-250px)]";
+  const mapCenter = useMemo(() => ({ lat: center.lat, lng: center.lon }), [center.lat, center.lon]);
+  const mapBounds = useMemo(() => {
+    const points = facilities.filter((facility) => facility.lat != null && facility.lon != null);
+    if (points.length === 0) return null;
+    let north = -90;
+    let south = 90;
+    let east = -180;
+    let west = 180;
+    points.forEach((facility) => {
+      if (facility.lat == null || facility.lon == null) return;
+      north = Math.max(north, facility.lat);
+      south = Math.min(south, facility.lat);
+      east = Math.max(east, facility.lon);
+      west = Math.min(west, facility.lon);
+    });
+    if (!Number.isFinite(north) || !Number.isFinite(south) || !Number.isFinite(east) || !Number.isFinite(west)) {
+      return null;
+    }
+    return { north, south, east, west };
+  }, [facilities]);
+
+  useEffect(() => {
+    setStaticMapError(false);
+  }, [center.lat, center.lon, facilities.length]);
 
   // Fallback to static map if no API key is provided
   if (!GOOGLE_MAPS_API_KEY) {
@@ -33,18 +60,21 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
       mapParams.append("markers", `color:red|label:${label}|${facility.lat},${facility.lon}`);
     });
 
-    const mapSrc = `${API_BASE_URL}/maps/static?${mapParams.toString()}`;
+    const mapSrc = staticMapError
+      ? fallbackMap
+      : `${API_BASE_URL}/maps/static?${mapParams.toString()}`;
 
     return (
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="flex">
+      <div className="bg-white rounded-lg overflow-hidden shadow-sm">
+        <div className="flex flex-col lg:flex-row">
           {/* Map Area */}
-          <div className="flex-1 relative bg-gray-100" style={{ height: "calc(100vh - 250px)" }}>
+          <div className={`flex-1 relative bg-gray-100 ${mapHeightClass}`}>
             <img
               src={mapSrc}
               alt="Facility map"
               className="absolute inset-0 h-full w-full object-cover"
               loading="lazy"
+              onError={() => setStaticMapError(true)}
             />
 
             {/* User location marker */}
@@ -56,12 +86,16 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
             </div>
 
             <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2">
-              <span className="text-xs text-gray-600">Static map (Add VITE_GOOGLE_MAPS_API_KEY for interactive map).</span>
+              <span className="text-xs text-gray-600">
+                {staticMapError
+                  ? "Fallback map preview."
+                  : "Static map (Add VITE_GOOGLE_MAPS_API_KEY for interactive map)."}
+              </span>
             </div>
           </div>
 
           {/* Sidebar with facility list */}
-          <div className="w-96 border-l border-gray-200 overflow-y-auto" style={{ height: "calc(100vh - 250px)" }}>
+          <div className="w-full lg:w-96 border-t lg:border-l border-gray-200 overflow-y-auto max-h-[45vh] sm:max-h-[50vh] lg:max-h-none lg:h-[calc(100vh-250px)]">
             <div className="p-4">
               <h3 className="font-semibold text-gray-900 mb-4">
                 {facilities.length} Facilities Nearby
@@ -114,16 +148,18 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="flex">
+    <div className="bg-white rounded-lg overflow-hidden shadow-sm">
+      <div className="flex flex-col lg:flex-row">
         {/* Interactive Map Area */}
-        <div className="flex-1 relative bg-gray-100" style={{ height: "calc(100vh - 250px)" }}>
+        <div className={`flex-1 relative bg-gray-100 ${mapHeightClass}`}>
           <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
             <Map
-              defaultCenter={{ lat: center.lat, lng: center.lon }}
-              center={{ lat: center.lat, lng: center.lon }}
+              defaultCenter={mapCenter}
+              center={mapBounds ? undefined : mapCenter}
+              bounds={mapBounds ?? undefined}
+              boundsPadding={40}
               defaultZoom={12}
-              zoom={12}
+              zoom={mapBounds ? undefined : 12}
               gestureHandling={"greedy"}
               disableDefaultUI={false}
               mapId={"DEMO_MAP_ID"} // Required for AdvancedMarker, can be any string for basic usage or real ID from Google Console
@@ -187,7 +223,7 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
         </div>
 
         {/* Sidebar with facility list */}
-        <div className="w-96 border-l border-gray-200 overflow-y-auto" style={{ height: "calc(100vh - 250px)" }}>
+        <div className="w-full lg:w-96 border-t lg:border-l border-gray-200 overflow-y-auto max-h-[45vh] sm:max-h-[50vh] lg:max-h-none lg:h-[calc(100vh-250px)]">
             <div className="p-4">
             <h3 className="font-semibold text-gray-900 mb-4">
               {facilities.length} Facilities Nearby

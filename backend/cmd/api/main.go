@@ -115,21 +115,7 @@ func main() {
 		log.Println("Provider API client initialized successfully")
 	}
 
-	// Initialize adapters
-
-	// Create base facility adapter
-	baseFacilityAdapter := database.NewFacilityAdapter(pgClient)
-
-	// Wrap with caching if Redis is available (for read performance optimization)
-	var facilityAdapter repositories.FacilityRepository
-	if cacheProvider != nil {
-		facilityAdapter = database.NewCachedFacilityAdapter(baseFacilityAdapter, cacheProvider)
-		log.Println("✓ Facility adapter wrapped with caching layer")
-	} else {
-		facilityAdapter = baseFacilityAdapter
-		log.Println("⚠ Facility adapter running without cache (Redis unavailable)")
-	}
-
+	// Initialize adapters (facility adapter will be created after cache provider)
 	appointmentAdapter := database.NewAppointmentAdapter(pgClient)
 
 	procedureAdapter := database.NewProcedureAdapter(pgClient)
@@ -155,6 +141,17 @@ func main() {
 
 		searchRepo = adapter
 
+	}
+
+	// Initialize facility adapter with caching (now that cacheProvider is available)
+	baseFacilityAdapter := database.NewFacilityAdapter(pgClient)
+	var facilityAdapter repositories.FacilityRepository
+	if cacheProvider != nil {
+		facilityAdapter = database.NewCachedFacilityAdapter(baseFacilityAdapter, cacheProvider)
+		log.Println("✓ Facility adapter wrapped with caching layer")
+	} else {
+		facilityAdapter = baseFacilityAdapter
+		log.Println("⚠ Facility adapter running without cache (Redis unavailable)")
 	}
 
 	// Initialize event bus for real-time updates
