@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"

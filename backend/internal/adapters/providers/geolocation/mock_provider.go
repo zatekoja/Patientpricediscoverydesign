@@ -25,6 +25,8 @@ func (m *MockGeolocationProvider) Geocode(ctx context.Context, address string) (
 		"Chicago":     {Latitude: 41.8781, Longitude: -87.6298},
 		"Houston":     {Latitude: 29.7604, Longitude: -95.3698},
 		"Phoenix":     {Latitude: 33.4484, Longitude: -112.0740},
+		"Lagos":       {Latitude: 6.5244, Longitude: 3.3792},
+		"Abuja":       {Latitude: 9.0765, Longitude: 7.3986},
 	}
 
 	// Simple address matching (in production, use a real geocoding service)

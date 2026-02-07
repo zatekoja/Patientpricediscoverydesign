@@ -1,6 +1,12 @@
 import { Facility, FacilityResponse, SearchParams } from '../types/api';
 
-const API_BASE_URL = 'http://localhost:8080/api';
+export const API_BASE_URL = 'http://localhost:8080/api';
+
+export interface GeocodeResponse {
+  address: string;
+  lat: number;
+  lon: number;
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -30,6 +36,7 @@ class ApiClient {
       lon: params.lon.toString(),
     });
 
+    if (params.query) queryParams.append('query', params.query);
     if (params.radius) queryParams.append('radius', params.radius.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
     if (params.offset) queryParams.append('offset', params.offset.toString());
@@ -48,6 +55,11 @@ class ApiClient {
 
   async getInsuranceProviders(): Promise<{ providers: any[]; count: number }> {
     return this.request('/insurance-providers');
+  }
+
+  async geocode(address: string): Promise<GeocodeResponse> {
+    const query = `?address=${encodeURIComponent(address)}`;
+    return this.request(`/geocode${query}`);
   }
 
   async getAvailability(facilityId: string, from: Date, to: Date): Promise<{ slots: any[] }> {

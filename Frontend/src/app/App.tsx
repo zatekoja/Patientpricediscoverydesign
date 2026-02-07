@@ -16,29 +16,24 @@ export default function App() {
 
   // Data states
   const [facilities, setFacilities] = useState<UIFacility[]>([]);
-  const [procedures, setProcedures] = useState<any[]>([]);
   const [insuranceProviders, setInsuranceProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [_error, setError] = useState<string | null>(null);
 
   // Filter states
-  const [selectedProcedure, setSelectedProcedure] = useState("");
   const [maxDistance, setMaxDistance] = useState("50");
   const [maxPrice, setMaxPrice] = useState("500000"); // Updated for NGN
   const [selectedInsurance, setSelectedInsurance] = useState("");
   const [availability, setAvailability] = useState("any");
 
   // Default search coordinates (Lagos, Nigeria)
-  const defaultLat = 6.4531;
-  const defaultLon = 3.3958;
+  const defaultLat = 6.5244;
+  const defaultLon = 3.3792;
+  const [center, setCenter] = useState({ lat: defaultLat, lon: defaultLon });
 
   const fetchData = async () => {
     try {
-      const [procRes, insRes] = await Promise.all([
-        api.getProcedures(),
-        api.getInsuranceProviders()
-      ]);
-      setProcedures(procRes.procedures);
+      const insRes = await api.getInsuranceProviders();
       setInsuranceProviders(insRes.providers);
     } catch (err) {
       console.error("Failed to fetch initial data:", err);
@@ -49,14 +44,24 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      // In a real app, we would geocode the 'location' string to get lat/lon.
-      // For now, we use the default coordinates.
+      let searchCenter = center;
+      const trimmedLocation = location.trim();
+      if (trimmedLocation.length > 0) {
+        try {
+          const geo = await api.geocode(trimmedLocation);
+          searchCenter = { lat: geo.lat, lon: geo.lon };
+          setCenter(searchCenter);
+        } catch (geoErr) {
+          console.error("Failed to geocode location, using previous center:", geoErr);
+        }
+      }
+
       const searchParams = {
-        lat: defaultLat,
-        lon: defaultLon,
+        query: searchQuery.trim() || undefined,
+        lat: searchCenter.lat,
+        lon: searchCenter.lon,
         radius: parseFloat(maxDistance) || 50,
         limit: 50,
-        procedure_id: selectedProcedure,
         insurance_provider: selectedInsurance,
       };
 
@@ -64,7 +69,7 @@ export default function App() {
 
       const mappedFacilities: UIFacility[] = response.facilities.map((f: Facility) => {
         // ... (rest of mapping)
-        const dist = calculateDistance(defaultLat, defaultLon, f.location.latitude, f.location.longitude);
+        const dist = calculateDistance(searchCenter.lat, searchCenter.lon, f.location.latitude, f.location.longitude);
         return {
           id: f.id,
           name: f.name,
@@ -80,6 +85,8 @@ export default function App() {
           urgent: Math.random() > 0.5, // Mock
           capacity: Math.random() > 0.3 ? "Available" : "Limited", // Mock
           waitTime: `${Math.floor(Math.random() * 45 + 5)} min`, // Mock
+          lat: f.location?.latitude,
+          lon: f.location?.longitude,
         };
       });
 
@@ -111,16 +118,14 @@ export default function App() {
           <div className="flex gap-3 mb-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <select
-                value={selectedProcedure}
-                onChange={(e) => setSelectedProcedure(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
-              >
-                <option value="">Select a procedure...</option>
-                {procedures.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+              <input
+                type="text"
+                placeholder="Search hospitals, clinics, procedures..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && fetchFacilities()}
+                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
             <div className="w-64 relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -163,7 +168,7 @@ export default function App() {
               <div className="grid grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Max Distance (miles)
+                    Max Distance (km)
                   </label>
                   <input
                     type="number"
@@ -174,7 +179,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Max Price ($)
+                    Max Price (₦)
                   </label>
                   <input
                     type="number"
@@ -252,7 +257,11 @@ export default function App() {
             onSelectFacility={setSelectedFacility} 
           />
         ) : (
-          <MapView onSelectFacility={setSelectedFacility} />
+          <MapView
+            facilities={facilities}
+            center={center}
+            onSelectFacility={setSelectedFacility}
+          />
         )}
       </main>
 

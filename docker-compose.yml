@@ -73,7 +73,8 @@ services:
       - DB_SSLMODE=disable
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - GEOLOCATION_PROVIDER=mock
+      - GEOLOCATION_PROVIDER=google
+      - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
     depends_on:
@@ -86,7 +87,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: frontend.Dockerfile
+      dockerfile: Frontend/frontend.Dockerfile
     container_name: ppd_frontend
     ports:
       - "3000:80"

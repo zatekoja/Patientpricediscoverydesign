@@ -35,6 +35,7 @@ export interface FacilityResponse {
 }
 
 export interface SearchParams {
+  query?: string;
   lat: number;
   lon: number;
   radius?: number;

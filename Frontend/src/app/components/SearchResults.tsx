@@ -15,6 +15,8 @@ export interface UIFacility {
   urgent: boolean;
   capacity: string;
   waitTime: string;
+  lat?: number;
+  lon?: number;
 }
 
 interface SearchResultsProps {
