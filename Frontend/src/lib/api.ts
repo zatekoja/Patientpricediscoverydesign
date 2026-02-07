@@ -5,6 +5,7 @@ import {
   FacilitySuggestionResponse,
   FeedbackRequest,
   FeedbackResponse,
+  ProcedureEnrichment,
   SearchParams,
 } from '../types/api';
 
@@ -106,6 +107,10 @@ class ApiClient {
   async getProcedures(category?: string): Promise<{ procedures: any[]; count: number }> {
     const query = category ? `?category=${encodeURIComponent(category)}` : '';
     return this.request(`/procedures${query}`);
+  }
+
+  async getProcedureEnrichment(procedureId: string): Promise<ProcedureEnrichment> {
+    return this.request(`/procedures/${procedureId}/enrichment`);
   }
 
   async getInsuranceProviders(): Promise<{ providers: any[]; count: number }> {

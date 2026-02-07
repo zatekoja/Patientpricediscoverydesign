@@ -112,7 +112,7 @@ export function SearchResults({
             Showing results near your location
           </p>
           <div className="mt-2 text-xs text-gray-500">
-            Transparency: facility data refreshes every 24 hours.
+            Transparency: search index refreshes every 6 hours (configurable). Live availability updates stream in real time.
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">

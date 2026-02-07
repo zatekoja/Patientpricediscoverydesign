@@ -77,12 +77,55 @@ services:
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
       - GEOLOCATION_PROVIDER=google
       - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sse:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.sse-server
+    container_name: ppd_sse
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8082
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OTEL_ENABLED=false
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  reindexer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.indexer
+    container_name: ppd_reindexer
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=patient_price_discovery
+      - DB_SSLMODE=disable
+      - TYPESENSE_URL=http://typesense:8108
+      - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
+      - REINDEX_INTERVAL=${REINDEX_INTERVAL:-6h}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      typesense:
         condition: service_healthy
     restart: unless-stopped
 
@@ -130,6 +173,7 @@ services:
       - "3000:80"
     depends_on:
       - api
+      - sse
       - graphql
     restart: unless-stopped
 

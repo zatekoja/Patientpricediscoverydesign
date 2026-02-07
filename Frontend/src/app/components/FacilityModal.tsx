@@ -12,6 +12,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { api } from "../../lib/api";
+import type { ProcedureEnrichment } from "../../types/api";
 
 interface FacilityModalProps {
   facility: {
@@ -28,7 +29,16 @@ interface FacilityModalProps {
     phoneNumber?: string | null;
     website?: string | null;
     services: string[];
-    servicePrices: { name: string; price: number; currency: string }[];
+    servicePrices: {
+      procedureId?: string;
+      name: string;
+      price: number;
+      currency: string;
+      description?: string;
+      category?: string;
+      code?: string;
+      estimatedDuration?: number;
+    }[];
     insurance: string[];
     capacityStatus?: string | null;
     avgWaitMinutes?: number | null;
@@ -42,9 +52,28 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
   const [loading, setLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [booking, setBooking] = useState(false);
+  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
+  const [serviceEnrichments, setServiceEnrichments] = useState<Record<string, ProcedureEnrichment>>({});
+  const [serviceEnrichmentLoading, setServiceEnrichmentLoading] = useState<Record<string, boolean>>({});
   const formatCurrency = (value: number, currency?: string | null) => {
     const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
     return `${symbol}${Math.round(value).toLocaleString()}`;
+  };
+
+  const loadEnrichment = async (procedureId: string) => {
+    if (!procedureId || serviceEnrichmentLoading[procedureId] || serviceEnrichments[procedureId]) {
+      return;
+    }
+
+    setServiceEnrichmentLoading((prev) => ({ ...prev, [procedureId]: true }));
+    try {
+      const enrichment = await api.getProcedureEnrichment(procedureId);
+      setServiceEnrichments((prev) => ({ ...prev, [procedureId]: enrichment }));
+    } catch (err) {
+      console.error("Failed to load procedure enrichment:", err);
+    } finally {
+      setServiceEnrichmentLoading((prev) => ({ ...prev, [procedureId]: false }));
+    }
   };
 
   useEffect(() => {
@@ -127,7 +156,7 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
         {/* Content */}
         <div className="p-6">
           {/* Quick Info Cards */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4">
             <div className="bg-blue-50 rounded-lg p-4">
               <MapPin className="w-5 h-5 text-blue-600 mb-2" />
               <p className="text-2xl font-bold text-gray-900 mb-1">
@@ -230,24 +259,118 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
               Available Services
             </h3>
             {facility.servicePrices.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
-                {facility.servicePrices.map((service, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      <span className="text-sm text-gray-900">{service.name}</span>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {facility.servicePrices.map((service, index) => {
+                  const serviceKey = service.procedureId || service.name || String(index);
+                  const isExpanded = expandedServiceId === serviceKey;
+                  const enrichment = service.procedureId
+                    ? serviceEnrichments[service.procedureId]
+                    : undefined;
+                  const loadingEnrichment = service.procedureId
+                    ? serviceEnrichmentLoading[service.procedureId]
+                    : false;
+                  const description = enrichment?.description || service.description || "Service description coming soon.";
+                  const prepSteps = enrichment?.prep_steps ?? [];
+                  const risks = enrichment?.risks ?? [];
+                  const recovery = enrichment?.recovery ?? [];
+
+                  return (
+                    <div key={serviceKey} className="bg-white border border-gray-200 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextId = isExpanded ? null : serviceKey;
+                          setExpandedServiceId(nextId);
+                          if (!isExpanded && service.procedureId) {
+                            loadEnrichment(service.procedureId);
+                          }
+                        }}
+                        className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-gray-50 transition-colors"
+                        aria-expanded={isExpanded}
+                      >
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-5 h-5 text-green-600" />
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900">{service.name}</div>
+                            <div className="text-xs text-gray-500">Tap for details</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {formatCurrency(service.price, service.currency)}
+                          </span>
+                          <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="border-t border-gray-200 px-3 py-3 text-sm text-gray-700">
+                          <p className="text-sm text-gray-700">
+                            {loadingEnrichment ? "Loading service details..." : description}
+                          </p>
+                          <div className="mt-3 grid gap-3 text-xs text-gray-600 sm:grid-cols-2">
+                            {prepSteps.length > 0 && (
+                              <div>
+                                <p className="font-semibold text-gray-700 mb-1">Prep steps</p>
+                                <ul className="list-disc pl-4 space-y-1">
+                                  {prepSteps.map((step, idx) => (
+                                    <li key={`prep-${serviceKey}-${idx}`}>{step}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {risks.length > 0 && (
+                              <div>
+                                <p className="font-semibold text-gray-700 mb-1">Risks</p>
+                                <ul className="list-disc pl-4 space-y-1">
+                                  {risks.map((risk, idx) => (
+                                    <li key={`risk-${serviceKey}-${idx}`}>{risk}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {recovery.length > 0 && (
+                              <div>
+                                <p className="font-semibold text-gray-700 mb-1">Recovery</p>
+                                <ul className="list-disc pl-4 space-y-1">
+                                  {recovery.map((item, idx) => (
+                                    <li key={`recovery-${serviceKey}-${idx}`}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                          {(service.category || service.code || service.estimatedDuration) && (
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                              {service.category && (
+                                <div>
+                                  <span className="font-semibold text-gray-700">Category:</span> {service.category}
+                                </div>
+                              )}
+                              {service.code && (
+                                <div>
+                                  <span className="font-semibold text-gray-700">Code:</span> {service.code}
+                                </div>
+                              )}
+                              {service.estimatedDuration ? (
+                                <div>
+                                  <span className="font-semibold text-gray-700">Estimated time:</span> {service.estimatedDuration} min
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                          {enrichment?.provider && (
+                            <p className="mt-3 text-[11px] text-gray-500">
+                              AI-generated summary (source: {enrichment.provider}{enrichment.model ? `, ${enrichment.model}` : ""}).
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {formatCurrency(service.price, service.currency)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : facility.services.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {facility.services.map((service: string, index: number) => (
                   <div
                     key={index}
@@ -298,7 +421,7 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
                     <p className="text-sm font-medium text-gray-700 mb-2">
                       {date}
                     </p>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                       {dateSlots.map((slot: any, slotIndex: number) => (
                         <button
                           key={slotIndex}

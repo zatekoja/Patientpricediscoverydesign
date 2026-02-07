@@ -2,12 +2,14 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"sort"
 	"strings"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 )
 
@@ -18,6 +20,7 @@ type FacilityService struct {
 	procedureRepo        repositories.FacilityProcedureRepository
 	procedureCatalogRepo repositories.ProcedureRepository
 	insuranceRepo        repositories.InsuranceRepository
+	eventBus             providers.EventBus
 }
 
 const maxSearchTags = 12
@@ -36,7 +39,13 @@ func NewFacilityService(
 		procedureRepo:        procedureRepo,
 		procedureCatalogRepo: procedureCatalogRepo,
 		insuranceRepo:        insuranceRepo,
+		eventBus:             nil, // Injected separately to avoid breaking existing code
 	}
+}
+
+// SetEventBus sets the event bus for publishing real-time updates
+func (s *FacilityService) SetEventBus(eventBus providers.EventBus) {
+	s.eventBus = eventBus
 }
 
 // Create creates a new facility and indexes it
@@ -65,6 +74,12 @@ func (s *FacilityService) GetByID(ctx context.Context, id string) (*entities.Fac
 
 // Update updates a facility and updates index
 func (s *FacilityService) Update(ctx context.Context, facility *entities.Facility) error {
+	// Get the existing facility to detect changes
+	existing, err := s.repo.GetByID(ctx, facility.ID)
+	if err != nil {
+		return err
+	}
+
 	// 1. Update in database
 	if err := s.repo.Update(ctx, facility); err != nil {
 		return err
@@ -78,7 +93,166 @@ func (s *FacilityService) Update(ctx context.Context, facility *entities.Facilit
 		}
 	}
 
+	// 3. Publish real-time update events if relevant fields changed
+	if s.eventBus != nil {
+		s.publishUpdateEvents(ctx, existing, facility)
+	}
+
 	return nil
+}
+
+// UpdateServiceAvailability updates availability for a specific facility procedure and publishes an event.
+func (s *FacilityService) UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error) {
+	if s.procedureRepo == nil {
+		return nil, fmt.Errorf("facility procedure repository not configured")
+	}
+
+	fp, err := s.procedureRepo.GetByFacilityAndProcedure(ctx, facilityID, procedureID)
+	if err != nil {
+		return nil, err
+	}
+
+	if fp.IsAvailable == isAvailable {
+		return fp, nil
+	}
+
+	fp.IsAvailable = isAvailable
+	if err := s.procedureRepo.Update(ctx, fp); err != nil {
+		return nil, err
+	}
+
+	if s.eventBus != nil {
+		location := entities.Location{}
+		if facility, err := s.repo.GetByID(ctx, facilityID); err == nil && facility != nil {
+			location = facility.Location
+		}
+
+		changedFields := map[string]interface{}{
+			"procedure_id":       procedureID,
+			"is_available":       isAvailable,
+			"price":              fp.Price,
+			"currency":           fp.Currency,
+			"estimated_duration": fp.EstimatedDuration,
+		}
+
+		if s.procedureCatalogRepo != nil {
+			if procedure, err := s.procedureCatalogRepo.GetByID(ctx, procedureID); err == nil && procedure != nil {
+				if procedure.Name != "" {
+					changedFields["procedure_name"] = procedure.Name
+				}
+				if procedure.Code != "" {
+					changedFields["procedure_code"] = procedure.Code
+				}
+				if procedure.Category != "" {
+					changedFields["procedure_category"] = procedure.Category
+				}
+				if procedure.Description != "" {
+					changedFields["procedure_description"] = procedure.Description
+				}
+			}
+		}
+
+		event := entities.NewFacilityEvent(
+			facilityID,
+			entities.FacilityEventTypeServiceAvailabilityUpdate,
+			location,
+			changedFields,
+		)
+
+		facilityChannel := providers.GetFacilityChannel(facilityID)
+		if err := s.eventBus.Publish(ctx, facilityChannel, event); err != nil {
+			log.Printf("Warning: Failed to publish service availability event to %s: %v", facilityChannel, err)
+		}
+
+		if err := s.eventBus.Publish(ctx, providers.EventChannelFacilityUpdates, event); err != nil {
+			log.Printf("Warning: Failed to publish service availability event to global channel: %v", err)
+		}
+
+		log.Printf("Published %s event for facility %s", entities.FacilityEventTypeServiceAvailabilityUpdate, facilityID)
+	}
+
+	return fp, nil
+}
+
+// publishUpdateEvents publishes events for facility updates
+func (s *FacilityService) publishUpdateEvents(ctx context.Context, old, new *entities.Facility) {
+	changedFields := make(map[string]interface{})
+	var eventType entities.FacilityEventType
+
+	// Check for capacity status changes
+	if !strPtrEqual(old.CapacityStatus, new.CapacityStatus) {
+		changedFields["capacity_status"] = new.CapacityStatus
+		eventType = entities.FacilityEventTypeCapacityUpdate
+	}
+
+	// Check for wait time changes
+	if !intPtrEqual(old.AvgWaitMinutes, new.AvgWaitMinutes) {
+		changedFields["avg_wait_minutes"] = new.AvgWaitMinutes
+		eventType = entities.FacilityEventTypeWaitTimeUpdate
+	}
+
+	// Check for urgent care availability changes
+	if !boolPtrEqual(old.UrgentCareAvailable, new.UrgentCareAvailable) {
+		changedFields["urgent_care_available"] = new.UrgentCareAvailable
+		eventType = entities.FacilityEventTypeUrgentCareUpdate
+	}
+
+	// If no relevant changes, don't publish
+	if len(changedFields) == 0 {
+		return
+	}
+
+	// Create and publish event
+	event := entities.NewFacilityEvent(
+		new.ID,
+		eventType,
+		new.Location,
+		changedFields,
+	)
+
+	// Publish to facility-specific channel
+	facilityChannel := providers.GetFacilityChannel(new.ID)
+	if err := s.eventBus.Publish(ctx, facilityChannel, event); err != nil {
+		log.Printf("Warning: Failed to publish event to %s: %v", facilityChannel, err)
+	}
+
+	// Publish to global updates channel for regional subscribers
+	if err := s.eventBus.Publish(ctx, providers.EventChannelFacilityUpdates, event); err != nil {
+		log.Printf("Warning: Failed to publish event to global channel: %v", err)
+	}
+
+	log.Printf("Published %s event for facility %s", eventType, new.ID)
+}
+
+// Helper functions to compare pointer values
+func strPtrEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func intPtrEqual(a, b *int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 // Delete deletes a facility and removes from index
@@ -458,10 +632,14 @@ func servicePricesFromProcedures(
 			}
 			seen[procedure.Name] = struct{}{}
 			services = append(services, entities.ServicePrice{
-				ProcedureID: item.ProcedureID,
-				Name:        procedure.Name,
-				Price:       item.Price,
-				Currency:    item.Currency,
+				ProcedureID:       item.ProcedureID,
+				Name:              procedure.Name,
+				Price:             item.Price,
+				Currency:          item.Currency,
+				Description:       procedure.Description,
+				Category:          procedure.Category,
+				Code:              procedure.Code,
+				EstimatedDuration: item.EstimatedDuration,
 			})
 			break
 		}
@@ -480,10 +658,14 @@ func servicePricesFromProcedures(
 		}
 		seen[procedure.Name] = struct{}{}
 		services = append(services, entities.ServicePrice{
-			ProcedureID: item.ProcedureID,
-			Name:        procedure.Name,
-			Price:       item.Price,
-			Currency:    item.Currency,
+			ProcedureID:       item.ProcedureID,
+			Name:              procedure.Name,
+			Price:             item.Price,
+			Currency:          item.Currency,
+			Description:       procedure.Description,
+			Category:          procedure.Category,
+			Code:              procedure.Code,
+			EstimatedDuration: item.EstimatedDuration,
 		})
 	}
 

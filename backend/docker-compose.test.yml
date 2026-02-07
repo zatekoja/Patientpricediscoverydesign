@@ -37,3 +37,16 @@ services:
       retries: 5
     tmpfs:
       - /data
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: ppd_redis_test
+    ports:
+      - "6380:6379"  # Use different port to avoid conflict with dev redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /data

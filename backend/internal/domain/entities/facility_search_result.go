@@ -34,8 +34,12 @@ type FacilityPriceRange struct {
 
 // ServicePrice represents a priced service at a facility.
 type ServicePrice struct {
-	ProcedureID string  `json:"procedure_id"`
-	Name        string  `json:"name"`
-	Price       float64 `json:"price"`
-	Currency    string  `json:"currency"`
+	ProcedureID       string  `json:"procedure_id"`
+	Name              string  `json:"name"`
+	Price             float64 `json:"price"`
+	Currency          string  `json:"currency"`
+	Description       string  `json:"description,omitempty"`
+	Category          string  `json:"category,omitempty"`
+	Code              string  `json:"code,omitempty"`
+	EstimatedDuration int     `json:"estimated_duration,omitempty"`
 }

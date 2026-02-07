@@ -8,6 +8,16 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: patient_price_discovery
+      # Enable streaming replication
+      POSTGRES_INITDB_ARGS: "-c wal_level=replica -c max_wal_senders=3 -c max_replication_slots=3"
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=3"
+      - "-c"
+      - "max_replication_slots=3"
     ports:
       - "5432:5432"
     volumes:
@@ -19,9 +29,76 @@ services:
       timeout: 5s
       retries: 5
 
+  # Read Replica 1 for load distribution
+  postgres-replica-1:
+    image: postgres:15-alpine
+    container_name: ppd_postgres_replica_1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    command: |
+      bash -c "
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot_1 --host=postgres --port=5432 -U postgres
+      do
+        echo 'Waiting for primary to be ready...'
+        sleep 5s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /var/lib/postgresql/data
+      postgres
+      "
+    ports:
+      - "5433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres_replica_1_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Read Replica 2 for additional load distribution
+  postgres-replica-2:
+    image: postgres:15-alpine
+    container_name: ppd_postgres_replica_2
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    command: |
+      bash -c "
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot_2 --host=postgres --port=5432 -U postgres
+      do
+        echo 'Waiting for primary to be ready...'
+        sleep 5s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /var/lib/postgresql/data
+      postgres
+      "
+    ports:
+      - "5434:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres_replica_2_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: ppd_redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
@@ -144,6 +221,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      typesense:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sse:
+    build:
+      context: .
+      dockerfile: Dockerfile.sse-server
+    container_name: ppd_sse
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8082
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OTEL_ENABLED=false
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   graphql:
@@ -183,6 +280,8 @@ services:
 
 volumes:
   postgres_data:
+  postgres_replica_1_data:
+  postgres_replica_2_data:
   redis_data:
   typesense_data:
   clickhouse_data:

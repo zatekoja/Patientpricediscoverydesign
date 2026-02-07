@@ -37,7 +37,7 @@ test-db-down: ## Stop test database
 test-integration: ## Run integration tests (requires live database)
 	@echo "Running integration tests..."
 	@echo "Make sure test database is running (make test-db-up)..."
-	TEST_DB_HOST=localhost TEST_DB_PORT=5440 TEST_DB_USER=postgres TEST_DB_PASSWORD=postgres TEST_DB_NAME=patient_price_discovery_test TEST_DB_SSLMODE=disable go test -v -tags=integration ./tests/integration/...
+	TEST_DB_HOST=localhost TEST_DB_PORT=5440 TEST_DB_USER=postgres TEST_DB_PASSWORD=postgres TEST_DB_NAME=patient_price_discovery_test TEST_DB_SSLMODE=disable TEST_REDIS_HOST=localhost TEST_REDIS_PORT=6380 go test -v -tags=integration ./tests/integration/...
 
 test-integration-full: test-db-up test-integration test-db-down ## Start test DB, run integration tests, stop test DB
 test-coverage: ## Run tests with coverage

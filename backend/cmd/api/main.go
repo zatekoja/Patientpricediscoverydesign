@@ -12,14 +12,17 @@ import (
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/events"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/scheduling"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/search"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/middleware"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/routes"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/openai"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/typesense"
@@ -98,12 +101,24 @@ func main() {
 
 	// Initialize adapters
 
-	facilityAdapter := database.NewFacilityAdapter(pgClient)
+	// Create base facility adapter
+	baseFacilityAdapter := database.NewFacilityAdapter(pgClient)
+
+	// Wrap with caching if Redis is available (for read performance optimization)
+	var facilityAdapter repositories.FacilityRepository
+	if cacheProvider != nil {
+		facilityAdapter = database.NewCachedFacilityAdapter(baseFacilityAdapter, cacheProvider)
+		log.Println("✓ Facility adapter wrapped with caching layer")
+	} else {
+		facilityAdapter = baseFacilityAdapter
+		log.Println("⚠ Facility adapter running without cache (Redis unavailable)")
+	}
 
 	appointmentAdapter := database.NewAppointmentAdapter(pgClient)
 
 	procedureAdapter := database.NewProcedureAdapter(pgClient)
 	facilityProcedureAdapter := database.NewFacilityProcedureAdapter(pgClient)
+	procedureEnrichmentAdapter := database.NewProcedureEnrichmentAdapter(pgClient)
 
 	insuranceAdapter := database.NewInsuranceAdapter(pgClient)
 	feedbackAdapter := database.NewFeedbackAdapter(pgClient)
@@ -131,6 +146,15 @@ func main() {
 		cacheProvider = cache.NewRedisAdapter(redisClient)
 	}
 
+	// Initialize event bus for real-time updates
+	var eventBus providers.EventBus
+	if redisClient != nil {
+		eventBus = events.NewRedisEventBus(redisClient)
+		log.Println("Event bus initialized successfully")
+	} else {
+		log.Println("Event bus disabled (Redis not available)")
+	}
+
 	var geolocationProvider providers.GeolocationProvider
 	switch cfg.Geolocation.Provider {
 	case "google":
@@ -146,6 +170,18 @@ func main() {
 
 	appointmentProvider := scheduling.NewCalendlyAdapter(os.Getenv("CALENDLY_API_KEY"))
 
+	var enrichmentProvider providers.ProcedureEnrichmentProvider
+	if cfg.OpenAI.APIKey == "" {
+		log.Println("Warning: OPENAI_API_KEY is not set; procedure enrichment disabled")
+	} else {
+		openaiClient, err := openai.NewClient(&cfg.OpenAI)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize OpenAI client: %v", err)
+		} else {
+			enrichmentProvider = openaiClient
+		}
+	}
+
 	// Initialize services
 
 	facilityService := services.NewFacilityService(
@@ -156,8 +192,40 @@ func main() {
 		insuranceAdapter,
 	)
 
+	// Set event bus for real-time updates
+	if eventBus != nil {
+		facilityService.SetEventBus(eventBus)
+		log.Println("Event bus configured for facility service")
+	}
+
+	// Initialize cache invalidation service
+	var cacheInvalidationService *services.CacheInvalidationService
+	if cacheProvider != nil && eventBus != nil {
+		cacheInvalidationService = services.NewCacheInvalidationService(cacheProvider, eventBus)
+		if err := cacheInvalidationService.Start(); err != nil {
+			log.Printf("Warning: Failed to start cache invalidation service: %v", err)
+		} else {
+			log.Println("Cache invalidation service started successfully")
+		}
+	}
+
 	appointmentService := services.NewAppointmentService(appointmentAdapter, appointmentProvider)
 	feedbackService := services.NewFeedbackService(feedbackAdapter)
+	procedureEnrichmentService := services.NewProcedureEnrichmentService(
+		procedureEnrichmentAdapter,
+		procedureAdapter,
+		enrichmentProvider,
+	)
+
+	// Start cache warming service for improved read performance
+	if cacheProvider != nil {
+		warmingService := services.NewCacheWarmingService(
+			facilityAdapter, // Use cached adapter to warm cache
+			cacheProvider,
+		)
+		go warmingService.StartPeriodicWarming(ctx, 5*time.Minute)
+		log.Println("✓ Cache warming service started (refreshes every 5 minutes)")
+	}
 
 	// Initialize handlers
 
@@ -165,7 +233,7 @@ func main() {
 
 	appointmentHandler := handlers.NewAppointmentHandler(appointmentService)
 
-	procedureHandler := handlers.NewProcedureHandler(procedureAdapter)
+	procedureHandler := handlers.NewProcedureHandler(procedureAdapter, procedureEnrichmentService)
 
 	insuranceHandler := handlers.NewInsuranceHandler(insuranceAdapter)
 
@@ -173,6 +241,13 @@ func main() {
 
 	mapsHandler := handlers.NewMapsHandler(cfg.Geolocation.APIKey, cacheProvider)
 	feedbackHandler := handlers.NewFeedbackHandler(feedbackService, cacheProvider)
+
+	// Initialize cache middleware
+	var cacheMiddleware *middleware.CacheMiddleware
+	if cacheProvider != nil {
+		cacheMiddleware = middleware.NewCacheMiddleware(cacheProvider)
+		log.Println("Cache middleware initialized successfully")
+	}
 
 	// Set up router
 
@@ -184,6 +259,7 @@ func main() {
 		geolocationHandler,
 		mapsHandler,
 		feedbackHandler,
+		cacheMiddleware,
 		metrics,
 	)
 
@@ -220,6 +296,18 @@ func main() {
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Error during server shutdown: %v", err)
+	}
+
+	// Close event bus
+	if eventBus != nil {
+		if err := eventBus.Close(); err != nil {
+			log.Printf("Error closing event bus: %v", err)
+		}
+	}
+
+	// Stop cache invalidation service
+	if cacheInvalidationService != nil {
+		cacheInvalidationService.Stop()
 	}
 
 	log.Println("Server stopped")

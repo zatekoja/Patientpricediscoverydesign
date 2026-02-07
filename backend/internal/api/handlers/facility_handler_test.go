@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,19 @@ func (m *MockFacilityService) Suggest(ctx context.Context, query string, lat, lo
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*entities.Facility), args.Error(1)
+}
+
+func (m *MockFacilityService) Update(ctx context.Context, facility *entities.Facility) error {
+	args := m.Called(ctx, facility)
+	return args.Error(0)
+}
+
+func (m *MockFacilityService) UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error) {
+	args := m.Called(ctx, facilityID, procedureID, isAvailable)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entities.FacilityProcedure), args.Error(1)
 }
 
 type searchFacilitiesResponse struct {
@@ -194,4 +208,77 @@ func TestFacilityHandler_SuggestFacilities_ReturnsServicePrices(t *testing.T) {
 	assert.Equal(t, expected[0].ServicePrices[0].Name, resp.Suggestions[0].MatchedServicePrice.Name)
 	assert.Equal(t, expected[0].ServicePrices[0].Price, resp.Suggestions[0].MatchedServicePrice.Price)
 	assert.Equal(t, expected[0].Price.Currency, resp.Suggestions[0].Price.Currency)
+}
+
+func TestFacilityHandler_UpdateFacility(t *testing.T) {
+	t.Run("should update facility capacity", func(t *testing.T) {
+		mockService := new(MockFacilityService)
+		handler := handlers.NewFacilityHandler(mockService)
+
+		capacityStatus := "normal"
+		avgWaitMinutes := 20
+		urgentCareAvailable := true
+
+		existingFacility := &entities.Facility{
+			ID:   "fac_001",
+			Name: "Test Hospital",
+			Address: entities.Address{
+				Street:  "123 Test St",
+				City:    "Lagos",
+				State:   "Lagos",
+				ZipCode: "100001",
+				Country: "Nigeria",
+			},
+			Location: entities.Location{
+				Latitude:  6.5244,
+				Longitude: 3.3792,
+			},
+			CapacityStatus:      &capacityStatus,
+			AvgWaitMinutes:      &avgWaitMinutes,
+			UrgentCareAvailable: &urgentCareAvailable,
+		}
+
+		mockService.On("GetByID", mock.Anything, "fac_001").Return(existingFacility, nil)
+		mockService.On("Update", mock.Anything, mock.MatchedBy(func(f *entities.Facility) bool {
+			return *f.CapacityStatus == "high"
+		})).Return(nil)
+
+		updateReq := map[string]interface{}{
+			"capacity_status": "high",
+		}
+		body, _ := json.Marshal(updateReq)
+
+		req := httptest.NewRequest("PATCH", "/api/facilities/fac_001", strings.NewReader(string(body)))
+		req.SetPathValue("id", "fac_001")
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		handler.UpdateFacility(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response entities.Facility
+		json.NewDecoder(w.Body).Decode(&response)
+
+		assert.Equal(t, "high", *response.CapacityStatus)
+		mockService.AssertExpectations(t)
+	})
+
+	t.Run("should return error for missing facility ID", func(t *testing.T) {
+		mockService := new(MockFacilityService)
+		handler := handlers.NewFacilityHandler(mockService)
+
+		updateReq := map[string]interface{}{
+			"capacity_status": "high",
+		}
+		body, _ := json.Marshal(updateReq)
+
+		req := httptest.NewRequest("PATCH", "/api/facilities/", strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		handler.UpdateFacility(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }
