@@ -14,8 +14,6 @@ on:
         type: choice
         options:
           - dev
-          - staging
-          - prod
 
 env:
   PROJECT_ID: open-health-index-dev
@@ -41,6 +39,10 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Set environment variable
+        run: |
+          echo "ENV=${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_ENV
+
       - name: Configure Docker for GCR
         run: |
           gcloud auth configure-docker
@@ -49,71 +51,87 @@ jobs:
         run: |
           docker build -f Frontend/frontend.Dockerfile \
             --build-arg VITE_GOOGLE_MAPS_API_KEY="${{ secrets.GOOGLE_MAPS_API_KEY }}" \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-frontend:${{ github.sha }} \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-frontend:latest \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:${{ github.sha }} \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:latest \
             .
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-frontend:${{ github.sha }}
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-frontend:latest
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:${{ github.sha }}
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:latest
 
       - name: Build and Push API
         run: |
           docker build -f backend/Dockerfile \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-api:${{ github.sha }} \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-api:latest \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-api:${{ github.sha }} \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-api:latest \
             backend/
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-api:${{ github.sha }}
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-api:latest
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-api:${{ github.sha }}
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-api:latest
 
       - name: Build and Push GraphQL
         run: |
           docker build -f backend/Dockerfile.graphql-server \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-graphql:${{ github.sha }} \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-graphql:latest \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-graphql:${{ github.sha }} \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-graphql:latest \
             backend/
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-graphql:${{ github.sha }}
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-graphql:latest
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-graphql:${{ github.sha }}
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-graphql:latest
 
       - name: Build and Push SSE
         run: |
           docker build -f backend/Dockerfile.sse-server \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-sse:${{ github.sha }} \
-            -t gcr.io/${{ env.PROJECT_ID }}/dev-ppd-sse:latest \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-sse:${{ github.sha }} \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-sse:latest \
             backend/
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-sse:${{ github.sha }}
-          docker push gcr.io/${{ env.PROJECT_ID }}/dev-ppd-sse:latest
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-sse:${{ github.sha }}
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-sse:latest
 
-      - name: Deploy to Cloud Run
-        run: |
-          # Frontend
-          gcloud run deploy dev-ppd-frontend \
-            --image gcr.io/${{ env.PROJECT_ID }}/dev-ppd-frontend:${{ github.sha }} \
-            --region ${{ env.REGION }} \
-            --platform managed \
-            --allow-unauthenticated
-          
-          # API
-          gcloud run deploy dev-ppd-api \
-            --image gcr.io/${{ env.PROJECT_ID }}/dev-ppd-api:${{ github.sha }} \
-            --region ${{ env.REGION }} \
-            --platform managed \
-            --allow-unauthenticated
-          
-          # GraphQL
-          gcloud run deploy dev-ppd-graphql \
-            --image gcr.io/${{ env.PROJECT_ID }}/dev-ppd-graphql:${{ github.sha }} \
-            --region ${{ env.REGION }} \
-            --platform managed \
-            --allow-unauthenticated
-          
-          # SSE
-          gcloud run deploy dev-ppd-sse \
-            --image gcr.io/${{ env.PROJECT_ID }}/dev-ppd-sse:${{ github.sha }} \
-            --region ${{ env.REGION }} \
-            --platform managed \
-            --allow-unauthenticated
+      # NOTE: Cloud Run services are managed by Terraform.
+      # Deploying via gcloud here will create Terraform drift.
+      # To avoid drift, either:
+      # 1. Manage deployments exclusively via Terraform (recommended)
+      # 2. Remove Cloud Run resources from Terraform and use gcloud only
+      # 
+      # This step is commented out to prevent drift. Update Cloud Run
+      # services by running: terraform apply with new image tags
+      #
+      # - name: Deploy to Cloud Run
+      #   run: |
+      #     # Frontend
+      #     gcloud run deploy ${{ env.ENV }}-ppd-frontend \
+      #       --image gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:${{ github.sha }} \
+      #       --region ${{ env.REGION }} \
+      #       --platform managed \
+      #       --allow-unauthenticated
+      #     
+      #     # API
+      #     gcloud run deploy ${{ env.ENV }}-ppd-api \
+      #       --image gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-api:${{ github.sha }} \
+      #       --region ${{ env.REGION }} \
+      #       --platform managed \
+      #       --allow-unauthenticated
+      #     
+      #     # GraphQL
+      #     gcloud run deploy ${{ env.ENV }}-ppd-graphql \
+      #       --image gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-graphql:${{ github.sha }} \
+      #       --region ${{ env.REGION }} \
+      #       --platform managed \
+      #       --allow-unauthenticated
+      #     
+      #     # SSE
+      #     gcloud run deploy ${{ env.ENV }}-ppd-sse \
+      #       --image gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-sse:${{ github.sha }} \
+      #       --region ${{ env.REGION }} \
+      #       --platform managed \
+      #       --allow-unauthenticated
 
       - name: Deployment Summary
         run: |
-          echo "✅ Deployment completed successfully!"
-          echo "Frontend: https://dev.ohealth-ng.com"
-          echo "API: https://dev.api.ohealth-ng.com"
+          echo "✅ Docker images built and pushed successfully!"
+          echo "Frontend: gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-frontend:${{ github.sha }}"
+          echo "API: gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-api:${{ github.sha }}"
+          echo "GraphQL: gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-graphql:${{ github.sha }}"
+          echo "SSE: gcr.io/${{ env.PROJECT_ID }}/${{ env.ENV }}-ppd-sse:${{ github.sha }}"
+          echo ""
+          echo "To deploy these images, update Terraform variables and run:"
+          echo "  cd terraform/environments/${{ env.ENV }}"
+          echo "  terraform apply"
+
