@@ -48,14 +48,28 @@ func TestQueryResolver_SearchFacilities_Success(t *testing.T) {
 		},
 	}
 
-	mockSearch.EXPECT().Search(ctx, repositories.SearchParams{
-		Query:     query,
-		Latitude:  location.Latitude,
-		Longitude: location.Longitude,
-		RadiusKm:  radiusKm,
-		Limit:     20,
-		Offset:    0,
-	}).Return(expectedFacilities, nil)
+	mockSearch.EXPECT().SearchWithFacets(ctx, repositories.SearchParams{
+		Query:         query,
+		Latitude:      location.Latitude,
+		Longitude:     location.Longitude,
+		RadiusKm:      radiusKm,
+		Limit:         20,
+		Offset:        0,
+		IncludeFacets: true,
+	}).Return(&repositories.EnhancedSearchResult{
+		Facilities: expectedFacilities,
+		Facets: &entities.SearchFacets{
+			FacilityTypes:      []entities.FacetCount{},
+			InsuranceProviders: []entities.FacetCount{},
+			Specialties:        []entities.FacetCount{},
+			Cities:             []entities.FacetCount{},
+			States:             []entities.FacetCount{},
+			PriceRanges:        []entities.PriceRangeFacet{},
+			RatingDistribution: []entities.RatingFacet{},
+		},
+		TotalCount: 1,
+		SearchTime: 15.5,
+	}, nil)
 
 	// Act
 	result, err := queryResolver.SearchFacilities(ctx, query, location, &radiusKm, nil)
@@ -66,6 +80,7 @@ func TestQueryResolver_SearchFacilities_Success(t *testing.T) {
 	assert.Len(t, result.FacilitiesData, 1)
 	assert.Equal(t, "fac-1", result.FacilitiesData[0].ID)
 	assert.Equal(t, 1, result.TotalCountValue)
+	assert.Equal(t, 15.5, result.SearchTimeMs)
 }
 
 // TestQueryResolver_SearchFacilities_WithFilters tests search with additional filters
@@ -106,14 +121,28 @@ func TestQueryResolver_SearchFacilities_WithFilters(t *testing.T) {
 		},
 	}
 
-	mockSearch.EXPECT().Search(ctx, repositories.SearchParams{
-		Query:     query,
-		Latitude:  location.Latitude,
-		Longitude: location.Longitude,
-		RadiusKm:  radiusKm,
-		Limit:     10,
-		Offset:    0,
-	}).Return(expectedFacilities, nil)
+	mockSearch.EXPECT().SearchWithFacets(ctx, repositories.SearchParams{
+		Query:         query,
+		Latitude:      location.Latitude,
+		Longitude:     location.Longitude,
+		RadiusKm:      radiusKm,
+		Limit:         10,
+		Offset:        0,
+		IncludeFacets: true,
+	}).Return(&repositories.EnhancedSearchResult{
+		Facilities: expectedFacilities,
+		Facets: &entities.SearchFacets{
+			FacilityTypes:      []entities.FacetCount{},
+			InsuranceProviders: []entities.FacetCount{},
+			Specialties:        []entities.FacetCount{},
+			Cities:             []entities.FacetCount{},
+			States:             []entities.FacetCount{},
+			PriceRanges:        []entities.PriceRangeFacet{},
+			RatingDistribution: []entities.RatingFacet{},
+		},
+		TotalCount: 1,
+		SearchTime: 12.3,
+	}, nil)
 
 	// Act
 	result, err := queryResolver.SearchFacilities(ctx, query, location, &radiusKm, filters)
@@ -146,14 +175,28 @@ func TestQueryResolver_SearchFacilities_NoResults(t *testing.T) {
 	}
 	radiusKm := 5.0
 
-	mockSearch.EXPECT().Search(ctx, repositories.SearchParams{
-		Query:     query,
-		Latitude:  location.Latitude,
-		Longitude: location.Longitude,
-		RadiusKm:  radiusKm,
-		Limit:     20,
-		Offset:    0,
-	}).Return([]*entities.Facility{}, nil)
+	mockSearch.EXPECT().SearchWithFacets(ctx, repositories.SearchParams{
+		Query:         query,
+		Latitude:      location.Latitude,
+		Longitude:     location.Longitude,
+		RadiusKm:      radiusKm,
+		Limit:         20,
+		Offset:        0,
+		IncludeFacets: true,
+	}).Return(&repositories.EnhancedSearchResult{
+		Facilities: []*entities.Facility{},
+		Facets: &entities.SearchFacets{
+			FacilityTypes:      []entities.FacetCount{},
+			InsuranceProviders: []entities.FacetCount{},
+			Specialties:        []entities.FacetCount{},
+			Cities:             []entities.FacetCount{},
+			States:             []entities.FacetCount{},
+			PriceRanges:        []entities.PriceRangeFacet{},
+			RatingDistribution: []entities.RatingFacet{},
+		},
+		TotalCount: 0,
+		SearchTime: 8.7,
+	}, nil)
 
 	// Act
 	result, err := queryResolver.SearchFacilities(ctx, query, location, &radiusKm, nil)

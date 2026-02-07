@@ -130,13 +130,27 @@ func TestQueryResolver_Facilities_Success(t *testing.T) {
 	}
 
 	// Mock search adapter
-	mockSearch.EXPECT().Search(ctx, repositories.SearchParams{
-		Latitude:  filter.Location.Latitude,
-		Longitude: filter.Location.Longitude,
-		RadiusKm:  filter.RadiusKm,
-		Limit:     20,
-		Offset:    0,
-	}).Return(expectedFacilities, nil)
+	mockSearch.EXPECT().SearchWithFacets(ctx, repositories.SearchParams{
+		Latitude:      filter.Location.Latitude,
+		Longitude:     filter.Location.Longitude,
+		RadiusKm:      filter.RadiusKm,
+		Limit:         20,
+		Offset:        0,
+		IncludeFacets: true,
+	}).Return(&repositories.EnhancedSearchResult{
+		Facilities: expectedFacilities,
+		Facets: &entities.SearchFacets{
+			FacilityTypes:      []entities.FacetCount{},
+			InsuranceProviders: []entities.FacetCount{},
+			Specialties:        []entities.FacetCount{},
+			Cities:             []entities.FacetCount{},
+			States:             []entities.FacetCount{},
+			PriceRanges:        []entities.PriceRangeFacet{},
+			RatingDistribution: []entities.RatingFacet{},
+		},
+		TotalCount: 1,
+		SearchTime: 10.2,
+	}, nil)
 
 	// Act
 	result, err := queryResolver.Facilities(ctx, filter)
@@ -148,6 +162,7 @@ func TestQueryResolver_Facilities_Success(t *testing.T) {
 	assert.Len(t, result.FacilitiesData, 1)
 	assert.Equal(t, "fac-1", result.FacilitiesData[0].ID)
 	assert.Equal(t, 1, result.TotalCountValue)
+	assert.Equal(t, 10.2, result.SearchTimeMs)
 }
 
 // TestFacilitySearchResultResolver_Facilities tests field resolver for facilities

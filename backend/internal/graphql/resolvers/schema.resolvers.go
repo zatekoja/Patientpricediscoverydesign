@@ -346,9 +346,10 @@ func (r *queryResolver) Facility(ctx context.Context, id string) (*entities.Faci
 func (r *queryResolver) Facilities(ctx context.Context, filter generated.FacilitySearchInput) (*entities.GraphQLFacilitySearchResult, error) {
 	// Build search params from filter
 	params := repositories.SearchParams{
-		Latitude:  filter.Location.Latitude,
-		Longitude: filter.Location.Longitude,
-		RadiusKm:  filter.RadiusKm,
+		Latitude:      filter.Location.Latitude,
+		Longitude:     filter.Location.Longitude,
+		RadiusKm:      filter.RadiusKm,
+		IncludeFacets: true, // Always include facets for facility search
 	}
 
 	if filter.Query != nil {
@@ -363,32 +364,27 @@ func (r *queryResolver) Facilities(ctx context.Context, filter generated.Facilit
 		params.Offset = *filter.Offset
 	}
 
-	// Execute search
-	facilities, err := r.searchAdapter.Search(ctx, params)
+	// Execute search with facets
+	searchResult, err := r.searchAdapter.SearchWithFacets(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
+	// Calculate pagination
+	totalPages := (searchResult.TotalCount + params.Limit - 1) / params.Limit
+	currentPage := params.Offset/params.Limit + 1
+
 	// Build result
 	result := &entities.GraphQLFacilitySearchResult{
-		FacilitiesData:  facilities,
-		TotalCountValue: len(facilities),
-		SearchTimeMs:    0, // TODO: track actual search time
-		// TODO: Implement facets and pagination
-		FacetsData: &entities.SearchFacets{
-			FacilityTypes:      []entities.FacetCount{},
-			InsuranceProviders: []entities.FacetCount{},
-			Specialties:        []entities.FacetCount{},
-			Cities:             []entities.FacetCount{},
-			States:             []entities.FacetCount{},
-			PriceRanges:        []entities.PriceRangeFacet{},
-			RatingDistribution: []entities.RatingFacet{},
-		},
+		FacilitiesData:  searchResult.Facilities,
+		TotalCountValue: searchResult.TotalCount,
+		SearchTimeMs:    searchResult.SearchTime,
+		FacetsData:      searchResult.Facets,
 		PaginationData: &entities.PaginationInfo{
-			HasNextPage:     false,
-			HasPreviousPage: false,
-			CurrentPage:     1,
-			TotalPages:      1,
+			HasNextPage:     currentPage < totalPages,
+			HasPreviousPage: currentPage > 1,
+			CurrentPage:     currentPage,
+			TotalPages:      totalPages,
 			Limit:           params.Limit,
 			Offset:          params.Offset,
 		},
@@ -407,12 +403,13 @@ func (r *queryResolver) SearchFacilities(ctx context.Context, query string, loca
 
 	// Build search params
 	params := repositories.SearchParams{
-		Query:     query,
-		Latitude:  location.Latitude,
-		Longitude: location.Longitude,
-		RadiusKm:  radius,
-		Limit:     20,
-		Offset:    0,
+		Query:         query,
+		Latitude:      location.Latitude,
+		Longitude:     location.Longitude,
+		RadiusKm:      radius,
+		Limit:         20,
+		Offset:        0,
+		IncludeFacets: true, // Include facets for search
 	}
 
 	// Apply additional filters if provided
@@ -426,31 +423,27 @@ func (r *queryResolver) SearchFacilities(ctx context.Context, query string, loca
 		// Additional filter criteria could be applied here
 	}
 
-	// Execute search
-	facilities, err := r.searchAdapter.Search(ctx, params)
+	// Execute search with facets
+	searchResult, err := r.searchAdapter.SearchWithFacets(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
+	// Calculate pagination
+	totalPages := (searchResult.TotalCount + params.Limit - 1) / params.Limit
+	currentPage := params.Offset/params.Limit + 1
+
 	// Build result
 	result := &entities.GraphQLFacilitySearchResult{
-		FacilitiesData:  facilities,
-		TotalCountValue: len(facilities),
-		SearchTimeMs:    0, // TODO: track actual search time
-		FacetsData: &entities.SearchFacets{
-			FacilityTypes:      []entities.FacetCount{},
-			InsuranceProviders: []entities.FacetCount{},
-			Specialties:        []entities.FacetCount{},
-			Cities:             []entities.FacetCount{},
-			States:             []entities.FacetCount{},
-			PriceRanges:        []entities.PriceRangeFacet{},
-			RatingDistribution: []entities.RatingFacet{},
-		},
+		FacilitiesData:  searchResult.Facilities,
+		TotalCountValue: searchResult.TotalCount,
+		SearchTimeMs:    searchResult.SearchTime,
+		FacetsData:      searchResult.Facets,
 		PaginationData: &entities.PaginationInfo{
-			HasNextPage:     false,
-			HasPreviousPage: false,
-			CurrentPage:     1,
-			TotalPages:      1,
+			HasNextPage:     currentPage < totalPages,
+			HasPreviousPage: currentPage > 1,
+			CurrentPage:     currentPage,
+			TotalPages:      totalPages,
 			Limit:           params.Limit,
 			Offset:          params.Offset,
 		},

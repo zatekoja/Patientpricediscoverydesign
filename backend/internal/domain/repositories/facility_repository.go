@@ -39,6 +39,9 @@ type FacilitySearchRepository interface {
 
 	Search(ctx context.Context, params SearchParams) ([]*entities.Facility, error)
 
+	// SearchWithFacets searches facilities and returns facets and metadata
+	SearchWithFacets(ctx context.Context, params SearchParams) (*EnhancedSearchResult, error)
+
 	// Index indexes a facility
 
 	Index(ctx context.Context, facility *entities.Facility) error
@@ -69,4 +72,13 @@ type SearchParams struct {
 	MaxPrice          *float64
 	Limit             int
 	Offset            int
+	IncludeFacets     bool // Whether to include facet counts in results
+}
+
+// EnhancedSearchResult contains search results with facets and metadata
+type EnhancedSearchResult struct {
+	Facilities []*entities.Facility
+	Facets     *entities.SearchFacets
+	TotalCount int
+	SearchTime float64 // in milliseconds
 }

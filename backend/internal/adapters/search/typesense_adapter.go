@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/typesense/typesense-go/v2/typesense/api"
 	"github.com/typesense/typesense-go/v2/typesense/api/pointer"
@@ -108,6 +109,17 @@ func (a *TypesenseAdapter) Delete(ctx context.Context, id string) error {
 
 // Search searches facilities
 func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error) {
+	result, err := a.SearchWithFacets(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return result.Facilities, nil
+}
+
+// SearchWithFacets searches facilities and returns facets and metadata
+func (a *TypesenseAdapter) SearchWithFacets(ctx context.Context, params repositories.SearchParams) (*repositories.EnhancedSearchResult, error) {
+	startTime := time.Now()
+
 	query := "*"
 	if params.Query != "" {
 		query = params.Query
@@ -142,10 +154,19 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 		searchParams.MinLen2typo = pointer.Int(7)
 	}
 
+	// Request facet counts if requested
+	if params.IncludeFacets {
+		searchParams.FacetBy = pointer.String("facility_type,insurance")
+		searchParams.MaxFacetValues = pointer.Int(20)
+	}
+
 	result, err := a.client.Client().Collection(collectionName).Documents().Search(ctx, searchParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search facilities: %w", err)
 	}
+
+	// Calculate search time
+	searchTime := float64(time.Since(startTime).Milliseconds())
 
 	facilities := []*entities.Facility{}
 	for _, hit := range *result.Hits {
@@ -160,8 +181,6 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 		}
 
 		// Reconstruct entity (partial)
-		// Note: Typesense returns map[string]interface{}, so we need to cast safely
-		// For a real app, we might want to fetch full details from DB using IDs if Typesense doesn't have everything
 		facility := &entities.Facility{
 			ID:           doc["id"].(string),
 			Name:         doc["name"].(string),
@@ -183,7 +202,24 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 		facilities = append(facilities, facility)
 	}
 
-	return facilities, nil
+	// Build facets if requested
+	var facets *entities.SearchFacets
+	if params.IncludeFacets && result.FacetCounts != nil {
+		facets = buildSearchFacets(result.FacetCounts)
+	}
+
+	// Get total count from result
+	totalCount := 0
+	if result.Found != nil {
+		totalCount = *result.Found
+	}
+
+	return &repositories.EnhancedSearchResult{
+		Facilities: facilities,
+		Facets:     facets,
+		TotalCount: totalCount,
+		SearchTime: searchTime,
+	}, nil
 }
 
 // Suggest provides lightweight autocomplete suggestions using Typesense.
@@ -310,4 +346,64 @@ func escapeFilterValue(value string) string {
 	}
 	escaped := strings.ReplaceAll(trimmed, "\"", "\\\"")
 	return fmt.Sprintf("\"%s\"", escaped)
+}
+
+// buildSearchFacets converts Typesense facet counts to domain entities
+func buildSearchFacets(facetCounts *[]api.FacetCounts) *entities.SearchFacets {
+	if facetCounts == nil {
+		return &entities.SearchFacets{
+			FacilityTypes:      []entities.FacetCount{},
+			InsuranceProviders: []entities.FacetCount{},
+			Specialties:        []entities.FacetCount{},
+			Cities:             []entities.FacetCount{},
+			States:             []entities.FacetCount{},
+			PriceRanges:        []entities.PriceRangeFacet{},
+			RatingDistribution: []entities.RatingFacet{},
+		}
+	}
+
+	facets := &entities.SearchFacets{
+		FacilityTypes:      []entities.FacetCount{},
+		InsuranceProviders: []entities.FacetCount{},
+		Specialties:        []entities.FacetCount{},
+		Cities:             []entities.FacetCount{},
+		States:             []entities.FacetCount{},
+		PriceRanges:        []entities.PriceRangeFacet{},
+		RatingDistribution: []entities.RatingFacet{},
+	}
+
+	for _, fc := range *facetCounts {
+		if fc.FieldName == nil {
+			continue
+		}
+
+		fieldName := *fc.FieldName
+
+		switch fieldName {
+		case "facility_type":
+			if fc.Counts != nil {
+				for _, count := range *fc.Counts {
+					if count.Value != nil && count.Count != nil {
+						facets.FacilityTypes = append(facets.FacilityTypes, entities.FacetCount{
+							Value: *count.Value,
+							Count: *count.Count,
+						})
+					}
+				}
+			}
+		case "insurance":
+			if fc.Counts != nil {
+				for _, count := range *fc.Counts {
+					if count.Value != nil && count.Count != nil {
+						facets.InsuranceProviders = append(facets.InsuranceProviders, entities.FacetCount{
+							Value: *count.Value,
+							Count: *count.Count,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	return facets
 }

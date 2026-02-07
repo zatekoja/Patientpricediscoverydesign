@@ -11,6 +11,7 @@ import (
 // SearchAdapter wraps Typesense adapter for search operations
 type SearchAdapter interface {
 	Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error)
+	SearchWithFacets(ctx context.Context, params repositories.SearchParams) (*repositories.EnhancedSearchResult, error)
 	Index(ctx context.Context, facility *entities.Facility) error
 	Delete(ctx context.Context, id string) error
 }
