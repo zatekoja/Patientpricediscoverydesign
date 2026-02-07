@@ -3,7 +3,8 @@ import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExtern
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData } from '../types/PriceData';
-import { recordProviderSyncMetrics, recordTagGeneration } from '../observability/metrics';
+import { recordProviderDataMetrics, recordProviderSyncMetrics, recordTagGeneration } from '../observability/metrics';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 /**
  * Configuration for LLM Tag Generator Provider
@@ -241,70 +242,114 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
     timestamp: Date;
     error?: string;
   }> {
-    const startTime = Date.now();
-    const timestamp = new Date();
-    const batchId = timestamp.toISOString();
-    
-    try {
-      if (!this.sourceProvider) {
-        throw new Error('No source provider configured for LLM tag generator');
-      }
-      
-      // Get data from source provider
-      const sourceData = await this.sourceProvider.getCurrentData();
-      
-      // Enrich with LLM-generated tags
-      const enrichedData = await this.enrichWithTags(sourceData.data);
-      const dataWithSync = enrichedData.map((data) =>
-        this.attachSyncMetadata(data, batchId, timestamp)
-      );
-      
-      // Store in document store if available
-      if (this.documentStore && dataWithSync.length > 0) {
-        const items = dataWithSync.map((data, index) => ({
-          key: this.generateKey(data, index),
-          data,
-          metadata: {
-            syncTimestamp: timestamp,
-            source: this.name,
-            upstreamSource: sourceData.metadata?.source,
-            batchId,
-          },
-        }));
+    const tracer = trace.getTracer('patient-price-discovery-provider');
+    return tracer.startActiveSpan(
+      'provider.sync',
+      { attributes: { provider: this.name } },
+      async (span) => {
+        const startTime = Date.now();
+        const timestamp = new Date();
+        const batchId = timestamp.toISOString();
+        span.setAttribute('batch_id', batchId);
         
-        await this.documentStore.batchPut(items);
+        try {
+          if (!this.sourceProvider) {
+            throw new Error('No source provider configured for LLM tag generator');
+          }
+          
+          // Get data from source provider
+          const sourceData = await this.sourceProvider.getCurrentData();
+          
+          // Enrich with LLM-generated tags
+          const enrichedData = await this.enrichWithTags(sourceData.data);
+          const dataWithSync = enrichedData.map((data) =>
+            this.attachSyncMetadata(data, batchId, timestamp)
+          );
+
+          recordProviderDataMetrics({ provider: this.name, records: dataWithSync });
+          
+          // Store in document store if available
+          if (this.documentStore && dataWithSync.length > 0) {
+            await tracer.startActiveSpan(
+              'provider.store_batch',
+              {
+                attributes: {
+                  provider: this.name,
+                  batch_id: batchId,
+                  records: dataWithSync.length,
+                },
+              },
+              async (storeSpan) => {
+                try {
+                  const items = dataWithSync.map((data, index) => ({
+                    key: this.generateKey(data, index),
+                    data,
+                    metadata: {
+                      syncTimestamp: timestamp,
+                      source: this.name,
+                      upstreamSource: sourceData.metadata?.source,
+                      batchId,
+                    },
+                  }));
+                  await this.documentStore!.batchPut(items);
+                  storeSpan.setStatus({ code: SpanStatusCode.OK });
+                } catch (error) {
+                  storeSpan.recordException(error as Error);
+                  storeSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: error instanceof Error ? error.message : 'Unknown error',
+                  });
+                  throw error;
+                } finally {
+                  storeSpan.end();
+                }
+              }
+            );
+          }
+          
+          this.previousBatchId = this.lastBatchId;
+          this.lastBatchId = batchId;
+          this.lastSyncDate = timestamp;
+          await this.persistState();
+          recordProviderSyncMetrics({
+            provider: this.name,
+            success: true,
+            recordsProcessed: dataWithSync.length,
+            durationMs: Date.now() - startTime,
+            timestamp,
+          });
+          
+          span.setAttribute('records_processed', dataWithSync.length);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return {
+            success: true,
+            recordsProcessed: dataWithSync.length,
+            timestamp,
+          };
+        } catch (error) {
+          recordProviderSyncMetrics({
+            provider: this.name,
+            success: false,
+            recordsProcessed: 0,
+            durationMs: Date.now() - startTime,
+            timestamp,
+          });
+          span.recordException(error as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+          return {
+            success: false,
+            recordsProcessed: 0,
+            timestamp,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        } finally {
+          span.end();
+        }
       }
-      
-      this.previousBatchId = this.lastBatchId;
-      this.lastBatchId = batchId;
-      this.lastSyncDate = timestamp;
-      await this.persistState();
-      recordProviderSyncMetrics({
-        provider: this.name,
-        success: true,
-        recordsProcessed: dataWithSync.length,
-        durationMs: Date.now() - startTime,
-      });
-      
-      return {
-        success: true,
-        recordsProcessed: dataWithSync.length,
-        timestamp,
-      };
-    } catch (error) {
-      recordProviderSyncMetrics({
-        provider: this.name,
-        success: false,
-        recordsProcessed: 0,
-        durationMs: Date.now() - startTime,
-      });
-      return {
-        success: false,
-        recordsProcessed: 0,
-        timestamp,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    );
   }
   
   /**
@@ -321,8 +366,34 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
     const batchSize = 10;
     for (let i = 0; i < priceData.length; i += batchSize) {
       const batch = priceData.slice(i, i + batchSize);
-      const taggedBatch = await Promise.all(
-        batch.map(item => this.generateTagsForItem(item))
+      const tracer = trace.getTracer('patient-price-discovery-provider');
+      const taggedBatch = await tracer.startActiveSpan(
+        'provider.tagging.batch',
+        {
+          attributes: {
+            provider: this.name,
+            batch_size: batch.length,
+          },
+        },
+        async (span) => {
+          try {
+            const results = await Promise.all(
+              batch.map((item) => this.generateTagsForItem(item))
+            );
+            span.setAttribute('records', results.length);
+            span.setStatus({ code: SpanStatusCode.OK });
+            return results;
+          } catch (error) {
+            span.recordException(error as Error);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: error instanceof Error ? error.message : 'Unknown error',
+            });
+            throw error;
+          } finally {
+            span.end();
+          }
+        }
       );
       enrichedData.push(...taggedBatch);
     }
@@ -338,59 +409,80 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       throw new Error('LLM configuration not initialized');
     }
     
-    const startTime = Date.now();
-    try {
-      const prompt = this.buildTagGenerationPrompt(item);
-      const existingTags = item.tags ?? [];
-      const llmTags = await this.callLLMAPI(prompt);
-      const tags = this.mergeTags(existingTags, llmTags);
-      recordTagGeneration({
-        provider: this.name,
-        durationMs: Date.now() - startTime,
-        tags: llmTags.length,
-        success: true,
-      });
-      
-      return {
-        ...item,
-        source: this.name,
-        lastUpdated: new Date(),
-        tags,
-        tagMetadata: {
-          ...(item.tagMetadata ?? {}),
-          generatedAt: new Date(),
-          model: this.llmConfig.model,
+    const tracer = trace.getTracer('patient-price-discovery-provider');
+    return tracer.startActiveSpan(
+      'provider.tagging.item',
+      {
+        attributes: {
+          provider: this.name,
+          item_id: item.id,
         },
-        metadata: {
-          ...(item.metadata ?? {}),
-          upstreamSource: item.source,
-        },
-      };
-    } catch (error) {
-      console.error(`Failed to generate tags for item ${item.id}:`, error);
-      recordTagGeneration({
-        provider: this.name,
-        durationMs: Date.now() - startTime,
-        tags: 0,
-        success: false,
-      });
-      // Return item without tags on error
-      return {
-        ...item,
-        source: this.name,
-        lastUpdated: new Date(),
-        tags: item.tags ?? [],
-        tagMetadata: {
-          ...(item.tagMetadata ?? {}),
-          generatedAt: new Date(),
-          model: this.llmConfig.model,
-        },
-        metadata: {
-          ...(item.metadata ?? {}),
-          upstreamSource: item.source,
-        },
-      };
-    }
+      },
+      async (span) => {
+        const startTime = Date.now();
+        try {
+          const prompt = this.buildTagGenerationPrompt(item);
+          const existingTags = item.tags ?? [];
+          const llmTags = await this.callLLMAPI(prompt);
+          const tags = this.mergeTags(existingTags, llmTags);
+          recordTagGeneration({
+            provider: this.name,
+            durationMs: Date.now() - startTime,
+            tags: llmTags.length,
+            success: true,
+          });
+          span.setAttribute('tags_generated', llmTags.length);
+          span.setStatus({ code: SpanStatusCode.OK });
+          
+          return {
+            ...item,
+            source: this.name,
+            lastUpdated: new Date(),
+            tags,
+            tagMetadata: {
+              ...(item.tagMetadata ?? {}),
+              generatedAt: new Date(),
+              model: this.llmConfig.model,
+            },
+            metadata: {
+              ...(item.metadata ?? {}),
+              upstreamSource: item.source,
+            },
+          };
+        } catch (error) {
+          console.error(`Failed to generate tags for item ${item.id}:`, error);
+          recordTagGeneration({
+            provider: this.name,
+            durationMs: Date.now() - startTime,
+            tags: 0,
+            success: false,
+          });
+          span.recordException(error as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+          // Return item without tags on error
+          return {
+            ...item,
+            source: this.name,
+            lastUpdated: new Date(),
+            tags: item.tags ?? [],
+            tagMetadata: {
+              ...(item.tagMetadata ?? {}),
+              generatedAt: new Date(),
+              model: this.llmConfig.model,
+            },
+            metadata: {
+              ...(item.metadata ?? {}),
+              upstreamSource: item.source,
+            },
+          };
+        } finally {
+          span.end();
+        }
+      }
+    );
   }
   
   /**

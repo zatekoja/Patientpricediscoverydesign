@@ -87,6 +87,7 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
         success: true,
         recordsProcessed: dataWithSync.length,
         durationMs: Date.now() - startTime,
+        timestamp,
       });
       
       return {
@@ -100,6 +101,7 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
         success: false,
         recordsProcessed: 0,
         durationMs: Date.now() - startTime,
+        timestamp,
       });
       return {
         success: false,

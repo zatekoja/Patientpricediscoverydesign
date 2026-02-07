@@ -7,7 +7,8 @@ import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData } from '../types/PriceData';
 import { parseCsvFile, parseDocxFile, PriceListParseContext } from '../ingestion/priceListParser';
 import { applyCuratedTags } from '../ingestion/tagHydration';
-import { recordProviderSyncMetrics } from '../observability/metrics';
+import { recordProviderDataMetrics, recordProviderSyncMetrics } from '../observability/metrics';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 export interface FilePriceListConfig {
   files: Array<{
@@ -57,49 +58,97 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
   }
 
   private async loadFromSource(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData>> {
-    const allData: PriceData[] = [];
-    const currency = this.fileConfig?.currency || 'NGN';
-    const defaultEffectiveDate = this.fileConfig?.defaultEffectiveDate
-      ? new Date(this.fileConfig.defaultEffectiveDate)
-      : undefined;
-
-    for (const file of this.fileConfig!.files) {
-      if (!fs.existsSync(file.path)) {
-        console.warn(`File not found: ${file.path}`);
-        continue;
-      }
-
-      const context: PriceListParseContext = {
-        facilityName: file.facilityName,
-        currency,
-        defaultEffectiveDate,
-        sourceFile: path.basename(file.path),
-      };
-
-      const ext = path.extname(file.path).toLowerCase();
-      if (ext === '.csv') {
-        allData.push(...parseCsvFile(file.path, context));
-      } else if (ext === '.docx') {
-        allData.push(...parseDocxFile(file.path, context));
-      } else {
-        console.warn(`Unsupported file type: ${file.path}`);
-      }
-    }
-
-    const hydrated = applyCuratedTags(allData);
-    const offset = options?.offset || 0;
-    const limit = options?.limit || hydrated.length;
-    const sliced = hydrated.slice(offset, offset + limit);
-
-    return {
-      data: sliced,
-      timestamp: new Date(),
-      metadata: {
-        source: this.name,
-        count: sliced.length,
-        total: hydrated.length,
+    const tracer = trace.getTracer('patient-price-discovery-provider');
+    return tracer.startActiveSpan(
+      'provider.load_source',
+      {
+        attributes: {
+          provider: this.name,
+          file_count: this.fileConfig?.files.length || 0,
+        },
       },
-    };
+      async (span) => {
+        try {
+          const allData: PriceData[] = [];
+          const currency = this.fileConfig?.currency || 'NGN';
+          const defaultEffectiveDate = this.fileConfig?.defaultEffectiveDate
+            ? new Date(this.fileConfig.defaultEffectiveDate)
+            : undefined;
+
+          for (const file of this.fileConfig!.files) {
+            if (!fs.existsSync(file.path)) {
+              console.warn(`File not found: ${file.path}`);
+              continue;
+            }
+
+            const context: PriceListParseContext = {
+              facilityName: file.facilityName,
+              currency,
+              defaultEffectiveDate,
+              sourceFile: path.basename(file.path),
+            };
+
+            const ext = path.extname(file.path).toLowerCase();
+            const fileName = path.basename(file.path);
+            const parsed = await tracer.startActiveSpan(
+              'provider.parse_file',
+              {
+                attributes: {
+                  provider: this.name,
+                  file: fileName,
+                  extension: ext,
+                },
+              },
+              (fileSpan) => {
+                try {
+                  if (ext === '.csv') {
+                    const rows = parseCsvFile(file.path, context);
+                    fileSpan.setAttribute('records', rows.length);
+                    return rows;
+                  }
+                  if (ext === '.docx') {
+                    const rows = parseDocxFile(file.path, context);
+                    fileSpan.setAttribute('records', rows.length);
+                    return rows;
+                  }
+                  console.warn(`Unsupported file type: ${file.path}`);
+                  return [];
+                } finally {
+                  fileSpan.end();
+                }
+              }
+            );
+            allData.push(...parsed);
+          }
+
+          const hydrated = applyCuratedTags(allData);
+          const offset = options?.offset || 0;
+          const limit = options?.limit || hydrated.length;
+          const sliced = hydrated.slice(offset, offset + limit);
+          span.setAttribute('records_total', hydrated.length);
+
+          span.setStatus({ code: SpanStatusCode.OK });
+          return {
+            data: sliced,
+            timestamp: new Date(),
+            metadata: {
+              source: this.name,
+              count: sliced.length,
+              total: hydrated.length,
+            },
+          };
+        } catch (error) {
+          span.recordException(error as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+          throw error;
+        } finally {
+          span.end();
+        }
+      }
+    );
   }
 
   private async getLatestSyncedData(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData> | null> {
@@ -247,63 +296,108 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
     timestamp: Date;
     error?: string;
   }> {
-    const startTime = Date.now();
-    const timestamp = new Date();
-    const batchId = timestamp.toISOString();
+    const tracer = trace.getTracer('patient-price-discovery-provider');
+    return tracer.startActiveSpan(
+      'provider.sync',
+      { attributes: { provider: this.name } },
+      async (span) => {
+        const startTime = Date.now();
+        const timestamp = new Date();
+        const batchId = timestamp.toISOString();
+        span.setAttribute('batch_id', batchId);
 
-    try {
-      const response = await this.loadFromSource();
-      const dataWithSync = response.data.map((data) =>
-        this.attachSyncMetadata(data, batchId, timestamp)
-      );
+        try {
+          const response = await this.loadFromSource();
+          const dataWithSync = response.data.map((data) =>
+            this.attachSyncMetadata(data, batchId, timestamp)
+          );
 
-      if (this.documentStore && dataWithSync.length > 0) {
-        const items = dataWithSync.map((data, index) => {
-          const stableKey = this.generateKey(data, index);
+          recordProviderDataMetrics({ provider: this.name, records: dataWithSync });
+
+          if (this.documentStore && dataWithSync.length > 0) {
+            await tracer.startActiveSpan(
+              'provider.store_batch',
+              {
+                attributes: {
+                  provider: this.name,
+                  batch_id: batchId,
+                  records: dataWithSync.length,
+                },
+              },
+              async (storeSpan) => {
+                try {
+                  const items = dataWithSync.map((data, index) => {
+                    const stableKey = this.generateKey(data, index);
+                    return {
+                      key: `${batchId}_${stableKey}`,
+                      data,
+                      metadata: {
+                        syncTimestamp: timestamp,
+                        source: this.name,
+                        batchId,
+                        stableKey,
+                      },
+                    };
+                  });
+                  await this.documentStore!.batchPut(items);
+                  storeSpan.setStatus({ code: SpanStatusCode.OK });
+                } catch (error) {
+                  storeSpan.recordException(error as Error);
+                  storeSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: error instanceof Error ? error.message : 'Unknown error',
+                  });
+                  throw error;
+                } finally {
+                  storeSpan.end();
+                }
+              }
+            );
+          }
+
+          this.previousBatchId = this.lastBatchId;
+          this.lastBatchId = batchId;
+          this.lastSyncDate = timestamp;
+          await this.persistState();
+          recordProviderSyncMetrics({
+            provider: this.name,
+            success: true,
+            recordsProcessed: dataWithSync.length,
+            durationMs: Date.now() - startTime,
+            timestamp,
+          });
+
+          span.setAttribute('records_processed', dataWithSync.length);
+          span.setStatus({ code: SpanStatusCode.OK });
           return {
-            key: `${batchId}_${stableKey}`,
-            data,
-            metadata: {
-              syncTimestamp: timestamp,
-              source: this.name,
-              batchId,
-              stableKey,
-            },
+            success: true,
+            recordsProcessed: dataWithSync.length,
+            timestamp,
           };
-        });
-        await this.documentStore.batchPut(items);
+        } catch (error) {
+          recordProviderSyncMetrics({
+            provider: this.name,
+            success: false,
+            recordsProcessed: 0,
+            durationMs: Date.now() - startTime,
+            timestamp,
+          });
+          span.recordException(error as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+          return {
+            success: false,
+            recordsProcessed: 0,
+            timestamp,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        } finally {
+          span.end();
+        }
       }
-
-      this.previousBatchId = this.lastBatchId;
-      this.lastBatchId = batchId;
-      this.lastSyncDate = timestamp;
-      await this.persistState();
-      recordProviderSyncMetrics({
-        provider: this.name,
-        success: true,
-        recordsProcessed: dataWithSync.length,
-        durationMs: Date.now() - startTime,
-      });
-
-      return {
-        success: true,
-        recordsProcessed: dataWithSync.length,
-        timestamp,
-      };
-    } catch (error) {
-      recordProviderSyncMetrics({
-        provider: this.name,
-        success: false,
-        recordsProcessed: 0,
-        durationMs: Date.now() - startTime,
-      });
-      return {
-        success: false,
-        recordsProcessed: 0,
-        timestamp,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    );
   }
 
   private ensureInitialized(): void {

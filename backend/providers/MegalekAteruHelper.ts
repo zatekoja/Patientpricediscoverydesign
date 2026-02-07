@@ -4,7 +4,8 @@ import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExtern
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
-import { recordProviderSyncMetrics } from '../observability/metrics';
+import { recordProviderDataMetrics, recordProviderSyncMetrics } from '../observability/metrics';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 /**
  * External data provider for Google Sheets
@@ -81,16 +82,41 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
   }
 
   private async loadFromSource(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData>> {
-    const data = await this.fetchFromGoogleSheets(options);
-    return {
-      data,
-      timestamp: new Date(),
-      metadata: {
-        source: this.name,
-        count: data.length,
-        spreadsheets: this.sheetsConfig?.spreadsheetIds,
+    const tracer = trace.getTracer('patient-price-discovery-provider');
+    return tracer.startActiveSpan(
+      'provider.load_source',
+      {
+        attributes: {
+          provider: this.name,
+          spreadsheet_count: this.sheetsConfig?.spreadsheetIds.length || 0,
+        },
       },
-    };
+      async (span) => {
+        try {
+          const data = await this.fetchFromGoogleSheets(options);
+          span.setAttribute('records_total', data.length);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return {
+            data,
+            timestamp: new Date(),
+            metadata: {
+              source: this.name,
+              count: data.length,
+              spreadsheets: this.sheetsConfig?.spreadsheetIds,
+            },
+          };
+        } catch (error) {
+          span.recordException(error as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+          throw error;
+        } finally {
+          span.end();
+        }
+      }
+    );
   }
 
   private async getLatestSyncedData(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData> | null> {
@@ -255,63 +281,108 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
     timestamp: Date;
     error?: string;
   }> {
-    const startTime = Date.now();
-    const timestamp = new Date();
-    const batchId = timestamp.toISOString();
+    const tracer = trace.getTracer('patient-price-discovery-provider');
+    return tracer.startActiveSpan(
+      'provider.sync',
+      { attributes: { provider: this.name } },
+      async (span) => {
+        const startTime = Date.now();
+        const timestamp = new Date();
+        const batchId = timestamp.toISOString();
+        span.setAttribute('batch_id', batchId);
 
-    try {
-      const response = await this.loadFromSource();
-      const dataWithSync = response.data.map((data) =>
-        this.attachSyncMetadata(data, batchId, timestamp)
-      );
+        try {
+          const response = await this.loadFromSource();
+          const dataWithSync = response.data.map((data) =>
+            this.attachSyncMetadata(data, batchId, timestamp)
+          );
 
-      if (this.documentStore && dataWithSync.length > 0) {
-        const items = dataWithSync.map((data, index) => {
-          const stableKey = this.generateKey(data, index);
+          recordProviderDataMetrics({ provider: this.name, records: dataWithSync });
+
+          if (this.documentStore && dataWithSync.length > 0) {
+            await tracer.startActiveSpan(
+              'provider.store_batch',
+              {
+                attributes: {
+                  provider: this.name,
+                  batch_id: batchId,
+                  records: dataWithSync.length,
+                },
+              },
+              async (storeSpan) => {
+                try {
+                  const items = dataWithSync.map((data, index) => {
+                    const stableKey = this.generateKey(data, index);
+                    return {
+                      key: `${batchId}_${stableKey}`,
+                      data,
+                      metadata: {
+                        syncTimestamp: timestamp,
+                        source: this.name,
+                        batchId,
+                        stableKey,
+                      },
+                    };
+                  });
+                  await this.documentStore!.batchPut(items);
+                  storeSpan.setStatus({ code: SpanStatusCode.OK });
+                } catch (error) {
+                  storeSpan.recordException(error as Error);
+                  storeSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: error instanceof Error ? error.message : 'Unknown error',
+                  });
+                  throw error;
+                } finally {
+                  storeSpan.end();
+                }
+              }
+            );
+          }
+
+          this.previousBatchId = this.lastBatchId;
+          this.lastBatchId = batchId;
+          this.lastSyncDate = timestamp;
+          await this.persistState();
+          recordProviderSyncMetrics({
+            provider: this.name,
+            success: true,
+            recordsProcessed: dataWithSync.length,
+            durationMs: Date.now() - startTime,
+            timestamp,
+          });
+
+          span.setAttribute('records_processed', dataWithSync.length);
+          span.setStatus({ code: SpanStatusCode.OK });
           return {
-            key: `${batchId}_${stableKey}`,
-            data,
-            metadata: {
-              syncTimestamp: timestamp,
-              source: this.name,
-              batchId,
-              stableKey,
-            },
+            success: true,
+            recordsProcessed: dataWithSync.length,
+            timestamp,
           };
-        });
-        await this.documentStore.batchPut(items);
+        } catch (error) {
+          recordProviderSyncMetrics({
+            provider: this.name,
+            success: false,
+            recordsProcessed: 0,
+            durationMs: Date.now() - startTime,
+            timestamp,
+          });
+          span.recordException(error as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+          return {
+            success: false,
+            recordsProcessed: 0,
+            timestamp,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        } finally {
+          span.end();
+        }
       }
-
-      this.previousBatchId = this.lastBatchId;
-      this.lastBatchId = batchId;
-      this.lastSyncDate = timestamp;
-      await this.persistState();
-      recordProviderSyncMetrics({
-        provider: this.name,
-        success: true,
-        recordsProcessed: dataWithSync.length,
-        durationMs: Date.now() - startTime,
-      });
-
-      return {
-        success: true,
-        recordsProcessed: dataWithSync.length,
-        timestamp,
-      };
-    } catch (error) {
-      recordProviderSyncMetrics({
-        provider: this.name,
-        success: false,
-        recordsProcessed: 0,
-        durationMs: Date.now() - startTime,
-      });
-      return {
-        success: false,
-        recordsProcessed: 0,
-        timestamp,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    );
   }
   
   /**
@@ -332,16 +403,43 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
       ? this.sheetsConfig.sheetNames
       : ['Sheet1'];
 
+    const tracer = trace.getTracer('patient-price-discovery-provider');
     for (const spreadsheetId of this.sheetsConfig.spreadsheetIds) {
       for (const sheetName of sheetNames) {
-        const range = `${sheetName}!A:ZZ`;
-        const response = await this.googleSheetsClient.spreadsheets.values.get({
-          spreadsheetId,
-          range,
-        });
-        const rows = (response.data.values || []) as string[][];
-        const mappedData = this.mapRowsToPriceData(rows);
-        allData.push(...mappedData);
+        await tracer.startActiveSpan(
+          'provider.fetch_sheet',
+          {
+            attributes: {
+              provider: this.name,
+              spreadsheet_id: spreadsheetId,
+              sheet_name: sheetName,
+            },
+          },
+          async (span) => {
+            try {
+              const range = `${sheetName}!A:ZZ`;
+              const response = await this.googleSheetsClient!.spreadsheets.values.get({
+                spreadsheetId,
+                range,
+              });
+              const rows = (response.data.values || []) as string[][];
+              span.setAttribute('rows', rows.length);
+              const mappedData = this.mapRowsToPriceData(rows);
+              span.setAttribute('records', mappedData.length);
+              allData.push(...mappedData);
+              span.setStatus({ code: SpanStatusCode.OK });
+            } catch (error) {
+              span.recordException(error as Error);
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: error instanceof Error ? error.message : 'Unknown error',
+              });
+              throw error;
+            } finally {
+              span.end();
+            }
+          }
+        );
       }
     }
 
