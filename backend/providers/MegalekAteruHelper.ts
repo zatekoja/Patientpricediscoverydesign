@@ -1,3 +1,4 @@
+import { google, sheets_v4 } from 'googleapis';
 import { BaseDataProvider } from './BaseDataProvider';
 import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
@@ -14,7 +15,7 @@ import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
  */
 export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
   private sheetsConfig?: GoogleSheetsConfig;
-  private googleSheetsClient?: any; // Will be initialized with actual Google Sheets API client
+  private googleSheetsClient?: sheets_v4.Sheets;
   
   constructor(documentStore?: IDocumentStore<PriceData>) {
     super('megalek_ateru_helper', documentStore);
@@ -46,16 +47,18 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
   
   async initialize(config: Record<string, any>): Promise<void> {
     await super.initialize(config);
-    this.sheetsConfig = config as GoogleSheetsConfig;
+    this.sheetsConfig = this.normalizeConfig(config as GoogleSheetsConfig);
     
-    // Initialize Google Sheets API client
-    // In production, this would use the actual Google Sheets SDK:
-    // const { google } = require('googleapis');
-    // const auth = new google.auth.GoogleAuth({
-    //   credentials: this.sheetsConfig.credentials,
-    //   scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    // });
-    // this.googleSheetsClient = google.sheets({ version: 'v4', auth });
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: this.sheetsConfig.credentials.clientEmail,
+        private_key: this.sheetsConfig.credentials.privateKey,
+        project_id: this.sheetsConfig.credentials.projectId,
+      },
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
+    this.googleSheetsClient = google.sheets({ version: 'v4', auth });
     
     console.log(`Initialized ${this.name} with ${this.sheetsConfig.spreadsheetIds.length} spreadsheet(s)`);
   }
@@ -199,25 +202,31 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
     if (!this.sheetsConfig) {
       throw new Error('Sheets config not initialized');
     }
+    if (!this.googleSheetsClient) {
+      throw new Error('Google Sheets client not initialized');
+    }
     
     const allData: PriceData[] = [];
-    
-    // In production, iterate through each spreadsheet and fetch data:
-    // for (const spreadsheetId of this.sheetsConfig.spreadsheetIds) {
-    //   const response = await this.googleSheetsClient.spreadsheets.values.get({
-    //     spreadsheetId,
-    //     range: this.sheetsConfig.sheetNames?.[0] || 'Sheet1!A:Z',
-    //   });
-    //   
-    //   const rows = response.data.values || [];
-    //   const mappedData = this.mapRowsToPriceData(rows);
-    //   allData.push(...mappedData);
-    // }
-    
-    // Placeholder: Return empty array or mock data
-    console.log(`Fetching data from ${this.sheetsConfig.spreadsheetIds.length} spreadsheet(s)`);
-    
-    return allData;
+    const sheetNames = this.sheetsConfig.sheetNames && this.sheetsConfig.sheetNames.length > 0
+      ? this.sheetsConfig.sheetNames
+      : ['Sheet1'];
+
+    for (const spreadsheetId of this.sheetsConfig.spreadsheetIds) {
+      for (const sheetName of sheetNames) {
+        const range = `${sheetName}!A:ZZ`;
+        const response = await this.googleSheetsClient.spreadsheets.values.get({
+          spreadsheetId,
+          range,
+        });
+        const rows = (response.data.values || []) as string[][];
+        const mappedData = this.mapRowsToPriceData(rows);
+        allData.push(...mappedData);
+      }
+    }
+
+    const offset = options?.offset || 0;
+    const limit = options?.limit || allData.length;
+    return allData.slice(offset, offset + limit);
   }
   
   /**
@@ -259,6 +268,17 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
       return '';
     }
     return row[columnIndex] || '';
+  }
+
+  private normalizeConfig(config: GoogleSheetsConfig): GoogleSheetsConfig {
+    const privateKey = config.credentials.privateKey?.replace(/\\n/g, '\n') || '';
+    return {
+      ...config,
+      credentials: {
+        ...config.credentials,
+        privateKey,
+      },
+    };
   }
   
   /**

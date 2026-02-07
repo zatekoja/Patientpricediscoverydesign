@@ -186,4 +186,25 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
       throw new Error(`Provider ${this.name} is not initialized. Call initialize() first.`);
     }
   }
+
+  protected generateKey(data: PriceData, index: number): string {
+    const facilityKey = (data.facilityId || data.facilityName || 'unknown')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_');
+    const procedureKey = (data.procedureCode || data.procedureDescription || `item_${index}`)
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_');
+    const effectiveDate = data.effectiveDate instanceof Date
+      ? data.effectiveDate.toISOString().split('T')[0]
+      : new Date(data.effectiveDate).toISOString().split('T')[0];
+    const tier = typeof data.metadata?.priceTier === 'string'
+      ? data.metadata?.priceTier.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      : 'base';
+    const priceKey = Number.isFinite(data.price) ? data.price.toFixed(2) : '0';
+    return `${this.name}_${facilityKey}_${procedureKey}_${tier}_${priceKey}_${effectiveDate}`;
+  }
 }
