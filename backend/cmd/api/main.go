@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	redislib "github.com/redis/go-redis/v9"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/events"
@@ -24,6 +27,7 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/openai"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/typesense"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
@@ -91,12 +95,24 @@ func main() {
 		log.Println("Redis client initialized successfully")
 	}
 
+	var cacheProvider providers.CacheProvider
+	if redisClient != nil {
+		cacheProvider = cache.NewRedisAdapter(redisClient)
+	}
+
 	// Initialize Typesense client
 	typesenseClient, err := typesense.NewClient(&cfg.Typesense)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize Typesense client: %v", err)
 	} else {
 		log.Println("Typesense client initialized successfully")
+	}
+
+	// Initialize Provider API client
+	var providerClient providerapi.Client
+	if cfg.ProviderAPI.BaseURL != "" {
+		providerClient = providerapi.NewClient(cfg.ProviderAPI.BaseURL)
+		log.Println("Provider API client initialized successfully")
 	}
 
 	// Initialize adapters
@@ -139,11 +155,6 @@ func main() {
 
 		searchRepo = adapter
 
-	}
-
-	var cacheProvider providers.CacheProvider
-	if redisClient != nil {
-		cacheProvider = cache.NewRedisAdapter(redisClient)
 	}
 
 	// Initialize event bus for real-time updates
@@ -242,6 +253,33 @@ func main() {
 	mapsHandler := handlers.NewMapsHandler(cfg.Geolocation.APIKey, cacheProvider)
 	feedbackHandler := handlers.NewFeedbackHandler(feedbackService, cacheProvider)
 
+	providerPriceHandler := handlers.NewProviderPriceHandler(providerClient)
+	pageSize := 0
+	if value := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_PAGE_SIZE")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			pageSize = parsed
+		}
+	}
+	ingestionService := services.NewProviderIngestionService(
+		providerClient,
+		facilityAdapter,
+		facilityService,
+		procedureAdapter,
+		facilityProcedureAdapter,
+		pageSize,
+	)
+	idempotencyTTL := 24 * time.Hour
+	if value := strings.TrimSpace(os.Getenv("PROVIDER_INGESTION_IDEMPOTENCY_TTL_MINUTES")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			idempotencyTTL = time.Duration(parsed) * time.Minute
+		}
+	}
+	var redisRaw *redislib.Client
+	if redisClient != nil {
+		redisRaw = redisClient.Client()
+	}
+	providerIngestionHandler := handlers.NewProviderIngestionHandler(ingestionService, redisRaw, idempotencyTTL)
+
 	// Initialize cache middleware
 	var cacheMiddleware *middleware.CacheMiddleware
 	if cacheProvider != nil {
@@ -260,6 +298,8 @@ func main() {
 		mapsHandler,
 		feedbackHandler,
 		cacheMiddleware,
+		providerPriceHandler,
+		providerIngestionHandler,
 		metrics,
 	)
 
@@ -282,6 +322,24 @@ func main() {
 			log.Fatalf("Server failed to start: %v", err)
 		}
 	}()
+
+	// Optional: ingest provider data on startup
+	if strings.EqualFold(os.Getenv("PROVIDER_INGEST_ON_START"), "true") && providerClient != nil {
+		providerID := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_PROVIDER_ID"))
+		go func() {
+			ingestCtx, ingestCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer ingestCancel()
+			for attempt := 1; attempt <= 5; attempt++ {
+				summary, err := ingestionService.SyncCurrentData(ingestCtx, providerID)
+				if err == nil {
+					log.Printf("Provider ingestion completed: %+v", summary)
+					return
+				}
+				log.Printf("Provider ingestion failed (attempt %d): %v", attempt, err)
+				time.Sleep(5 * time.Second)
+			}
+		}()
+	}
 
 	// Wait for interrupt signal for graceful shutdown
 	quit := make(chan os.Signal, 1)

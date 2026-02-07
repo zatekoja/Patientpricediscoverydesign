@@ -22,7 +22,7 @@ func TestQueryResolver_SearchFacilities_Success(t *testing.T) {
 	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -79,7 +79,7 @@ func TestQueryResolver_SearchFacilities_WithFilters(t *testing.T) {
 	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -135,7 +135,7 @@ func TestQueryResolver_SearchFacilities_NoResults(t *testing.T) {
 	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()
@@ -176,7 +176,7 @@ func TestQueryResolver_FacilitySuggestions_Success(t *testing.T) {
 	mockIns := mocks.NewMockInsuranceRepository(t)
 	mockCache := mocks.NewMockQueryCacheProvider(t)
 
-	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache)
+	resolver := NewResolver(mockSearch, mockDB, mockAppt, mockProc, mockFacProc, mockIns, mockCache, nil)
 	queryResolver := resolver.Query()
 
 	ctx := context.Background()

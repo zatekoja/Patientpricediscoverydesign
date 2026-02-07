@@ -1,4 +1,4 @@
-.PHONY: help build run test test-coverage clean deps mocks migrate-up migrate-down docker-up docker-down
+.PHONY: help build run test test-coverage clean deps mocks migrate-up migrate-down docker-up docker-down test-provider-integration test-provider-unit
 
 help: ## Display this help message
 	@echo "Available commands:"
@@ -40,6 +40,25 @@ test-integration: ## Run integration tests (requires live database)
 	TEST_DB_HOST=localhost TEST_DB_PORT=5440 TEST_DB_USER=postgres TEST_DB_PASSWORD=postgres TEST_DB_NAME=patient_price_discovery_test TEST_DB_SSLMODE=disable TEST_REDIS_HOST=localhost TEST_REDIS_PORT=6380 go test -v -tags=integration ./tests/integration/...
 
 test-integration-full: test-db-up test-integration test-db-down ## Start test DB, run integration tests, stop test DB
+test-provider-integration: ## Run provider API integration test (requires docker-compose.test.yml)
+	@echo "Running provider API integration test..."
+	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list node tests/integration/provider_api_integration_test.mjs
+
+test-provider-capacity: ## Run provider capacity request integration test
+	@echo "Running provider capacity request integration test..."
+	./node_modules/.bin/ts-node tests/integration/provider_capacity_integration_test.ts
+
+test-provider-graphql-integration: ## Run GraphQL provider integration test (requires provider API)
+	@echo "Running GraphQL provider integration test..."
+	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list go test -v -tags=integration ./tests/integration -run TestProviderPriceCurrentGraphQLIntegration
+
+test-provider-api-client: ## Run Go provider API client integration test (requires provider API)
+	@echo "Running provider API client integration test..."
+	PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 PROVIDER_ID=file_price_list go test -v -tags=integration ./tests/integration -run TestProviderAPIClientCurrentData
+
+test-provider-unit: ## Run provider unit tests (parser + file provider)
+	@echo "Running provider unit tests..."
+	./node_modules/.bin/ts-node tests/unit/price_list_parser.test.ts
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."
 	go test -v -coverprofile=coverage.out ./...

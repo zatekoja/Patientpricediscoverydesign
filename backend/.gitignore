@@ -1,3 +1,13 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
 # Binaries
 bin/
 *.exe
@@ -21,6 +31,8 @@ vendor/
 # Environment variables
 .env
 .env.local
+.env.production
+.env.test
 .env.*.local
 
 # IDE
@@ -34,8 +46,19 @@ vendor/
 .DS_Store
 Thumbs.db
 
+# Credentials (IMPORTANT: Never commit these)
+credentials.json
+service-account-key.json
+*-key.json
+
 # Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Generated GraphQL code
+internal/graphql/generated/
 
 # Database
 *.db

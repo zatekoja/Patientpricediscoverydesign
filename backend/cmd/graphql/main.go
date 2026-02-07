@@ -26,6 +26,7 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/resolvers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/typesense"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
@@ -91,6 +92,13 @@ func main() {
 	}
 	log.Println("Typesense client initialized successfully")
 
+	// Initialize Provider API client
+	var providerClient providerapi.Client
+	if cfg.ProviderAPI.BaseURL != "" {
+		providerClient = providerapi.NewClient(cfg.ProviderAPI.BaseURL)
+		log.Println("Provider API client initialized successfully")
+	}
+
 	// Initialize adapters
 	baseFacilityDBAdapter := database.NewFacilityAdapter(pgClient)
 
@@ -137,6 +145,7 @@ func main() {
 		facilityProcedureDBAdapter,
 		insuranceDBAdapter,
 		&queryCacheProvider,
+		providerClient,
 	)
 
 	// Create GraphQL server

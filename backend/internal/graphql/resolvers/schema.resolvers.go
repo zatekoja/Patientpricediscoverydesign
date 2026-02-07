@@ -8,12 +8,12 @@ package resolvers
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
 )
 
@@ -511,76 +511,6 @@ func (r *queryResolver) FacilitySuggestions(ctx context.Context, query string, l
 	return suggestions, nil
 }
 
-// calculateDistance calculates distance between two coordinates in kilometers
-// Using haversine formula
-func calculateDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	const R = 6371 // Earth's radius in kilometers
-
-	dLat := (lat2 - lat1) * math.Pi / 180.0
-	dLon := (lon2 - lon1) * math.Pi / 180.0
-
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*math.Pi/180.0)*math.Cos(lat2*math.Pi/180.0)*
-			math.Sin(dLon/2)*math.Sin(dLon/2)
-
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-
-	return R * c
-}
-
-// Helper trigonometric functions
-func sin2(x float64) float64 {
-	s := sin(x)
-	return s * s
-}
-
-func sin(x float64) float64 {
-	// Simplified sine approximation - in production use math.Sin
-	return x - (x*x*x)/6 + (x*x*x*x*x)/120
-}
-
-func cos(x float64) float64 {
-	// Simplified cosine approximation - in production use math.Cos
-	return 1 - (x*x)/2 + (x*x*x*x)/24
-}
-
-func sqrt(x float64) float64 {
-	if x < 0 {
-		return 0
-	}
-	// Newton's method approximation - in production use math.Sqrt
-	z := x
-	for i := 0; i < 10; i++ {
-		z = (z + x/z) / 2
-	}
-	return z
-}
-
-func atan2(y, x float64) float64 {
-	// Simplified atan2 - in production use math.Atan2
-	if x > 0 {
-		return atan(y / x)
-	}
-	if x < 0 && y >= 0 {
-		return atan(y/x) + 3.14159265
-	}
-	if x < 0 && y < 0 {
-		return atan(y/x) - 3.14159265
-	}
-	if x == 0 && y > 0 {
-		return 3.14159265 / 2
-	}
-	if x == 0 && y < 0 {
-		return -3.14159265 / 2
-	}
-	return 0
-}
-
-func atan(x float64) float64 {
-	// Simplified atan approximation - in production use math.Atan
-	return x - (x*x*x)/3 + (x*x*x*x*x)/5
-}
-
 // Procedure is the resolver for the procedure field.
 func (r *queryResolver) Procedure(ctx context.Context, id string) (*entities.Procedure, error) {
 	// Try to get as a FacilityProcedure first (which includes price/context)
@@ -760,6 +690,70 @@ func (r *queryResolver) PriceComparison(ctx context.Context, procedureCode strin
 		MaxPrice:      0,
 		AvgPrice:      0,
 		Facilities:    []*generated.FacilityPriceInfo{},
+	}, nil
+}
+
+// ProviderPriceCurrent resolves current tagged price data from the provider API.
+func (r *queryResolver) ProviderPriceCurrent(ctx context.Context, providerID *string, limit *int, offset *int) (*generated.ProviderPriceResponse, error) {
+	if r.providerClient == nil {
+		return nil, fmt.Errorf("provider api client not configured")
+	}
+
+	req := providerapi.CurrentDataRequest{
+		Limit:  100,
+		Offset: 0,
+	}
+	if providerID != nil {
+		req.ProviderID = *providerID
+	}
+	if limit != nil {
+		req.Limit = *limit
+	}
+	if offset != nil {
+		req.Offset = *offset
+	}
+
+	resp, err := r.providerClient.GetCurrentData(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]*generated.ProviderPriceRecord, 0, len(resp.Data))
+	for _, item := range resp.Data {
+		tags := item.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		records = append(records, &generated.ProviderPriceRecord{
+			ID:                   item.ID,
+			FacilityName:         item.FacilityName,
+			ProcedureCode:        item.ProcedureCode,
+			ProcedureDescription: item.ProcedureDescription,
+			Price:                item.Price,
+			Currency:             item.Currency,
+			EffectiveDate:        item.EffectiveDate.Format(time.RFC3339),
+			LastUpdated:          item.LastUpdated.Format(time.RFC3339),
+			Source:               item.Source,
+			Tags:                 tags,
+		})
+	}
+
+	var metadata *generated.ProviderPriceMetadata
+	if resp.Metadata != nil {
+		source := resp.Metadata.Source
+		count := resp.Metadata.Count
+		total := resp.Metadata.Total
+		metadata = &generated.ProviderPriceMetadata{
+			Source: &source,
+			Count:  &count,
+			Total:  &total,
+		}
+	}
+
+	return &generated.ProviderPriceResponse{
+		Data:      records,
+		Timestamp: resp.Timestamp.Format(time.RFC3339),
+		Metadata:  metadata,
 	}, nil
 }
 

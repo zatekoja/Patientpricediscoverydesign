@@ -1,6 +1,11 @@
 # Architecture Overview
 
-## System Architecture
+This backend includes two aligned subsystems:
+
+1. **Core Backend (Go)** - Domain-driven API, repositories, adapters, infrastructure.
+2. **External Data Provider System (TypeScript)** - Provider interface, document store, scheduler, REST API.
+
+## Core Backend Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -89,9 +94,108 @@
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## External Data Provider System
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     External Data Provider System                    │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────┐
+│  External Sources    │
+│                      │
+│  ┌────────────────┐  │
+│  │ Google Sheets  │  │     ┌──────────────────────────────────┐
+│  │  Spreadsheet 1 │  │────▶│    MegalekAteruHelper Provider   │
+│  │  Spreadsheet 2 │  │     │                                  │
+│  │  Spreadsheet 3 │  │     │  - Fetch data from sheets       │
+│  └────────────────┘  │     │  - Transform to PriceData       │
+│                      │     │  - Apply column mapping          │
+└──────────────────────┘     │  - Validate data                 │
+                             └──────────────────────────────────┘
+                                            │
+                                            ▼
+                             ┌──────────────────────────────────┐
+                             │   IExternalDataProvider          │
+                             │   Interface                      │
+                             │                                  │
+                             │  + getCurrentData()              │
+                             │  + getPreviousData()             │
+                             │  + getHistoricalData()           │
+                             │  + syncData()                    │
+                             │  + getHealthStatus()             │
+                             └──────────────────────────────────┘
+                                            │
+                    ┌───────────────────────┼───────────────────────┐
+                    ▼                       ▼                       ▼
+        ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
+        │   Current Data     │  │   Previous Data    │  │  Historical Data   │
+        │                    │  │                    │  │                    │
+        │  Latest sync       │  │  Last sync before  │  │  Time range query  │
+        │  Real-time view    │  │  current           │  │  30d, 6m, 1y, etc. │
+        └────────────────────┘  └────────────────────┘  └────────────────────┘
+                    │                       │                       │
+                    └───────────────────────┼───────────────────────┘
+                                            ▼
+                             ┌──────────────────────────────────┐
+                             │   IDocumentStore Interface       │
+                             │                                  │
+                             │  + put(key, data)                │
+                             │  + get(key)                      │
+                             │  + query(filter, options)        │
+                             │  + batchPut(items)               │
+                             └──────────────────────────────────┘
+                                            │
+                    ┌───────────────────────┼───────────────────────┐
+                    ▼                       ▼                       ▼
+        ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
+        │   S3 Document      │  │  DynamoDB Store    │  │   MongoDB Store    │
+        │   Store            │  │                    │  │                    │
+        │                    │  │  - Fast queries    │  │  - Rich queries    │
+        │  - File-based      │  │  - Scalable        │  │  - Flexible schema │
+        │  - Cost effective  │  │  - Serverless      │  │  - Aggregations    │
+        └────────────────────┘  └────────────────────┘  └────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Data Sync Scheduler                            │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Schedule: Every 3 Days (Configurable)                      │   │
+│  │                                                              │   │
+│  │  1. Trigger sync job                                        │   │
+│  │  2. Provider fetches data from external source              │   │
+│  │  3. Transform and validate data                             │   │
+│  │  4. Store in document store                                 │   │
+│  │  5. Update metadata (timestamp, record count)               │   │
+│  │  6. Report success/failure                                  │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Application Integration                        │
+└─────────────────────────────────────────────────────────────────────┘
+
+        ┌────────────────────┐         ┌────────────────────┐
+        │   React Frontend   │         │   Backend API      │
+        │                    │         │                    │
+        │  - Display prices  │◀────────│  - Query provider  │
+        │  - Search/filter   │         │  - Cache results   │
+        │  - Compare prices  │         │  - Handle errors   │
+        └────────────────────┘         └────────────────────┘
+                                                 │
+                                                 ▼
+                             ┌──────────────────────────────────┐
+                             │   Data Provider System           │
+                             │                                  │
+                             │  - MegalekAteruHelper            │
+                             │  - Document Store                │
+                             │  - Scheduler                     │
+                             └──────────────────────────────────┘
+```
+
 ## Data Flow
 
-### Read Operation (e.g., Get Facility)
+### Core Backend Read Operation (Example: Get Facility)
 ```
 1. HTTP GET /api/facilities/{id}
    ↓
@@ -114,7 +218,7 @@
 10. HTTP Response (JSON)
 ```
 
-### Write Operation (e.g., Book Appointment - Phase 2)
+### Core Backend Write Operation (Example: Book Appointment - Phase 2)
 ```
 1. HTTP POST /api/appointments
    ↓
@@ -135,7 +239,7 @@
 9. Return created appointment
 ```
 
-### Search Operation with Caching
+### Core Backend Search Operation with Caching
 ```
 1. HTTP GET /api/facilities/search?lat=37.7&lon=-122.4
    ↓
@@ -146,14 +250,66 @@
 4. Check cache: cacheProvider.Get(key)
    ├─ Cache Hit: Return cached results
    │  └─ [OTEL] Record cache hit metric
-   └─ Cache Miss: 
+   └─ Cache Miss:
       ├─ [OTEL] Record cache miss metric
       ├─ facilityRepo.Search(params)
       ├─ cacheProvider.Set(key, results, ttl)
       └─ Return results
 ```
 
-## Layer Responsibilities
+### External Provider Setup
+```
+User → Configure Provider → Initialize with Credentials → Ready
+```
+
+### External Provider Scheduled Sync (Every 3 Days)
+```
+Scheduler Triggers
+    ↓
+Provider.syncData()
+    ↓
+Fetch from Google Sheets
+    ↓
+Transform to PriceData
+    ↓
+Validate Data
+    ↓
+Store in Document Store
+    ↓
+Update Metadata
+    ↓
+Report Success/Failure
+```
+
+### External Provider Query Current Data
+```
+Application Request
+    ↓
+Provider.getCurrentData()
+    ↓
+Check Document Store
+    ↓
+Return Latest Sync
+    ↓
+Display to User
+```
+
+### External Provider Query Historical Data
+```
+User Request (time window: "30d")
+    ↓
+Provider.getHistoricalData({ timeWindow: "30d" })
+    ↓
+Parse Time Window (30 days ago → today)
+    ↓
+Query Document Store (date range filter)
+    ↓
+Return Filtered Results
+    ↓
+Display Trends/Charts
+```
+
+## Layer Responsibilities (Core Backend)
 
 ### API Layer
 - **Purpose**: HTTP interface
@@ -199,55 +355,96 @@
   - Configuration management
 - **Dependencies**: External libraries only
 
-## Key Design Patterns
+## Provider System Components
 
-### 1. Repository Pattern
-- Abstracts data access
-- Domain layer defines interfaces
-- Adapters implement interfaces
-- Allows easy swapping of data sources
-
-### 2. Adapter Pattern
-- Converts between different interfaces
-- FacilityAdapter implements FacilityRepository
-- RedisAdapter implements CacheProvider
-
-### 3. Dependency Injection
-- Dependencies passed via constructors
-- Makes testing easier
-- Reduces coupling
-
-### 4. Middleware Pattern
-- Cross-cutting concerns (logging, tracing)
-- Applied to all HTTP requests
-- Clean separation from business logic
-
-## Testing Strategy
-
-### Unit Tests
 ```
-Test: FacilityAdapter.Create()
-Mock: PostgreSQL Client
-Verify: Correct SQL executed, entity saved
+IExternalDataProvider (Interface)
+    ↑
+    │ implements
+    │
+BaseDataProvider (Abstract Class)
+    ↑
+    │ extends
+    │
+MegalekAteruHelper (Concrete Implementation)
+    │
+    │ uses
+    ↓
+IDocumentStore (Interface)
+    ↑
+    │ implements
+    │
+InMemoryDocumentStore / S3Store / DynamoDBStore / MongoDBStore
 ```
 
-### Integration Tests
+## Configuration Flow (Provider System)
+
 ```
-Test: Complete search flow
-Setup: Test database with sample data
-Execute: Search API request
-Verify: Correct results returned
+Environment Variables / Config File
+    ↓
+GoogleSheetsConfig
+    │
+    ├─ credentials (service account)
+    ├─ spreadsheetIds (array)
+    ├─ sheetNames (optional)
+    ├─ columnMapping (field mapping)
+    └─ syncSchedule (cron/interval)
+    ↓
+Provider.initialize(config)
+    ↓
+Ready to Use
 ```
 
-### End-to-End Tests
+## Error Handling (Provider System)
+
 ```
-Test: Book appointment workflow
-Setup: Full system with test containers
-Execute: Search → Select → Book → Verify
-Verify: Appointment created, email sent
+Provider Operation
+    │
+    ├─ Success → Return Data
+    │
+    └─ Error → Try
+              │
+              ├─ Network Error → Retry (with backoff)
+              ├─ Auth Error → Log + Alert
+              ├─ Validation Error → Skip record + Continue
+              └─ Unknown Error → Log + Report
 ```
 
-## Observability
+## Deployment Architecture (Provider System)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         AWS/Cloud                               │
+│                                                                 │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐     │
+│  │   Lambda     │    │   S3 Bucket  │    │  DynamoDB    │     │
+│  │   Function   │───▶│              │    │   Table      │     │
+│  │              │    │  Price Data  │    │              │     │
+│  │  - Scheduler │    │  Storage     │    │  Metadata    │     │
+│  └──────────────┘    └──────────────┘    └──────────────┘     │
+│         │                                                       │
+│         │ Calls                                                │
+│         ▼                                                       │
+│  ┌──────────────┐                                              │
+│  │  EventBridge │                                              │
+│  │  Rule        │                                              │
+│  │  (3 days)    │                                              │
+│  └──────────────┘                                              │
+└─────────────────────────────────────────────────────────────────┘
+                        │
+                        │ Reads from
+                        ▼
+            ┌────────────────────┐
+            │  Google Sheets     │
+            │  API               │
+            │                    │
+            │  - Spreadsheet 1   │
+            │  - Spreadsheet 2   │
+            │  - Spreadsheet N   │
+            └────────────────────┘
+```
+
+## Observability (Core Backend)
 
 ### Metrics Emitted
 - `http.server.request.count` - Request volume by endpoint
@@ -281,7 +478,14 @@ Verify: Appointment created, email sent
 - TLS/HTTPS
 - Secrets management
 
-## Performance Optimizations
+### Provider System Security
+- Google service account authentication (IAM)
+- Credentials stored in secrets manager or env vars
+- Least-privilege IAM roles for S3/DynamoDB
+- Config validation before initialization
+- Data validation before storage
+
+## Performance Optimizations (Core Backend)
 
 ### Database
 - Connection pooling
@@ -298,7 +502,7 @@ Verify: Appointment created, email sent
 - Timeouts on all operations
 - Goroutines for async work (future)
 
-## Scalability Considerations
+## Scalability Considerations (Core Backend)
 
 ### Horizontal Scaling
 - Stateless API servers
@@ -314,7 +518,7 @@ Verify: Appointment created, email sent
 - Redis cluster for high availability
 - Cache warming strategies
 
-## Deployment Architecture (Future)
+## Deployment Architecture (Core Backend - Future)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

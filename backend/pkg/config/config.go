@@ -12,6 +12,7 @@ type Config struct {
 	Database    DatabaseConfig
 	Redis       RedisConfig
 	Typesense   TypesenseConfig
+	ProviderAPI ProviderAPIConfig
 	Geolocation GeolocationConfig
 	OpenAI      OpenAIConfig
 	OTEL        OTELConfig
@@ -45,6 +46,11 @@ type RedisConfig struct {
 type TypesenseConfig struct {
 	URL    string
 	APIKey string
+}
+
+// ProviderAPIConfig holds provider API configuration
+type ProviderAPIConfig struct {
+	BaseURL string
 }
 
 // GeolocationConfig holds geolocation provider configuration
@@ -91,6 +97,9 @@ func Load() (*Config, error) {
 		Typesense: TypesenseConfig{
 			URL:    getEnv("TYPESENSE_URL", "http://localhost:8108"),
 			APIKey: getEnv("TYPESENSE_API_KEY", "xyz"),
+		},
+		ProviderAPI: ProviderAPIConfig{
+			BaseURL: getEnv("PROVIDER_API_BASE_URL", "http://localhost:3002/api/v1"),
 		},
 		Geolocation: GeolocationConfig{
 			Provider: getEnv("GEOLOCATION_PROVIDER", "mock"),

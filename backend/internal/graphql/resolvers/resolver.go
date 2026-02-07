@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/query/services"
 )
 
@@ -18,6 +19,7 @@ type Resolver struct {
 	facilityProcedureRepo repositories.FacilityProcedureRepository
 	insuranceRepo         repositories.InsuranceRepository
 	cache                 services.QueryCacheProvider
+	providerClient        providerapi.Client
 }
 
 // NewResolver creates a new resolver with dependencies
@@ -29,6 +31,7 @@ func NewResolver(
 	facilityProcedureRepo repositories.FacilityProcedureRepository,
 	insuranceRepo repositories.InsuranceRepository,
 	cache services.QueryCacheProvider,
+	providerClient providerapi.Client,
 ) *Resolver {
 	return &Resolver{
 		searchAdapter:         searchAdapter,
@@ -38,5 +41,6 @@ func NewResolver(
 		facilityProcedureRepo: facilityProcedureRepo,
 		insuranceRepo:         insuranceRepo,
 		cache:                 cache,
+		providerClient:        providerClient,
 	}
 }

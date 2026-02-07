@@ -109,6 +109,19 @@ services:
       timeout: 5s
       retries: 5
 
+  mongo:
+    image: mongo:6.0
+    container_name: ppd_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Typesense for search
   typesense:
     image: typesense/typesense:27.1
@@ -126,6 +139,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # External provider API (Node/TypeScript)
+  provider-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.provider
+    container_name: ppd_provider_api
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - OTEL_ENABLED=true
+      - OTEL_SERVICE_NAME=patient-price-discovery-provider
+      - OTEL_SERVICE_VERSION=1.0.0
+      - OTEL_ENDPOINT=http://signoz-otel-collector:4318
+      - PROVIDER_MONGO_URI=mongodb://mongo:27017
+      - PROVIDER_MONGO_DB=provider_data
+      - PROVIDER_MONGO_COLLECTION=price_records
+      - PROVIDER_STATE_COLLECTION=provider_state
+      - PROVIDER_MONGO_TTL_DAYS=30
+      - PROVIDER_RUN_INITIAL_SYNC=true
+      - PRICE_LIST_CURRENCY=NGN
+      - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
+    depends_on:
+      - mongo
+      - signoz-otel-collector
+    restart: unless-stopped
 
   # SigNoz for observability (replaces OTEL collector)
   # SigNoz components: OTel Collector, ClickHouse, Query Service, Frontend
@@ -212,6 +253,9 @@ services:
       - REDIS_PORT=6379
       - TYPESENSE_URL=http://typesense:8108
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
+      - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
+      - PROVIDER_INGEST_ON_START=true
+      - PROVIDER_INGEST_PROVIDER_ID=file_price_list
       - GEOLOCATION_PROVIDER=google
       - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - OTEL_ENABLED=true
@@ -223,6 +267,8 @@ services:
         condition: service_healthy
       typesense:
         condition: service_healthy
+      provider-api:
+        condition: service_started
     restart: unless-stopped
 
   sse:
@@ -263,6 +309,7 @@ services:
       - REDIS_PORT=6379
       - TYPESENSE_URL=http://typesense:8108
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
+      - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
       - GEOLOCATION_PROVIDER=google
       - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - OTEL_ENABLED=true
@@ -276,6 +323,8 @@ services:
         condition: service_healthy
       typesense:
         condition: service_healthy
+      provider-api:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
@@ -283,5 +332,6 @@ volumes:
   postgres_replica_1_data:
   postgres_replica_2_data:
   redis_data:
+  mongo_data:
   typesense_data:
   clickhouse_data:

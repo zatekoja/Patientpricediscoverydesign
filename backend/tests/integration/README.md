@@ -34,6 +34,53 @@ make test-integration
 make test-db-down
 ```
 
+### Provider API Integration Test (Docker)
+
+This test hits the **external provider API** running in Docker and validates all interface-backed endpoints.
+
+```bash
+# Start test services (includes provider API + OTEL collector)
+docker-compose -f docker-compose.test.yml up -d
+
+# Run provider API integration test
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 \
+node tests/integration/provider_api_integration_test.mjs
+
+# Cleanup
+docker-compose -f docker-compose.test.yml down -v
+```
+
+### Provider GraphQL Integration Test (Go)
+
+This test runs the **GraphQL resolver** in-process and verifies it can call the live provider API.
+
+```bash
+# Ensure provider API is running
+docker-compose -f docker-compose.test.yml up -d provider-api-test
+
+# Run GraphQL integration test
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 \
+PROVIDER_ID=file_price_list \
+go test -v -tags=integration ./tests/integration -run TestProviderPriceCurrentGraphQLIntegration
+
+# Cleanup
+docker-compose -f docker-compose.test.yml down -v
+```
+
+### Provider API Client Integration Test (Go)
+
+This test uses the Go provider API client against a live provider container.
+
+```bash
+docker-compose -f docker-compose.test.yml up -d provider-api-test
+
+PROVIDER_API_BASE_URL=http://localhost:3002/api/v1 \
+PROVIDER_ID=file_price_list \
+go test -v -tags=integration ./tests/integration -run TestProviderAPIClientCurrentData
+
+docker-compose -f docker-compose.test.yml down -v
+```
+
 ### Individual Test Execution
 
 ```bash
