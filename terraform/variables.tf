@@ -55,8 +55,8 @@ variable "openai_api_key" {
   default     = ""
 
   validation {
-    condition     = var.openai_api_key != ""
-    error_message = "OpenAI API key is required. Please set openai_api_key variable."
+    condition     = var.environment != "prod" || var.openai_api_key != ""
+    error_message = "OpenAI API key is required in the prod environment. Please set openai_api_key variable."
   }
 }
 
