@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
+import { parse as csvParse } from 'csv-parse/sync';
 import { PriceData } from '../types/PriceData';
 import { buildFacilityId } from './facilityIds';
 
@@ -11,6 +12,10 @@ export interface PriceListParseContext {
   currency?: string;
   defaultEffectiveDate?: Date;
   providerId?: string;
+  /** Explicit facility name mapping, bypasses inference */
+  explicitFacilityMapping?: Record<string, string>;
+  /** Minimum confidence threshold for facility inference */
+  facilityInferenceThreshold?: number;
 }
 
 interface HeaderMap {
@@ -39,13 +44,21 @@ export function parseDocxFile(filePath: string, context?: PriceListParseContext)
 }
 
 export function parseCsvContent(content: string): string[][] {
-  const rows: string[][] = [];
-  const lines = content.split(/\r?\n/);
-  for (const line of lines) {
-    const cells = parseCsvLine(line);
-    rows.push(cells);
+  try {
+    // Use csv-parse library for RFC-compliant CSV parsing
+    // This handles quoted fields, escaped characters, and multi-line cells properly
+    const records = csvParse(content, {
+      relax_quotes: true,
+      skip_empty_lines: false,
+      trim: false,
+      relax_column_count: true,
+    });
+    return records;
+  } catch (error) {
+    console.error('CSV parsing error:', error);
+    // Fallback to simple parsing if csv-parse fails
+    return content.split(/\r?\n/).map(line => parseCsvLine(line));
   }
-  return rows;
 }
 
 export function parseDocxBuffer(buffer: Buffer): string[][] {
@@ -74,9 +87,23 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
   const headerIndex = findHeaderRow(normalizedRows);
   const headerRow = headerIndex >= 0 ? normalizedRows[headerIndex] : [];
   const headerMap = buildHeaderMap(headerRow);
-  const facilityName =
-    context.facilityName ||
-    inferFacilityName(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
+  
+  // Check for explicit facility mapping first
+  let facilityName: string;
+  if (context.explicitFacilityMapping && context.sourceFile) {
+    const mappedName = context.explicitFacilityMapping[context.sourceFile];
+    if (mappedName) {
+      facilityName = mappedName;
+      console.log(`Using explicit facility mapping: ${facilityName}`);
+    } else {
+      facilityName = context.facilityName || 
+        inferFacilityName(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
+    }
+  } else {
+    facilityName = context.facilityName ||
+      inferFacilityName(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
+  }
+  
   const facilityId = buildFacilityId(context.providerId, facilityName);
   const effectiveDate =
     context.defaultEffectiveDate ||
@@ -148,6 +175,11 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
   return priceData;
 }
 
+/**
+ * Legacy CSV line parser - kept as fallback for edge cases
+ * Note: This parser has limitations with quoted fields containing commas.
+ * Use parseCsvContent() which uses csv-parse library for RFC-compliant parsing.
+ */
 function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
   let current = '';
@@ -515,18 +547,42 @@ function extractUnit(value: string): string | undefined {
 }
 
 function inferFacilityName(rows: string[][], sourceFile?: string): string {
+  // Try to find facility name in first few rows
   for (const row of rows) {
     const line = normalizeCell(row.join(' '));
     if (!line) {
       continue;
     }
-    if (line.toLowerCase().includes('hospital') || line.toLowerCase().includes('lasuth')) {
+    const lower = line.toLowerCase();
+    
+    // Look for strong indicators of facility names
+    if (lower.includes('hospital') || lower.includes('clinic') || lower.includes('medical center')) {
+      // Additional validation: ensure it's not just a generic header
+      if (!lower.includes('price list') && !lower.includes('rate') && !lower.includes('charges')) {
+        // Extra safeguard: check that the line has reasonable length (not just "hospital")
+        if (line.length > 10 && line.length < 200) {
+          console.log(`Inferred facility name from content: ${line}`);
+          return line;
+        }
+      }
+    }
+    
+    // Special case for specific well-known facilities
+    if (lower.includes('lasuth')) {
+      console.log(`Inferred facility name from content: ${line}`);
       return line;
     }
   }
+  
+  // Fallback to filename if available
   if (sourceFile) {
-    return path.basename(sourceFile).replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+    const facilityFromFile = path.basename(sourceFile).replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+    console.log(`Inferred facility name from filename: ${facilityFromFile}`);
+    return facilityFromFile;
   }
+  
+  // Last resort
+  console.warn('Could not reliably infer facility name, using default');
   return 'Unknown Facility';
 }
 

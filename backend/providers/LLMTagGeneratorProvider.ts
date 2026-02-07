@@ -83,6 +83,13 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       console.error('Missing model in LLM configuration');
       return false;
     }
+
+    // Warn if using placeholder values
+    if (llmConfig.apiEndpoint === 'placeholder' || llmConfig.apiKey === 'placeholder') {
+      console.warn('⚠️  LLM configuration appears to use placeholder values.');
+      console.warn('⚠️  Tag generation will return empty tags until a real LLM API is configured.');
+      console.warn('⚠️  Please update apiEndpoint and apiKey in the configuration to use actual LLM services.');
+    }
     
     return true;
   }
@@ -533,32 +540,54 @@ Return ONLY a comma-separated list of tags, no explanations.`;
       throw new Error('LLM configuration not initialized');
     }
     
-    // Placeholder implementation
+    // Check for placeholder configuration
+    const isPlaceholder = 
+      this.llmConfig.apiEndpoint === 'placeholder' || 
+      this.llmConfig.apiKey === 'placeholder' ||
+      this.llmConfig.apiEndpoint.includes('example.com') ||
+      !this.llmConfig.apiEndpoint.startsWith('http');
+
+    if (isPlaceholder) {
+      console.warn('⚠️  LLM API not properly configured - returning empty tags.');
+      console.warn('⚠️  Configure a real LLM endpoint to enable tag generation.');
+      return [];
+    }
+    
+    // Placeholder implementation for actual LLM API integration
     // In production, this would call the actual LLM API (OpenAI, Anthropic, etc.)
     
     // Example for OpenAI-compatible API:
     /*
-    const response = await fetch(this.llmConfig.apiEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.llmConfig.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.llmConfig.model,
-        messages: [
-          { role: 'system', content: this.llmConfig.systemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        temperature: this.llmConfig.temperature,
-        max_tokens: 100,
-      }),
-    });
-    
-    const data = await response.json();
-    const tagsText = data.choices[0].message.content;
-    const tags = tagsText.split(',').map((tag: string) => tag.trim()).filter((tag: string) => tag.length > 0);
-    return tags.slice(0, this.llmConfig.maxTags);
+    try {
+      const response = await fetch(this.llmConfig.apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.llmConfig.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.llmConfig.model,
+          messages: [
+            { role: 'system', content: this.llmConfig.systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          temperature: this.llmConfig.temperature,
+          max_tokens: 100,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      const tagsText = data.choices[0].message.content;
+      const tags = tagsText.split(',').map((tag: string) => tag.trim()).filter((tag: string) => tag.length > 0);
+      return tags.slice(0, this.llmConfig.maxTags);
+    } catch (error) {
+      console.error('LLM API call failed:', error);
+      throw error;
+    }
     */
     
     console.log(`Generating tags for prompt (placeholder): ${prompt.substring(0, 100)}...`);

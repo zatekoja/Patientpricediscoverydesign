@@ -103,6 +103,48 @@ export class DataProviderAPI {
   }
 
   /**
+   * Validate pagination parameters
+   */
+  private validatePagination(
+    limit?: string,
+    offset?: string
+  ): { valid: true; limit: number; offset: number } | { valid: false; error: string } {
+    const MAX_LIMIT = 5000;
+    const DEFAULT_LIMIT = 100;
+    const DEFAULT_OFFSET = 0;
+
+    let parsedLimit = DEFAULT_LIMIT;
+    let parsedOffset = DEFAULT_OFFSET;
+
+    // Validate limit
+    if (limit !== undefined) {
+      parsedLimit = parseInt(limit, 10);
+      if (Number.isNaN(parsedLimit)) {
+        return { valid: false, error: 'limit must be a valid integer' };
+      }
+      if (parsedLimit < 0) {
+        return { valid: false, error: 'limit must be non-negative' };
+      }
+      if (parsedLimit > MAX_LIMIT) {
+        return { valid: false, error: `limit must not exceed ${MAX_LIMIT}` };
+      }
+    }
+
+    // Validate offset
+    if (offset !== undefined) {
+      parsedOffset = parseInt(offset, 10);
+      if (Number.isNaN(parsedOffset)) {
+        return { valid: false, error: 'offset must be a valid integer' };
+      }
+      if (parsedOffset < 0) {
+        return { valid: false, error: 'offset must be non-negative' };
+      }
+    }
+
+    return { valid: true, limit: parsedLimit, offset: parsedOffset };
+  }
+
+  /**
    * Setup Express middleware
    */
   private setupMiddleware(): void {
@@ -203,9 +245,22 @@ export class DataProviderAPI {
       const { limit, offset, providerId } = req.query;
       const provider = this.getProvider(providerId as string);
 
+      const validatedPagination = this.validatePagination(
+        limit as string | undefined,
+        offset as string | undefined
+      );
+
+      if (!validatedPagination.valid) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: validatedPagination.error,
+        });
+        return;
+      }
+
       const options: DataProviderOptions = {
-        limit: limit ? parseInt(limit as string, 10) : 100,
-        offset: offset ? parseInt(offset as string, 10) : 0,
+        limit: validatedPagination.limit,
+        offset: validatedPagination.offset,
       };
 
       const data = await provider.getCurrentData(options);
@@ -223,9 +278,22 @@ export class DataProviderAPI {
       const { limit, offset, providerId } = req.query;
       const provider = this.getProvider(providerId as string);
 
+      const validatedPagination = this.validatePagination(
+        limit as string | undefined,
+        offset as string | undefined
+      );
+
+      if (!validatedPagination.valid) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: validatedPagination.error,
+        });
+        return;
+      }
+
       const options: DataProviderOptions = {
-        limit: limit ? parseInt(limit as string, 10) : 100,
-        offset: offset ? parseInt(offset as string, 10) : 0,
+        limit: validatedPagination.limit,
+        offset: validatedPagination.offset,
       };
 
       const data = await provider.getPreviousData(options);
