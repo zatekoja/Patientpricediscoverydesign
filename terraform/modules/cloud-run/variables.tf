@@ -56,11 +56,6 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
-variable "postgres_password_secret_id" {
-  description = "Secret Manager secret ID for PostgreSQL password"
-  type        = string
-}
-
 variable "postgres_private_ip" {
   description = "PostgreSQL private IP address"
   type        = string
