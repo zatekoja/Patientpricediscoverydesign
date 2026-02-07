@@ -78,13 +78,14 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
     context.defaultEffectiveDate ||
     inferEffectiveDate(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
 
+  const mergedRows = mergeContinuationRows(normalizedRows, headerIndex, headerMap);
   let currentArea: string | undefined;
   let currentCategory: string | undefined;
   const priceData: PriceData[] = [];
 
   const startIndex = headerIndex >= 0 ? headerIndex + 1 : 0;
-  for (let i = startIndex; i < normalizedRows.length; i += 1) {
-    const row = normalizedRows[i];
+  for (let i = startIndex; i < mergedRows.length; i += 1) {
+    const row = mergedRows[i];
     if (!row || row.every((cell) => !cell)) {
       continue;
     }
@@ -159,6 +160,13 @@ function parseCsvLine(line: string): string[] {
       continue;
     }
     if (char === ',' && !inQuotes) {
+      const prev = line[i - 1];
+      const next = line[i + 1];
+      const next3 = line.slice(i + 1, i + 4);
+      if (prev && /\d/.test(prev) && next && /^\d{3}$/.test(next3)) {
+        current += ',';
+        continue;
+      }
       cells.push(current);
       current = '';
       continue;
@@ -224,6 +232,10 @@ function normalizeCell(value: string): string {
   return (value || '').replace(/\s+/g, ' ').trim();
 }
 
+function containsLetters(value: string): boolean {
+  return /[A-Za-z]/.test(value);
+}
+
 function isHeaderLike(cell: string): boolean {
   const value = cell.toLowerCase();
   return value.includes('price') || value.includes('amount') || value.includes('description');
@@ -231,9 +243,21 @@ function isHeaderLike(cell: string): boolean {
 
 function findHeaderRow(rows: string[][]): number {
   return rows.findIndex((row) => {
-    const line = row.map((cell) => cell.toLowerCase()).join(' ');
-    return (line.includes('price') || line.includes('amount')) &&
-      (line.includes('description') || line.includes('procedure') || line.includes('service') || line.includes('revenue'));
+    const lowerCells = row.map((cell) => cell.toLowerCase());
+    const hasDesc = lowerCells.some((cell) =>
+      ['description', 'procedures', 'procedure', 'service', 'revenue'].some((k) => cell.includes(k))
+    );
+    const hasPrice = lowerCells.some((cell) =>
+      ['price', 'amount', 'rate', 'fee'].some((k) => cell.includes(k))
+    );
+    if (!hasDesc || !hasPrice) {
+      return false;
+    }
+    const headerCells = lowerCells.filter((cell) =>
+      ['description', 'procedures', 'procedure', 'service', 'revenue', 'price', 'amount', 'rate', 'fee', 'area', 'category']
+        .some((k) => cell.includes(k))
+    ).length;
+    return headerCells >= 2;
   });
 }
 
@@ -255,6 +279,98 @@ function buildHeaderMap(headerRow: string[]): HeaderMap {
   };
 }
 
+function mergeContinuationRows(rows: string[][], headerIndex: number, headerMap: HeaderMap): string[][] {
+  if (headerIndex < 0 || headerMap.descriptionIndex === undefined || headerMap.priceIndex === undefined) {
+    return rows;
+  }
+  const merged: string[][] = rows.slice(0, headerIndex + 1);
+  let current: string[] | null = null;
+
+  for (let i = headerIndex + 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row || row.every((cell) => !cell)) {
+      if (current) {
+        merged.push(current);
+        current = null;
+      }
+      continue;
+    }
+
+    if (!current) {
+      current = row.slice();
+      continue;
+    }
+
+    if (isNewRecordRow(row, headerMap)) {
+      merged.push(current);
+      current = row.slice();
+      continue;
+    }
+
+    current = mergeRowInto(current, row, headerMap);
+  }
+
+  if (current) {
+    merged.push(current);
+  }
+
+  return merged;
+}
+
+function isNewRecordRow(row: string[], headerMap: HeaderMap): boolean {
+  if (row[0] && isLikelyIndex(row[0])) {
+    return true;
+  }
+  if (headerMap.descriptionIndex !== undefined) {
+    const descCell = row[headerMap.descriptionIndex];
+    if (descCell && containsLetters(descCell)) {
+      return true;
+    }
+  }
+  if (headerMap.priceIndex !== undefined) {
+    const priceCell = row[headerMap.priceIndex];
+    if (priceCell && (containsNumber(priceCell) || containsFree(priceCell))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function mergeRowInto(baseRow: string[], continuationRow: string[], headerMap: HeaderMap): string[] {
+  const merged = baseRow.slice();
+  const descriptionIndex = headerMap.descriptionIndex ?? 0;
+  const priceIndex = headerMap.priceIndex ?? 0;
+  const descriptionParts: string[] = [];
+  const priceParts: string[] = [];
+
+  for (const cell of continuationRow) {
+    if (!cell) {
+      continue;
+    }
+    if (isPriceLike(cell)) {
+      priceParts.push(cell);
+    } else {
+      descriptionParts.push(cell);
+    }
+  }
+
+  if (descriptionParts.length > 0) {
+    merged[descriptionIndex] = appendCell(merged[descriptionIndex], descriptionParts.join(' '));
+  }
+  if (priceParts.length > 0) {
+    merged[priceIndex] = appendCell(merged[priceIndex], priceParts.join(' '));
+  }
+
+  return merged;
+}
+
+function appendCell(existing: string | undefined, addition: string): string {
+  if (!existing) {
+    return addition;
+  }
+  return `${existing}\n${addition}`;
+}
+
 function findDescription(row: string[], headerMap: HeaderMap): string {
   if (headerMap.descriptionIndex !== undefined) {
     return row[headerMap.descriptionIndex] || '';
@@ -267,7 +383,7 @@ function findDescription(row: string[], headerMap: HeaderMap): string {
     if (isLikelyIndex(cell)) {
       continue;
     }
-    if (containsNumber(cell)) {
+    if (isPriceLike(cell)) {
       continue;
     }
     return cell;
@@ -282,7 +398,11 @@ function findPriceText(row: string[], headerMap: HeaderMap): string {
       return cell;
     }
   }
+  const hasDescriptiveText = row.some((cell) => cell && containsLetters(cell));
   for (const cell of row) {
+    if (cell && isLikelyIndex(cell) && hasDescriptiveText) {
+      continue;
+    }
     if (cell && (containsNumber(cell) || containsFree(cell))) {
       return cell;
     }
@@ -300,6 +420,13 @@ function containsFree(value: string): boolean {
 
 function isLikelyIndex(value: string): boolean {
   return /^\d+$/.test(value.trim());
+}
+
+function isPriceLike(value: string): boolean {
+  if (containsFree(value)) {
+    return true;
+  }
+  return containsNumber(value) && !containsLetters(value);
 }
 
 function expandPriceVariants(priceText: string, description: string): PriceVariant[] {
@@ -339,7 +466,7 @@ function expandPriceVariants(priceText: string, description: string): PriceVaria
 }
 
 function extractNumbers(value: string): number[] {
-  const matches = value.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?/g);
+  const matches = value.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g);
   if (!matches) {
     return [];
   }

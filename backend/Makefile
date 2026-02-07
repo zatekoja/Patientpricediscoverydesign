@@ -46,7 +46,7 @@ test-provider-integration: ## Run provider API integration test (requires docker
 
 test-provider-unit: ## Run provider unit tests (parser + file provider)
 	@echo "Running provider unit tests..."
-	ts-node tests/unit/price_list_parser.test.ts
+	./node_modules/.bin/ts-node tests/unit/price_list_parser.test.ts
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."
 	go test -v -coverprofile=coverage.out ./...

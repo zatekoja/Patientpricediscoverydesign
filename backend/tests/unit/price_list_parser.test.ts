@@ -3,6 +3,7 @@ import path from 'path';
 import { parseCsvFile, parseDocxFile } from '../../ingestion/priceListParser';
 import { FilePriceListProvider } from '../../providers/FilePriceListProvider';
 import { InMemoryDocumentStore } from '../../stores/InMemoryDocumentStore';
+import { PriceData } from '../../types/PriceData';
 
 const fixturesDir = path.resolve(__dirname, '..', '..', 'fixtures', 'price_lists');
 const megalekCsv = path.join(fixturesDir, 'MEGALEK NEW PRICE LIST 2026.csv');
@@ -21,7 +22,7 @@ async function runTest(name: string, fn: () => void | Promise<void>): Promise<vo
   }
 }
 
-function findRecord(records: { procedureDescription: string }[], query: string) {
+function findRecord(records: PriceData[], query: string) {
   return records.find((record) => record.procedureDescription.toLowerCase().includes(query.toLowerCase()));
 }
 
@@ -40,13 +41,13 @@ async function main() {
     const records = parseCsvFile(lasuthCsv, { currency: 'NGN' });
     assert(records.length > 0, 'expected records from LASUTH CSV');
 
-    const emergencyRecord = findRecord(records, 'emergency wards accommodation');
+    const emergencyRecord = findRecord(records, 'emergency wards');
     assert(emergencyRecord, 'expected emergency wards accommodation record');
     assert.strictEqual(emergencyRecord!.metadata?.area, 'ACCOMMODATION', 'expected area ACCOMMODATION');
 
     const adultVariant = records.find(
       (record) =>
-        record.procedureDescription.toLowerCase().includes('emergency wards accommodation') &&
+        record.procedureDescription.toLowerCase().includes('emergency wards') &&
         record.metadata?.priceTier === 'adult'
     );
     assert(adultVariant, 'expected adult tier variant');
