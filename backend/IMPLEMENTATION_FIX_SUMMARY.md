@@ -144,7 +144,7 @@ All tests pass successfully:
 5. **LLM Integration**: Implement actual LLM API integration for production tag generation
 
 ## Dependencies Added
-- `csv-parse`: ^5.5.6 - RFC-compliant CSV parsing library
+- `csv-parse`: ^6.1.0 - RFC-compliant CSV parsing library
 
 ## Files Modified
 1. `backend/api/server.ts` - Added pagination validation
