@@ -1,24 +1,33 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, Filter, X } from "lucide-react";
-import { SearchResults, UIFacility } from "./components/SearchResults";
+import { Search, MapPin, Filter, X, Activity } from "lucide-react";
+import { SearchResults } from "./components/SearchResults";
 import { MapView } from "./components/MapView";
 import { FacilityModal } from "./components/FacilityModal";
-import { api } from "../lib/api";
-import { calculateDistance } from "../lib/utils";
-import { Facility } from "../types/api";
+import { api, API_BASE_URL } from "../lib/api";
+import { mapFacilitySearchResultToUI, UIFacility } from "../lib/mappers";
+import { FacilitySuggestion } from "../types/api";
 
 export default function App() {
+  const suggestionListId = "facility-suggestions";
   const [searchQuery, setSearchQuery] = useState("");
   const [location, setLocation] = useState("Lagos, Nigeria"); // Default location
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
-  const [selectedFacility, setSelectedFacility] = useState<any>(null);
+  const [selectedFacility, setSelectedFacility] = useState<UIFacility | null>(null);
 
   // Data states
   const [facilities, setFacilities] = useState<UIFacility[]>([]);
   const [insuranceProviders, setInsuranceProviders] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<FacilitySuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [_error, setError] = useState<string | null>(null);
+  const [searchStatus, setSearchStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [searchDurationMs, setSearchDurationMs] = useState<number | null>(null);
+  const [lastSearchAt, setLastSearchAt] = useState<Date | null>(null);
+  const [serviceHealth, setServiceHealth] = useState<"unknown" | "ok" | "error">("unknown");
+  const [serviceCheckedAt, setServiceCheckedAt] = useState<Date | null>(null);
 
   // Filter states
   const [maxDistance, setMaxDistance] = useState("50");
@@ -40,12 +49,15 @@ export default function App() {
     }
   };
 
-  const fetchFacilities = async () => {
+  const fetchFacilities = async (overrideQuery?: string, overrideLocation?: string) => {
     setLoading(true);
     setError(null);
+    setSearchStatus("loading");
+    const startTime = performance.now();
     try {
       let searchCenter = center;
-      const trimmedLocation = location.trim();
+      const locationInput = overrideLocation ?? location;
+      const trimmedLocation = locationInput.trim();
       if (trimmedLocation.length > 0) {
         try {
           const geo = await api.geocode(trimmedLocation);
@@ -56,46 +68,35 @@ export default function App() {
         }
       }
 
+      const queryText = (overrideQuery ?? searchQuery).trim();
+      const maxPriceValue = parseFloat(maxPrice);
+      const maxPriceFilter = Number.isFinite(maxPriceValue) ? maxPriceValue : undefined;
       const searchParams = {
-        query: searchQuery.trim() || undefined,
+        query: queryText || undefined,
         lat: searchCenter.lat,
         lon: searchCenter.lon,
         radius: parseFloat(maxDistance) || 50,
         limit: 50,
-        insurance_provider: selectedInsurance,
+        insurance_provider: selectedInsurance || undefined,
+        max_price: maxPriceFilter,
       };
 
       const response = await api.searchFacilities(searchParams);
 
-      const mappedFacilities: UIFacility[] = response.facilities.map((f: Facility) => {
-        // ... (rest of mapping)
-        const dist = calculateDistance(searchCenter.lat, searchCenter.lon, f.location.latitude, f.location.longitude);
-        return {
-          id: f.id,
-          name: f.name,
-          type: f.facility_type || "Health Facility",
-          distance: dist,
-          price: Math.floor(Math.random() * (800 - 200) + 200), // Mock price
-          rating: f.rating || 0,
-          reviews: f.review_count || 0,
-          nextAvailable: "Today", // Mock
-          address: `${f.address.street}, ${f.address.city}, ${f.address.state}`,
-          insurance: f.accepted_insurance || [],
-          services: ["MRI", "CT Scan", "X-Ray"], // Mock
-          urgent: Math.random() > 0.5, // Mock
-          capacity: Math.random() > 0.3 ? "Available" : "Limited", // Mock
-          waitTime: `${Math.floor(Math.random() * 45 + 5)} min`, // Mock
-          lat: f.location?.latitude,
-          lon: f.location?.longitude,
-        };
-      });
+      const mappedFacilities: UIFacility[] = response.facilities.map((facility) =>
+        mapFacilitySearchResultToUI(facility, searchCenter)
+      );
 
       setFacilities(mappedFacilities);
+      setSearchStatus("ok");
     } catch (err) {
       console.error("Failed to fetch facilities:", err);
       setError("Failed to load facilities. Please try again.");
+      setSearchStatus("error");
     } finally {
       setLoading(false);
+      setSearchDurationMs(performance.now() - startTime);
+      setLastSearchAt(new Date());
     }
   };
 
@@ -104,6 +105,71 @@ export default function App() {
     fetchFacilities();
   }, []); // Fetch on mount
 
+  useEffect(() => {
+    const checkHealth = async () => {
+      const baseUrl = API_BASE_URL.replace(/\/api$/, "");
+      try {
+        const res = await fetch(`${baseUrl}/health`);
+        setServiceHealth(res.ok ? "ok" : "error");
+      } catch {
+        setServiceHealth("error");
+      } finally {
+        setServiceCheckedAt(new Date());
+      }
+    };
+    checkHealth();
+  }, []);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const response = await api.suggestFacilities(
+          { query, lat: center.lat, lon: center.lon, limit: 6 },
+          controller.signal
+        );
+        setSuggestions(response.suggestions);
+        setShowSuggestions(true);
+      } catch (err: any) {
+        if (err?.name !== "AbortError") {
+          console.error("Failed to fetch suggestions:", err);
+        }
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [searchQuery, center.lat, center.lon]);
+
+  const handleSuggestionClick = (suggestion: FacilitySuggestion) => {
+    setSearchQuery(suggestion.name);
+    setShowSuggestions(false);
+    fetchFacilities(suggestion.name);
+  };
+
+  const handleQuickSearch = (value: string) => {
+    setSearchQuery(value);
+    setShowSuggestions(false);
+    fetchFacilities(value);
+  };
+
+  const formatCurrency = (value: number, currency?: string | null) => {
+    const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
+    return `${symbol}${value.toLocaleString("en-NG")}`;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -111,7 +177,23 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-blue-600">Open Health Initiative</h1>
-            <p className="text-sm text-gray-600">Powered by Ateru</p>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-gray-600">
+                <Activity className={`w-4 h-4 ${serviceHealth === "ok" ? "text-green-600" : "text-red-500"}`} />
+                <span>
+                  {serviceHealth === "ok" ? "Service healthy" : "Service issue"}
+                </span>
+                {serviceCheckedAt && (
+                  <span>
+                    · {serviceCheckedAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-600">Powered by Ateru</p>
+            </div>
+          </div>
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            Coming soon: AI care agents will call facilities on your behalf to confirm prices and availability.
           </div>
 
           {/* Search Bar */}
@@ -124,8 +206,74 @@ export default function App() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && fetchFacilities()}
+                onFocus={() => {
+                  if (suggestions.length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
+                onBlur={() => {
+                  setTimeout(() => setShowSuggestions(false), 150);
+                }}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls={suggestionListId}
+                aria-expanded={showSuggestions}
+                aria-haspopup="listbox"
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {showSuggestions && (
+                <div
+                  className="absolute z-20 mt-2 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
+                  role="listbox"
+                  id={suggestionListId}
+                  aria-busy={suggestLoading}
+                  aria-live="polite"
+                >
+                  {suggestLoading && (
+                    <div className="px-4 py-3 text-sm text-gray-500">
+                      Loading suggestions...
+                    </div>
+                  )}
+                  {!suggestLoading && suggestions.length === 0 && (
+                    <div className="px-4 py-3 text-sm text-gray-500">
+                      No suggestions found.
+                    </div>
+                  )}
+                  {!suggestLoading && suggestions.length > 0 && (
+                    <ul>
+                      {suggestions.map((suggestion) => (
+                        <li key={suggestion.id}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSuggestionClick(suggestion)}
+                            className="w-full text-left px-4 py-3 hover:bg-gray-50"
+                            role="option"
+                            aria-label={`${suggestion.name}, ${suggestion.address?.city ?? ""}`}
+                          >
+                            <div className="text-sm font-medium text-gray-900">
+                              {suggestion.name}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {suggestion.address?.city}
+                              {suggestion.address?.state ? `, ${suggestion.address.state}` : ""}
+                            </div>
+                            {suggestion.service_prices && suggestion.service_prices.length > 0 && (
+                              <div className="mt-1 text-xs text-gray-600">
+                                {suggestion.service_prices.slice(0, 2).map((service) => (
+                                  <span key={service.procedure_id} className="mr-2">
+                                    {service.name}: {formatCurrency(service.price, service.currency)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
             <div className="w-64 relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -151,6 +299,31 @@ export default function App() {
               <Filter className="w-5 h-5" />
               Filters
             </button>
+          </div>
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+            <span className="font-medium text-gray-700">Search supports tags:</span>
+            <button
+              type="button"
+              onClick={() => handleQuickSearch("Reliance")}
+              className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700 hover:border-blue-300 hover:text-blue-700"
+            >
+              Reliance
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickSearch("Ikeja")}
+              className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700 hover:border-blue-300 hover:text-blue-700"
+            >
+              Ikeja
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickSearch("MRI")}
+              className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700 hover:border-blue-300 hover:text-blue-700"
+            >
+              MRI
+            </button>
+            <span className="text-gray-500">Typo tolerant</span>
           </div>
 
           {/* Filters Panel */}
@@ -254,6 +427,9 @@ export default function App() {
           <SearchResults 
             facilities={facilities} 
             loading={loading}
+            searchStatus={searchStatus}
+            searchDurationMs={searchDurationMs}
+            lastSearchAt={lastSearchAt}
             onSelectFacility={setSelectedFacility} 
           />
         ) : (
