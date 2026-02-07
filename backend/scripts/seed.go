@@ -65,11 +65,56 @@ func main() {
 
 	// 1. Seed Procedures
 	procedures := []entities.Procedure{
-		{ID: uuid.New().String(), Name: "MRI Scan (Brain)", Code: "MRI-BRAIN", Category: "Imaging", IsActive: true, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-		{ID: uuid.New().String(), Name: "CT Scan (Chest)", Code: "CT-CHEST", Category: "Imaging", IsActive: true, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-		{ID: uuid.New().String(), Name: "Full Blood Count", Code: "FBC-001", Category: "Lab", IsActive: true, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-		{ID: uuid.New().String(), Name: "Dental Cleaning", Code: "DENT-001", Category: "Dental", IsActive: true, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-		{ID: uuid.New().String(), Name: "Physical Therapy Session", Code: "PT-001", Category: "Rehabilitation", IsActive: true, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{
+			ID:          uuid.New().String(),
+			Name:        "MRI Scan (Brain)",
+			Code:        "MRI-BRAIN",
+			Category:    "Imaging",
+			Description: "Magnetic resonance imaging uses a strong magnet and radio waves to produce detailed images of the brain without radiation exposure.",
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		},
+		{
+			ID:          uuid.New().String(),
+			Name:        "CT Scan (Chest)",
+			Code:        "CT-CHEST",
+			Category:    "Imaging",
+			Description: "Computed tomography combines X-ray images to create cross-sectional views of the chest, helping detect lung and heart conditions.",
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		},
+		{
+			ID:          uuid.New().String(),
+			Name:        "Full Blood Count",
+			Code:        "FBC-001",
+			Category:    "Lab",
+			Description: "A lab test that measures red cells, white cells, and platelets to assess anemia, infection, or other blood disorders.",
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		},
+		{
+			ID:          uuid.New().String(),
+			Name:        "Dental Cleaning",
+			Code:        "DENT-001",
+			Category:    "Dental",
+			Description: "Professional cleaning that removes plaque and tartar to protect gums and reduce the risk of tooth decay.",
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		},
+		{
+			ID:          uuid.New().String(),
+			Name:        "Physical Therapy Session",
+			Code:        "PT-001",
+			Category:    "Rehabilitation",
+			Description: "A guided rehab session focused on mobility, strength, and pain reduction tailored to your condition.",
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		},
 	}
 
 	for _, p := range procedures {

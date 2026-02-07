@@ -45,6 +45,10 @@ export interface ServicePrice {
   name: string;
   price: number;
   currency: string;
+  description?: string;
+  category?: string;
+  code?: string;
+  estimated_duration?: number;
 }
 
 export interface FacilitySearchResult {
@@ -90,6 +94,19 @@ export interface FacilitySuggestion {
 export interface FacilitySuggestionResponse {
   suggestions: FacilitySuggestion[];
   count: number;
+}
+
+export interface ProcedureEnrichment {
+  id: string;
+  procedure_id: string;
+  description?: string;
+  prep_steps?: string[];
+  risks?: string[];
+  recovery?: string[];
+  provider?: string;
+  model?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface FeedbackRequest {

@@ -53,7 +53,23 @@ func NewMapsHandlerWithOptions(apiKey string, cache providers.CacheProvider, bas
 // GetStaticMap proxies Google Static Maps and caches responses.
 func (h *MapsHandler) GetStaticMap(w http.ResponseWriter, r *http.Request) {
 	if h.apiKey == "" {
-		respondWithError(w, http.StatusBadRequest, "maps api key not configured")
+		placeholder := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f3f4f6"/>
+      <stop offset="100%" stop-color="#e5e7eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <rect x="16" y="16" width="608" height="328" rx="18" fill="#ffffff" stroke="#e5e7eb"/>
+  <circle cx="320" cy="180" r="14" fill="#2563eb"/>
+  <text x="320" y="220" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#374151">
+    Map preview unavailable (API key not configured)
+  </text>
+</svg>`)
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(placeholder)
 		return
 	}
 

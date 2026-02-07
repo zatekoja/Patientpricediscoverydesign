@@ -8,55 +8,61 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	Server     ServerConfig
-	Database   DatabaseConfig
-	       Redis      RedisConfig
-	       Typesense  TypesenseConfig
-	       ProviderAPI ProviderAPIConfig
-	       Geolocation GeolocationConfig
-	       OTEL       OTELConfig
-	}
-	
-	// ServerConfig holds server configuration
-	type ServerConfig struct {
-	       Host string
-	       Port int
-	}
-	
-	// DatabaseConfig holds database configuration
-	type DatabaseConfig struct {
-	       Host     string
-	       Port     int
-	       User     string
-	       Password string
-	       Database string
-	       SSLMode  string
-	}
-	
-	// RedisConfig holds Redis configuration
-	type RedisConfig struct {
-	       Host     string
-	       Port     int
-	       Password string
-	       DB       int
-	}
-	
-	// TypesenseConfig holds Typesense configuration
-	type TypesenseConfig struct {
-	       URL    string
-	       APIKey string
-	}
+	Server      ServerConfig
+	Database    DatabaseConfig
+	Redis       RedisConfig
+	Typesense   TypesenseConfig
+	ProviderAPI ProviderAPIConfig
+	Geolocation GeolocationConfig
+	OpenAI      OpenAIConfig
+	OTEL        OTELConfig
+}
 
-	// ProviderAPIConfig holds provider API configuration
-	type ProviderAPIConfig struct {
-	       BaseURL string
-	}
-	
-	// GeolocationConfig holds geolocation provider configuration
-	
+// ServerConfig holds server configuration
+type ServerConfig struct {
+	Host string
+	Port int
+}
+
+// DatabaseConfig holds database configuration
+type DatabaseConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Database string
+	SSLMode  string
+}
+
+// RedisConfig holds Redis configuration
+type RedisConfig struct {
+	Host     string
+	Port     int
+	Password string
+	DB       int
+}
+
+// TypesenseConfig holds Typesense configuration
+type TypesenseConfig struct {
+	URL    string
+	APIKey string
+}
+
+// ProviderAPIConfig holds provider API configuration
+type ProviderAPIConfig struct {
+	BaseURL string
+}
+
+// GeolocationConfig holds geolocation provider configuration
 type GeolocationConfig struct {
 	Provider string
 	APIKey   string
+}
+
+// OpenAIConfig holds OpenAI configuration
+type OpenAIConfig struct {
+	APIKey string
+	Model  string
 }
 
 // OTELConfig holds OpenTelemetry configuration
@@ -82,23 +88,26 @@ func Load() (*Config, error) {
 			Database: getEnv("DB_NAME", "patient_price_discovery"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
-		               Redis: RedisConfig{
-		                       Host:     getEnv("REDIS_HOST", "localhost"),
-		                       Port:     getEnvAsInt("REDIS_PORT", 6379),
-		                       Password: getEnv("REDIS_PASSWORD", ""),
-		                       DB:       getEnvAsInt("REDIS_DB", 0),
-		               },
-		               Typesense: TypesenseConfig{
-		                       URL:    getEnv("TYPESENSE_URL", "http://localhost:8108"),
-		                       APIKey: getEnv("TYPESENSE_API_KEY", "xyz"),
-		               },
-		               ProviderAPI: ProviderAPIConfig{
-		                       BaseURL: getEnv("PROVIDER_API_BASE_URL", "http://localhost:3002/api/v1"),
-		               },
-		               Geolocation: GeolocationConfig{
-		                       Provider: getEnv("GEOLOCATION_PROVIDER", "mock"),
-		
+		Redis: RedisConfig{
+			Host:     getEnv("REDIS_HOST", "localhost"),
+			Port:     getEnvAsInt("REDIS_PORT", 6379),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getEnvAsInt("REDIS_DB", 0),
+		},
+		Typesense: TypesenseConfig{
+			URL:    getEnv("TYPESENSE_URL", "http://localhost:8108"),
+			APIKey: getEnv("TYPESENSE_API_KEY", "xyz"),
+		},
+		ProviderAPI: ProviderAPIConfig{
+			BaseURL: getEnv("PROVIDER_API_BASE_URL", "http://localhost:3002/api/v1"),
+		},
+		Geolocation: GeolocationConfig{
+			Provider: getEnv("GEOLOCATION_PROVIDER", "mock"),
 			APIKey:   getEnv("GEOLOCATION_API_KEY", ""),
+		},
+		OpenAI: OpenAIConfig{
+			APIKey: getEnv("OPENAI_API_KEY", ""),
+			Model:  getEnv("OPENAI_MODEL", "gpt-4o-mini"),
 		},
 		OTEL: OTELConfig{
 			ServiceName:    getEnv("OTEL_SERVICE_NAME", "patient-price-discovery"),

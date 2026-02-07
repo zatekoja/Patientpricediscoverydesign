@@ -106,6 +106,8 @@ Test database is configured via environment variables:
 - `TEST_DB_PASSWORD` - Database password (default: postgres)
 - `TEST_DB_NAME` - Database name (default: patient_price_discovery_test)
 - `TEST_DB_SSLMODE` - SSL mode (default: disable)
+- `TEST_REDIS_HOST` - Redis host (default: localhost)
+- `TEST_REDIS_PORT` - Redis port (default: 6379)
 
 ### Test Database Setup
 
@@ -115,6 +117,7 @@ The test database runs in Docker using `docker-compose.test.yml`:
 - Runs on port 5433 to avoid conflicts
 - Automatically cleaned up after tests
 - Migrations are applied during test suite setup
+- Redis runs on port 6380 for event bus integration tests
 
 ## Test Structure
 

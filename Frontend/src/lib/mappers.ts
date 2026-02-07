@@ -15,7 +15,16 @@ export type UIFacility = {
   address: string;
   insurance: string[];
   services: string[];
-  servicePrices: { name: string; price: number; currency: string }[];
+  servicePrices: {
+    procedureId?: string;
+    name: string;
+    price: number;
+    currency: string;
+    description?: string;
+    category?: string;
+    code?: string;
+    estimatedDuration?: number;
+  }[];
   lat?: number;
   lon?: number;
   updatedAt?: string;
@@ -66,9 +75,14 @@ export const mapFacilitySearchResultToUI = (
     insurance: facility.accepted_insurance ?? [],
     services: facility.services ?? [],
     servicePrices: (facility.service_prices ?? []).map((item) => ({
+      procedureId: item.procedure_id,
       name: item.name,
       price: item.price,
       currency: item.currency,
+      description: item.description,
+      category: item.category,
+      code: item.code,
+      estimatedDuration: item.estimated_duration,
     })),
     lat: facility.location?.latitude,
     lon: facility.location?.longitude,

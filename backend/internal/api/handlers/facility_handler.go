@@ -20,6 +20,8 @@ type FacilityService interface {
 	Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error)
 	SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error)
 	Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error)
+	Update(ctx context.Context, facility *entities.Facility) error
+	UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error)
 }
 
 // FacilityHandler handles facility-related HTTP requests
@@ -61,6 +63,130 @@ func (h *FacilityHandler) GetFacility(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, facility)
+}
+
+// UpdateFacility handles PATCH /api/facilities/:id
+// Updates facility real-time data (capacity, wait times, urgent care availability)
+func (h *FacilityHandler) UpdateFacility(w http.ResponseWriter, r *http.Request) {
+	// Extract facility ID from URL path
+	facilityID := r.PathValue("id")
+	if facilityID == "" {
+		respondWithError(w, http.StatusBadRequest, "facility ID is required")
+		return
+	}
+
+	// Get existing facility
+	facility, err := h.service.GetByID(r.Context(), facilityID)
+	if err != nil {
+		var appErr *apperrors.AppError
+		if errors.As(err, &appErr) {
+			switch appErr.Type {
+			case apperrors.ErrorTypeNotFound:
+				respondWithError(w, http.StatusNotFound, appErr.Message)
+			default:
+				respondWithError(w, http.StatusInternalServerError, "internal server error")
+			}
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	// Parse update request
+	var updateReq struct {
+		CapacityStatus      *string `json:"capacity_status,omitempty"`
+		AvgWaitMinutes      *int    `json:"avg_wait_minutes,omitempty"`
+		UrgentCareAvailable *bool   `json:"urgent_care_available,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Apply updates
+	updated := false
+	if updateReq.CapacityStatus != nil {
+		facility.CapacityStatus = updateReq.CapacityStatus
+		updated = true
+	}
+	if updateReq.AvgWaitMinutes != nil {
+		facility.AvgWaitMinutes = updateReq.AvgWaitMinutes
+		updated = true
+	}
+	if updateReq.UrgentCareAvailable != nil {
+		facility.UrgentCareAvailable = updateReq.UrgentCareAvailable
+		updated = true
+	}
+
+	if !updated {
+		respondWithError(w, http.StatusBadRequest, "no valid fields to update")
+		return
+	}
+
+	// Update facility
+	if err := h.service.Update(r.Context(), facility); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to update facility")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, facility)
+}
+
+// UpdateServiceAvailability handles PATCH /api/facilities/:id/services/:procedureId
+func (h *FacilityHandler) UpdateServiceAvailability(w http.ResponseWriter, r *http.Request) {
+	facilityID := r.PathValue("id")
+	if facilityID == "" {
+		respondWithError(w, http.StatusBadRequest, "facility ID is required")
+		return
+	}
+
+	procedureID := r.PathValue("procedureId")
+	if procedureID == "" {
+		respondWithError(w, http.StatusBadRequest, "procedure ID is required")
+		return
+	}
+
+	var updateReq struct {
+		IsAvailable *bool `json:"is_available,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if updateReq.IsAvailable == nil {
+		respondWithError(w, http.StatusBadRequest, "is_available is required")
+		return
+	}
+
+	fp, err := h.service.UpdateServiceAvailability(r.Context(), facilityID, procedureID, *updateReq.IsAvailable)
+	if err != nil {
+		var appErr *apperrors.AppError
+		if errors.As(err, &appErr) {
+			switch appErr.Type {
+			case apperrors.ErrorTypeNotFound:
+				respondWithError(w, http.StatusNotFound, appErr.Message)
+				return
+			case apperrors.ErrorTypeValidation:
+				respondWithError(w, http.StatusBadRequest, appErr.Message)
+				return
+			default:
+				respondWithError(w, http.StatusInternalServerError, "failed to update service availability")
+				return
+			}
+		}
+		respondWithError(w, http.StatusInternalServerError, "failed to update service availability")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"facility_id":  facilityID,
+		"procedure_id": procedureID,
+		"is_available": fp.IsAvailable,
+		"updated_at":   fp.UpdatedAt,
+	})
 }
 
 // ListFacilities handles GET /api/facilities

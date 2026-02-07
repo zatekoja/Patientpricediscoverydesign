@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Search, MapPin, Filter, X, Activity, Navigation } from "lucide-react";
 import { SearchResults } from "./components/SearchResults";
 import { MapView } from "./components/MapView";
@@ -7,6 +7,7 @@ import { FeedbackTab } from "./components/FeedbackTab";
 import { api, API_BASE_URL } from "../lib/api";
 import { mapFacilitySearchResultToUI, UIFacility } from "../lib/mappers";
 import { FacilitySuggestion } from "../types/api";
+import { createRegionalSSEClient, FacilityUpdate, ConnectionStatus } from "../lib/sse-client";
 
 export default function App() {
   const suggestionListId = "facility-suggestions";
@@ -29,6 +30,11 @@ export default function App() {
   const [lastSearchAt, setLastSearchAt] = useState<Date | null>(null);
   const [serviceHealth, setServiceHealth] = useState<"unknown" | "ok" | "error">("unknown");
   const [serviceCheckedAt, setServiceCheckedAt] = useState<Date | null>(null);
+
+  // SSE connection state
+  const [sseStatus, setSSEStatus] = useState<ConnectionStatus>("disconnected");
+  const [lastSseUpdateAt, setLastSseUpdateAt] = useState<Date | null>(null);
+  const sseClientRef = useRef<ReturnType<typeof createRegionalSSEClient> | null>(null);
 
   // Filter states
   const [maxDistance, setMaxDistance] = useState("50");
@@ -194,6 +200,126 @@ export default function App() {
     };
   }, [searchQuery, center.lat, center.lon]);
 
+  // SSE connection for real-time updates
+  useEffect(() => {
+    // Only connect when we have facilities to monitor
+    if (facilities.length === 0) {
+      return;
+    }
+
+    const radiusKm = parseInt(maxDistance) || 50;
+    const client = createRegionalSSEClient(center.lat, center.lon, radiusKm);
+    sseClientRef.current = client;
+
+    // Subscribe to status changes
+    const unsubscribeStatus = client.onStatusChange((status) => {
+      setSSEStatus(status);
+      console.log('SSE status changed:', status);
+    });
+
+    // Subscribe to facility updates
+    const unsubscribeUpdates = client.onUpdate((update: FacilityUpdate) => {
+      console.log('Received facility update:', update);
+      handleFacilityUpdate(update);
+    });
+
+    // Connect to the stream
+    client.connect();
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      unsubscribeStatus();
+      unsubscribeUpdates();
+      client.disconnect();
+      sseClientRef.current = null;
+    };
+  }, [center.lat, center.lon, maxDistance, facilities.length]);
+
+  // Handler for real-time facility updates
+  const handleFacilityUpdate = (update: FacilityUpdate) => {
+    if (update.timestamp) {
+      const parsed = new Date(update.timestamp);
+      if (!Number.isNaN(parsed.getTime())) {
+        setLastSseUpdateAt(parsed);
+      } else {
+        setLastSseUpdateAt(new Date());
+      }
+    } else {
+      setLastSseUpdateAt(new Date());
+    }
+
+    setFacilities(prevFacilities => {
+      return prevFacilities.map(facility => {
+        if (facility.id === update.facility_id) {
+          // Update the facility with new values
+          const updated = { ...facility };
+          const fields = update.changed_fields ?? {};
+
+          if ('capacity_status' in fields) {
+            updated.capacityStatus = fields.capacity_status;
+          }
+          if ('avg_wait_minutes' in fields) {
+            updated.avgWaitMinutes = fields.avg_wait_minutes;
+          }
+          if ('urgent_care_available' in fields) {
+            updated.urgentCareAvailable = fields.urgent_care_available;
+          }
+
+          if (update.event_type === 'service_availability_update') {
+            const procedureId = typeof fields.procedure_id === 'string' ? fields.procedure_id : undefined;
+            const procedureName = typeof fields.procedure_name === 'string' ? fields.procedure_name : undefined;
+            const isAvailable = typeof fields.is_available === 'boolean' ? fields.is_available : undefined;
+
+            if (typeof isAvailable === 'boolean') {
+              if (isAvailable) {
+                if (procedureName && !updated.services.includes(procedureName)) {
+                  updated.services = [...updated.services, procedureName];
+                }
+
+                const alreadyExists = updated.servicePrices.some((service) => {
+                  if (procedureId && service.procedureId === procedureId) return true;
+                  return procedureName ? service.name === procedureName : false;
+                });
+
+                if (!alreadyExists && procedureName) {
+                  updated.servicePrices = [
+                    ...updated.servicePrices,
+                    {
+                      procedureId,
+                      name: procedureName,
+                      price: typeof fields.price === 'number' ? fields.price : 0,
+                      currency: typeof fields.currency === 'string' ? fields.currency : (updated.currency || 'NGN'),
+                      description: typeof fields.procedure_description === 'string' ? fields.procedure_description : undefined,
+                      category: typeof fields.procedure_category === 'string' ? fields.procedure_category : undefined,
+                      code: typeof fields.procedure_code === 'string' ? fields.procedure_code : undefined,
+                      estimatedDuration: typeof fields.estimated_duration === 'number' ? fields.estimated_duration : undefined,
+                    },
+                  ];
+                }
+              } else {
+                if (procedureName) {
+                  updated.services = updated.services.filter((service) => service !== procedureName);
+                }
+
+                if (procedureId || procedureName) {
+                  updated.servicePrices = updated.servicePrices.filter((service) => {
+                    if (procedureId && service.procedureId === procedureId) return false;
+                    if (procedureName && service.name === procedureName) return false;
+                    return true;
+                  });
+                }
+              }
+            }
+          }
+
+          console.log(`Updated facility ${facility.name}:`, updated);
+          return updated;
+        }
+        return facility;
+      });
+    });
+  };
+
   const handleSuggestionClick = (suggestion: FacilitySuggestion) => {
     setSearchQuery(suggestion.name);
     setShowSuggestions(false);
@@ -225,11 +351,27 @@ export default function App() {
                   {serviceHealth === "ok" ? "Service healthy" : "Service issue"}
                 </span>
                 {serviceCheckedAt && (
-                  <span>
+                  <span className="text-gray-500">
                     · {serviceCheckedAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 )}
               </div>
+              {facilities.length > 0 && (
+                <div className="flex items-center gap-2 text-xs text-gray-600" title={`Real-time updates: ${sseStatus}`}>
+                  <div className={`w-2 h-2 rounded-full ${
+                    sseStatus === 'connected' ? 'bg-green-500 animate-pulse' :
+                    sseStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+                    sseStatus === 'error' ? 'bg-red-500' :
+                    'bg-gray-400'
+                  }`} />
+                  <span className="hidden sm:inline">
+                    {sseStatus === 'connected' ? 'Live updates' :
+                     sseStatus === 'connecting' ? 'Connecting...' :
+                     sseStatus === 'error' ? 'Connection error' :
+                     'Offline'}
+                  </span>
+                </div>
+              )}
               <p className="text-sm text-gray-600">Powered by Ateru</p>
             </div>
           </div>
@@ -506,6 +648,28 @@ export default function App() {
           onClose={() => setSelectedFacility(null)}
         />
       )}
+
+      <div className="border-t border-gray-200 bg-white">
+        <div className="max-w-7xl mx-auto px-4 py-3 text-xs text-gray-600 flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${
+            sseStatus === 'connected' ? 'bg-green-500 animate-pulse' :
+            sseStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+            sseStatus === 'error' ? 'bg-red-500' :
+            'bg-gray-400'
+          }`} />
+          <span>
+            Live updates: {sseStatus === 'connected' ? 'connected' :
+            sseStatus === 'connecting' ? 'connecting' :
+            sseStatus === 'error' ? 'error' :
+            'offline'}
+          </span>
+          {lastSseUpdateAt && (
+            <span>
+              · Last SSE update {lastSseUpdateAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+        </div>
+      </div>
 
       <FeedbackTab />
     </div>

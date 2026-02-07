@@ -26,10 +26,11 @@ type Router struct {
 	mapsHandler     *handlers.MapsHandler
 	feedbackHandler *handlers.FeedbackHandler
 
-	providerPriceHandler *handlers.ProviderPriceHandler
+	providerPriceHandler     *handlers.ProviderPriceHandler
 	providerIngestionHandler *handlers.ProviderIngestionHandler
 
-	metrics *observability.Metrics
+	cacheMiddleware *middleware.CacheMiddleware
+	metrics         *observability.Metrics
 }
 
 // NewRouter creates a new router
@@ -48,6 +49,7 @@ func NewRouter(
 
 	mapsHandler *handlers.MapsHandler,
 	feedbackHandler *handlers.FeedbackHandler,
+	cacheMiddleware *middleware.CacheMiddleware,
 
 	providerPriceHandler *handlers.ProviderPriceHandler,
 	providerIngestionHandler *handlers.ProviderIngestionHandler,
@@ -73,10 +75,11 @@ func NewRouter(
 		mapsHandler:     mapsHandler,
 		feedbackHandler: feedbackHandler,
 
-		providerPriceHandler: providerPriceHandler,
+		providerPriceHandler:     providerPriceHandler,
 		providerIngestionHandler: providerIngestionHandler,
 
-		metrics: metrics,
+		cacheMiddleware: cacheMiddleware,
+		metrics:         metrics,
 	}
 
 }
@@ -105,6 +108,9 @@ func (r *Router) SetupRoutes() http.Handler {
 
 	r.mux.HandleFunc("GET /api/facilities/{id}", r.facilityHandler.GetFacility)
 
+	r.mux.HandleFunc("PATCH /api/facilities/{id}", r.facilityHandler.UpdateFacility)
+	r.mux.HandleFunc("PATCH /api/facilities/{id}/services/{procedureId}", r.facilityHandler.UpdateServiceAvailability)
+
 	// Appointment endpoints
 
 	r.mux.HandleFunc("POST /api/appointments", r.appointmentHandler.BookAppointment)
@@ -116,6 +122,7 @@ func (r *Router) SetupRoutes() http.Handler {
 	r.mux.HandleFunc("GET /api/procedures", r.procedureHandler.ListProcedures)
 
 	r.mux.HandleFunc("GET /api/procedures/{id}", r.procedureHandler.GetProcedure)
+	r.mux.HandleFunc("GET /api/procedures/{id}/enrichment", r.procedureHandler.GetProcedureEnrichment)
 
 	// Insurance endpoints
 
@@ -162,7 +169,16 @@ func (r *Router) SetupRoutes() http.Handler {
 	var handler http.Handler = r.mux
 	handler = middleware.CORSMiddleware(handler)
 	handler = middleware.LoggingMiddleware(handler)
+
+	// Apply cache middleware if available
+	if r.cacheMiddleware != nil {
+		handler = r.cacheMiddleware.Middleware(handler)
+	}
+
 	handler = middleware.ObservabilityMiddleware(r.metrics)(handler)
+
+	// Apply HTTP performance optimizations (compression, ETag, cache headers)
+	handler = middleware.ResponseOptimization(handler)
 
 	return handler
 }

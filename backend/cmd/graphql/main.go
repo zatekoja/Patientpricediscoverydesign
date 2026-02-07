@@ -20,6 +20,8 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/search"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/middleware"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/generated"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/loaders"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/graphql/resolvers"
@@ -98,7 +100,19 @@ func main() {
 	}
 
 	// Initialize adapters
-	facilityDBAdapter := database.NewFacilityAdapter(pgClient)
+	baseFacilityDBAdapter := database.NewFacilityAdapter(pgClient)
+
+	// Wrap facility adapter with caching for read performance optimization
+	var facilityDBAdapter repositories.FacilityRepository
+	if redisClient != nil {
+		domainCacheProvider := cache.NewRedisAdapter(redisClient)
+		facilityDBAdapter = database.NewCachedFacilityAdapter(baseFacilityDBAdapter, domainCacheProvider)
+		log.Println("✓ GraphQL: Facility adapter wrapped with caching layer")
+	} else {
+		facilityDBAdapter = baseFacilityDBAdapter
+		log.Println("⚠ GraphQL: Facility adapter running without cache (Redis unavailable)")
+	}
+
 	appointmentDBAdapter := database.NewAppointmentAdapter(pgClient)
 	procedureDBAdapter := database.NewProcedureAdapter(pgClient)
 	facilityProcedureDBAdapter := database.NewFacilityProcedureAdapter(pgClient)
@@ -112,6 +126,14 @@ func main() {
 	if redisClient != nil {
 		domainCacheProvider := cache.NewRedisAdapter(redisClient)
 		queryCacheProvider = *adapters.NewQueryCacheAdapter(domainCacheProvider)
+
+		// Start cache warming service for improved read performance
+		warmingService := services.NewCacheWarmingService(
+			facilityDBAdapter, // Use cached adapter
+			domainCacheProvider,
+		)
+		go warmingService.StartPeriodicWarming(ctx, 5*time.Minute)
+		log.Println("✓ GraphQL: Cache warming service started (refreshes every 5 minutes)")
 	}
 
 	// Initialize GraphQL resolver with dependencies
@@ -169,15 +191,19 @@ func main() {
 		})
 	}
 
-	// Apply middleware: Logging -> CORS -> DataLoader
-	handler := middleware.LoggingMiddleware(
-		middleware.CORSMiddleware(
-			loaderMiddleware(srv),
+	// Apply middleware: Performance -> Logging -> CORS -> DataLoader
+	httpHandler := middleware.Compression( // Apply gzip compression
+		middleware.CacheControl( // Apply cache headers
+			middleware.LoggingMiddleware(
+				middleware.CORSMiddleware(
+					loaderMiddleware(srv),
+				),
+			),
 		),
 	)
 
 	// GraphQL endpoint
-	mux.Handle("/graphql", handler)
+	mux.Handle("/graphql", httpHandler)
 
 	// Playground endpoint (dev only)
 	if os.Getenv("ENV") != "production" {

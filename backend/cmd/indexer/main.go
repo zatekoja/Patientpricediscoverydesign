@@ -5,7 +5,10 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -17,19 +20,61 @@ import (
 
 func main() {
 	var reset bool
+	var intervalFlag string
 	flag.BoolVar(&reset, "reset", false, "delete existing Typesense collection before reindexing")
+	flag.StringVar(&intervalFlag, "interval", "", "repeat interval for reindexing (e.g. 6h, 30m)")
 	flag.Parse()
 
-	// Load config
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	intervalValue := strings.TrimSpace(intervalFlag)
+	if intervalValue == "" {
+		intervalValue = strings.TrimSpace(os.Getenv("REINDEX_INTERVAL"))
 	}
 
-	// Init Postgres
+	var interval time.Duration
+	var err error
+	if intervalValue != "" {
+		interval, err = time.ParseDuration(intervalValue)
+		if err != nil {
+			log.Fatalf("Invalid interval %q: %v", intervalValue, err)
+		}
+		if interval <= 0 {
+			log.Fatalf("Interval must be greater than zero")
+		}
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	for {
+		if err := indexOnce(ctx, reset); err != nil {
+			log.Printf("Reindex failed: %v", err)
+		}
+
+		if interval <= 0 {
+			break
+		}
+
+		reset = false
+		log.Printf("Reindex complete. Next run in %s.", interval)
+
+		select {
+		case <-ctx.Done():
+			log.Println("Reindexer shutting down")
+			return
+		case <-time.After(interval):
+		}
+	}
+}
+
+func indexOnce(ctx context.Context, reset bool) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
 	pgClient, err := postgres.NewClient(&cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to init postgres: %v", err)
+		return err
 	}
 	defer pgClient.Close()
 
@@ -38,29 +83,26 @@ func main() {
 	procedureCatalogRepo := database.NewProcedureAdapter(pgClient)
 	insuranceRepo := database.NewInsuranceAdapter(pgClient)
 
-	// Init Typesense
 	tsClient, err := typesense.NewClient(&cfg.Typesense)
 	if err != nil {
-		log.Fatalf("Failed to init typesense client: %v", err)
+		return err
 	}
 
 	if reset || os.Getenv("RESET_TYPESENSE") == "true" {
 		log.Println("RESET_TYPESENSE=true detected, deleting facilities collection")
-		_, err := tsClient.Client().Collection(typesense.FacilitiesCollection).Delete(context.Background())
+		_, err := tsClient.Client().Collection(typesense.FacilitiesCollection).Delete(ctx)
 		if err != nil {
 			log.Printf("Warning: failed to delete collection: %v", err)
 		}
 	}
 
-	if err := tsClient.InitSchema(context.Background()); err != nil {
-		log.Fatalf("Failed to init typesense schema: %v", err)
+	if err := tsClient.InitSchema(ctx); err != nil {
+		return err
 	}
 
-	// Fetch all facilities
-	ctx := context.Background()
 	facilities, err := facilityRepo.List(ctx, repositories.FacilityFilter{Limit: 1000})
 	if err != nil {
-		log.Fatalf("Failed to list facilities: %v", err)
+		return err
 	}
 
 	procedureByID := map[string]*entities.Procedure{}
@@ -128,8 +170,6 @@ func main() {
 			tagsBuilder.add(provider.Name, provider.Code)
 		}
 
-		// Prepare document for Typesense
-		// Note: Typesense location field expects [lat, lon]
 		doc := map[string]interface{}{
 			"id":            f.ID,
 			"name":          f.Name,
@@ -161,6 +201,7 @@ func main() {
 	}
 
 	log.Println("Indexing complete.")
+	return nil
 }
 
 type tagBuilder struct {
