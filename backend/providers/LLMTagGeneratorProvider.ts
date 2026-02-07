@@ -1,6 +1,7 @@
 import { BaseDataProvider } from './BaseDataProvider';
 import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData } from '../types/PriceData';
 import { recordProviderSyncMetrics, recordTagGeneration } from '../observability/metrics';
 
@@ -55,8 +56,12 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
   private llmConfig?: LLMTagGeneratorConfig;
   private sourceProvider?: BaseDataProvider<PriceData>;
   
-  constructor(documentStore?: IDocumentStore<TaggedPriceData>, sourceProvider?: BaseDataProvider<PriceData>) {
-    super('llm_tag_generator', documentStore);
+  constructor(
+    documentStore?: IDocumentStore<TaggedPriceData>,
+    sourceProvider?: BaseDataProvider<PriceData>,
+    stateStore?: IProviderStateStore
+  ) {
+    super('llm_tag_generator', documentStore, stateStore);
     this.sourceProvider = sourceProvider;
   }
   
@@ -273,6 +278,7 @@ export class LLMTagGeneratorProvider extends BaseDataProvider<TaggedPriceData> {
       this.previousBatchId = this.lastBatchId;
       this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
+      await this.persistState();
       recordProviderSyncMetrics({
         provider: this.name,
         success: true,

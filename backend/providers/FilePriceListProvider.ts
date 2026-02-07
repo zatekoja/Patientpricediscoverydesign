@@ -3,6 +3,7 @@ import path from 'path';
 import { BaseDataProvider } from './BaseDataProvider';
 import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData } from '../types/PriceData';
 import { parseCsvFile, parseDocxFile, PriceListParseContext } from '../ingestion/priceListParser';
 import { applyCuratedTags } from '../ingestion/tagHydration';
@@ -20,8 +21,8 @@ export interface FilePriceListConfig {
 export class FilePriceListProvider extends BaseDataProvider<PriceData> {
   private fileConfig?: FilePriceListConfig;
 
-  constructor(documentStore?: IDocumentStore<PriceData>) {
-    super('file_price_list', documentStore);
+  constructor(documentStore?: IDocumentStore<PriceData>, stateStore?: IProviderStateStore) {
+    super('file_price_list', documentStore, stateStore);
   }
 
   validateConfig(config: Record<string, any>): boolean {
@@ -47,6 +48,15 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
   async getCurrentData(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData>> {
     this.ensureInitialized();
 
+    const fromStore = await this.getLatestSyncedData(options);
+    if (fromStore) {
+      return fromStore;
+    }
+
+    return this.loadFromSource(options);
+  }
+
+  private async loadFromSource(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData>> {
     const allData: PriceData[] = [];
     const currency = this.fileConfig?.currency || 'NGN';
     const defaultEffectiveDate = this.fileConfig?.defaultEffectiveDate
@@ -88,6 +98,55 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
         source: this.name,
         count: sliced.length,
         total: hydrated.length,
+      },
+    };
+  }
+
+  private async getLatestSyncedData(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData> | null> {
+    if (!this.documentStore) {
+      return null;
+    }
+
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const probe = await this.documentStore.query(
+      { source: this.name },
+      { limit: 1, offset: 0, sortBy: 'syncTimestamp', sortOrder: 'desc' }
+    );
+    if (probe.length === 0) {
+      return null;
+    }
+
+    const latestBatchId = (probe[0] as PriceData).batchId;
+    if (!latestBatchId) {
+      const data = await this.documentStore.query(
+        { source: this.name },
+        { limit, offset, sortBy: 'syncTimestamp', sortOrder: 'desc' }
+      );
+      return {
+        data,
+        timestamp: new Date(),
+        metadata: {
+          source: this.name,
+          count: data.length,
+          total: data.length,
+        },
+      };
+    }
+
+    const data = await this.documentStore.query(
+      { source: this.name, batchId: latestBatchId },
+      { limit, offset, sortBy: 'effectiveDate', sortOrder: 'desc' }
+    );
+    const total = (await this.documentStore.query({ source: this.name, batchId: latestBatchId })).length;
+    return {
+      data,
+      timestamp: new Date(),
+      metadata: {
+        source: this.name,
+        count: data.length,
+        total,
+        batchId: latestBatchId,
       },
     };
   }
@@ -193,7 +252,7 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
     const batchId = timestamp.toISOString();
 
     try {
-      const response = await this.getCurrentData();
+      const response = await this.loadFromSource();
       const dataWithSync = response.data.map((data) =>
         this.attachSyncMetadata(data, batchId, timestamp)
       );
@@ -218,6 +277,7 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
       this.previousBatchId = this.lastBatchId;
       this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
+      await this.persistState();
       recordProviderSyncMetrics({
         provider: this.name,
         success: true,

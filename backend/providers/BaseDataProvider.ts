@@ -1,5 +1,6 @@
 import { IExternalDataProvider, DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { IProviderStateStore, ProviderState } from '../interfaces/IProviderStateStore';
 import { recordProviderSyncMetrics } from '../observability/metrics';
 
 /**
@@ -9,6 +10,7 @@ import { recordProviderSyncMetrics } from '../observability/metrics';
 export abstract class BaseDataProvider<T = any> implements IExternalDataProvider<T> {
   protected config: Record<string, any> = {};
   protected documentStore?: IDocumentStore<T>;
+  protected stateStore?: IProviderStateStore;
   protected lastSyncDate?: Date;
   protected lastBatchId?: string;
   protected previousBatchId?: string;
@@ -16,9 +18,11 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
   
   constructor(
     protected name: string,
-    documentStore?: IDocumentStore<T>
+    documentStore?: IDocumentStore<T>,
+    stateStore?: IProviderStateStore
   ) {
     this.documentStore = documentStore;
+    this.stateStore = stateStore;
   }
   
   getName(): string {
@@ -31,6 +35,7 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
     }
     this.config = config;
     this.isInitialized = true;
+    await this.loadState();
   }
   
   abstract validateConfig(config: Record<string, any>): boolean;
@@ -76,6 +81,7 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
       this.previousBatchId = this.lastBatchId;
       this.lastBatchId = batchId;
       this.lastSyncDate = timestamp;
+      await this.persistState();
       recordProviderSyncMetrics({
         provider: this.name,
         success: true,
@@ -129,6 +135,44 @@ export abstract class BaseDataProvider<T = any> implements IExternalDataProvider
    */
   protected generateKey(data: T, index: number): string {
     return `${this.name}_${Date.now()}_${index}`;
+  }
+
+  protected async loadState(): Promise<void> {
+    if (!this.stateStore) {
+      return;
+    }
+    const state = await this.stateStore.getState(this.name);
+    if (!state) {
+      return;
+    }
+    this.applyState(state);
+  }
+
+  protected async persistState(): Promise<void> {
+    if (!this.stateStore) {
+      return;
+    }
+    const state: ProviderState = {
+      lastSyncDate: this.lastSyncDate ? this.lastSyncDate.toISOString() : undefined,
+      lastBatchId: this.lastBatchId,
+      previousBatchId: this.previousBatchId,
+    };
+    await this.stateStore.saveState(this.name, state);
+  }
+
+  protected applyState(state: ProviderState): void {
+    if (state.lastSyncDate) {
+      const parsed = new Date(state.lastSyncDate);
+      if (!Number.isNaN(parsed.getTime())) {
+        this.lastSyncDate = parsed;
+      }
+    }
+    if (state.lastBatchId) {
+      this.lastBatchId = state.lastBatchId;
+    }
+    if (state.previousBatchId) {
+      this.previousBatchId = state.previousBatchId;
+    }
   }
   
   /**

@@ -14,10 +14,14 @@ import '../observability/otel';
 import { MegalekAteruHelper } from '../providers/MegalekAteruHelper';
 import { LLMTagGeneratorProvider } from '../providers/LLMTagGeneratorProvider';
 import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';
+import { MongoDocumentStore } from '../stores/MongoDocumentStore';
+import { MongoProviderStateStore } from '../stores/MongoProviderStateStore';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
 import { LLMTagGeneratorConfig, TaggedPriceData } from '../providers/LLMTagGeneratorProvider';
 import { FilePriceListProvider, FilePriceListConfig } from '../providers/FilePriceListProvider';
+import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 
 /**
  * Setup the complete ingestion workflow
@@ -26,8 +30,34 @@ async function setupIngestionWorkflow() {
   console.log('=== Setting up Data Ingestion Workflow ===\n');
   
   // Step 1: Create document stores
-  const rawDataStore = new InMemoryDocumentStore<PriceData>('raw-price-data');
-  const taggedDataStore = new InMemoryDocumentStore<TaggedPriceData>('tagged-price-data');
+  const mongoURI = process.env.PROVIDER_MONGO_URI;
+  const mongoDB = process.env.PROVIDER_MONGO_DB || 'provider_data';
+  const mongoRawCollection = process.env.PROVIDER_MONGO_COLLECTION || 'price_records';
+  const mongoTaggedCollection = process.env.PROVIDER_MONGO_TAGGED_COLLECTION || 'price_records_tagged';
+  const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
+  const mongoTTL = process.env.PROVIDER_MONGO_TTL_DAYS
+    ? Number.parseInt(process.env.PROVIDER_MONGO_TTL_DAYS, 10)
+    : 30;
+
+  let rawDataStore: IDocumentStore<PriceData>;
+  let taggedDataStore: IDocumentStore<TaggedPriceData>;
+  let stateStore: IProviderStateStore | undefined;
+
+  if (mongoURI) {
+    const ttlDays = Number.isFinite(mongoTTL) ? mongoTTL : 30;
+    rawDataStore = new MongoDocumentStore<PriceData>(mongoURI, mongoDB, mongoRawCollection, {
+      ttlDays,
+    });
+    taggedDataStore = new MongoDocumentStore<TaggedPriceData>(mongoURI, mongoDB, mongoTaggedCollection, {
+      ttlDays,
+    });
+    stateStore = new MongoProviderStateStore(mongoURI, mongoDB, mongoStateCollection);
+    console.log(`✓ Mongo provider store enabled (${mongoDB})`);
+  } else {
+    rawDataStore = new InMemoryDocumentStore<PriceData>('raw-price-data');
+    taggedDataStore = new InMemoryDocumentStore<TaggedPriceData>('tagged-price-data');
+    console.warn('⚠ Using in-memory stores. Set PROVIDER_MONGO_URI for persistence.');
+  }
   
   // Step 2: Configure and initialize Google Sheets provider (source)
   const priceListFiles = (process.env.PRICE_LIST_FILES || '')
@@ -36,8 +66,8 @@ async function setupIngestionWorkflow() {
     .filter(Boolean);
   const useFileProvider = priceListFiles.length > 0;
 
-  const googleSheetsProvider = new MegalekAteruHelper(rawDataStore);
-  const fileProvider = new FilePriceListProvider(rawDataStore);
+  const googleSheetsProvider = new MegalekAteruHelper(rawDataStore, stateStore);
+  const fileProvider = new FilePriceListProvider(rawDataStore, stateStore);
   
   const sheetsConfig: GoogleSheetsConfig = {
     credentials: {
@@ -73,7 +103,8 @@ async function setupIngestionWorkflow() {
   // Step 3: Configure and initialize LLM Tag Generator provider
   const llmProvider = new LLMTagGeneratorProvider(
     taggedDataStore,
-    useFileProvider ? fileProvider : googleSheetsProvider
+    useFileProvider ? fileProvider : googleSheetsProvider,
+    stateStore
   );
   
   const llmConfig: LLMTagGeneratorConfig = {
@@ -131,9 +162,14 @@ async function setupIngestionWorkflow() {
 /**
  * Index tagged data in Typesense for contextual search
  */
-async function indexInTypesense(taggedDataStore: InMemoryDocumentStore<TaggedPriceData>) {
+async function indexInTypesense(taggedDataStore: any) {
   console.log('\n[Typesense Indexing] Starting...');
   
+  if (typeof taggedDataStore.getAll !== 'function') {
+    console.warn('  - Tagged store does not support getAll(). Provide a store with bulk read capability.');
+    return;
+  }
+
   // Get all tagged data
   const taggedData = await taggedDataStore.getAll();
   
@@ -236,7 +272,7 @@ async function runIngestionWorkflowManually() {
   console.log('\n[Step 3] Indexing in Typesense...');
   const taggedStore = llmProvider.getDocumentStore();
   if (taggedStore) {
-    await indexInTypesense(taggedStore as InMemoryDocumentStore<TaggedPriceData>);
+    await indexInTypesense(taggedStore);
   }
   
   console.log('\n✓ Complete ingestion workflow finished successfully');

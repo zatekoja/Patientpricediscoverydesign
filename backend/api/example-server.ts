@@ -11,8 +11,12 @@ import { DataProviderAPI } from './server';
 import { MegalekAteruHelper } from '../providers/MegalekAteruHelper';
 import { FilePriceListProvider, FilePriceListConfig } from '../providers/FilePriceListProvider';
 import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';
+import { MongoDocumentStore } from '../stores/MongoDocumentStore';
+import { MongoProviderStateStore } from '../stores/MongoProviderStateStore';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
+import { IProviderStateStore } from '../interfaces/IProviderStateStore';
+import { IDocumentStore } from '../interfaces/IDocumentStore';
 
 /**
  * Initialize and start the API server
@@ -40,17 +44,37 @@ async function startServer() {
   const api = new DataProviderAPI();
 
   // 2. Create document store
-  const documentStore = new InMemoryDocumentStore<PriceData>('price-data-store');
+  const mongoURI = process.env.PROVIDER_MONGO_URI;
+  const mongoDB = process.env.PROVIDER_MONGO_DB || 'provider_data';
+  const mongoCollection = process.env.PROVIDER_MONGO_COLLECTION || 'price_records';
+  const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
+  const mongoTTL = process.env.PROVIDER_MONGO_TTL_DAYS
+    ? Number.parseInt(process.env.PROVIDER_MONGO_TTL_DAYS, 10)
+    : 30;
+
+  let documentStore: IDocumentStore<PriceData>;
+  let stateStore: IProviderStateStore | undefined;
+
+  if (mongoURI) {
+    documentStore = new MongoDocumentStore<PriceData>(mongoURI, mongoDB, mongoCollection, {
+      ttlDays: Number.isFinite(mongoTTL) ? mongoTTL : 30,
+    });
+    stateStore = new MongoProviderStateStore(mongoURI, mongoDB, mongoStateCollection);
+    console.log(`✓ Mongo provider store enabled (${mongoDB}.${mongoCollection})`);
+  } else {
+    documentStore = new InMemoryDocumentStore<PriceData>('price-data-store');
+    console.warn('⚠ Using in-memory provider store. Set PROVIDER_MONGO_URI for persistence.');
+  }
 
   // 3. Create and configure provider
   let providerInitialized = false;
   let scheduler: DataSyncScheduler | undefined;
   let providerId = 'megalek_ateru_helper';
-  let provider: MegalekAteruHelper | FilePriceListProvider = new MegalekAteruHelper(documentStore);
+  let provider: MegalekAteruHelper | FilePriceListProvider = new MegalekAteruHelper(documentStore, stateStore);
 
   if (useFileProvider) {
     providerId = 'file_price_list';
-    provider = new FilePriceListProvider(documentStore);
+    provider = new FilePriceListProvider(documentStore, stateStore);
   }
 
   // Configuration (use environment variables or provide defaults for development)
@@ -102,11 +126,15 @@ async function startServer() {
 
     // 6. Setup scheduled sync (optional)
     scheduler = new DataSyncScheduler();
+    const runInitialSync = process.env.PROVIDER_RUN_INITIAL_SYNC
+      ? process.env.PROVIDER_RUN_INITIAL_SYNC.toLowerCase() === 'true'
+      : useFileProvider;
+
     scheduler.scheduleJob({
       name: `${providerId}_sync`,
       provider,
       intervalMs: SyncIntervals.THREE_DAYS,
-      runImmediately: false, // Set to true to sync on startup
+      runImmediately: runInitialSync,
       onComplete: (result) => {
         console.log(`Scheduled sync completed: ${result.recordsProcessed} records, success: ${result.success}`);
       },

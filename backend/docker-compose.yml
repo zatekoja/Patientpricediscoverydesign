@@ -32,6 +32,19 @@ services:
       timeout: 5s
       retries: 5
 
+  mongo:
+    image: mongo:6.0
+    container_name: ppd_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Typesense for search
   typesense:
     image: typesense/typesense:27.1
@@ -118,5 +131,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  mongo_data:
   typesense_data:
   clickhouse_data:

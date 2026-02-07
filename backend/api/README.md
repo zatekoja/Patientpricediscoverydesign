@@ -25,6 +25,17 @@ SPREADSHEET_IDS=spreadsheet-id-1,spreadsheet-id-2
 # Server Configuration
 PORT=3000
 NODE_ENV=development
+
+# Provider Storage (MongoDB)
+PROVIDER_MONGO_URI=mongodb://localhost:27017
+PROVIDER_MONGO_DB=provider_data
+PROVIDER_MONGO_COLLECTION=price_records
+PROVIDER_STATE_COLLECTION=provider_state
+PROVIDER_MONGO_TTL_DAYS=30
+PROVIDER_RUN_INITIAL_SYNC=true
+
+# File Provider (for the current hospital price lists)
+PRICE_LIST_FILES=./fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,./fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,./fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,./fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx
 ```
 
 ### 3. Start the Server

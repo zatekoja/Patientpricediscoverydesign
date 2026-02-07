@@ -2,7 +2,9 @@ import { google, sheets_v4 } from 'googleapis';
 import { BaseDataProvider } from './BaseDataProvider';
 import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExternalDataProvider';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
+import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
+import { recordProviderSyncMetrics } from '../observability/metrics';
 
 /**
  * External data provider for Google Sheets
@@ -17,8 +19,8 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
   private sheetsConfig?: GoogleSheetsConfig;
   private googleSheetsClient?: sheets_v4.Sheets;
   
-  constructor(documentStore?: IDocumentStore<PriceData>) {
-    super('megalek_ateru_helper', documentStore);
+  constructor(documentStore?: IDocumentStore<PriceData>, stateStore?: IProviderStateStore) {
+    super('megalek_ateru_helper', documentStore, stateStore);
   }
   
   validateConfig(config: Record<string, any>): boolean {
@@ -67,23 +69,77 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
     this.ensureInitialized();
     
     try {
-      // In production, this would call the Google Sheets API
-      // For now, this is a placeholder implementation
-      const data = await this.fetchFromGoogleSheets(options);
-      
+      const fromStore = await this.getLatestSyncedData(options);
+      if (fromStore) {
+        return fromStore;
+      }
+      return await this.loadFromSource(options);
+    } catch (error) {
+      console.error(`Error fetching current data from ${this.name}:`, error);
+      throw error;
+    }
+  }
+
+  private async loadFromSource(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData>> {
+    const data = await this.fetchFromGoogleSheets(options);
+    return {
+      data,
+      timestamp: new Date(),
+      metadata: {
+        source: this.name,
+        count: data.length,
+        spreadsheets: this.sheetsConfig?.spreadsheetIds,
+      },
+    };
+  }
+
+  private async getLatestSyncedData(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData> | null> {
+    if (!this.documentStore) {
+      return null;
+    }
+
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const probe = await this.documentStore.query(
+      { source: this.name },
+      { limit: 1, offset: 0, sortBy: 'syncTimestamp', sortOrder: 'desc' }
+    );
+    if (probe.length === 0) {
+      return null;
+    }
+
+    const latestBatchId = (probe[0] as PriceData).batchId;
+    if (!latestBatchId) {
+      const data = await this.documentStore.query(
+        { source: this.name },
+        { limit, offset, sortBy: 'syncTimestamp', sortOrder: 'desc' }
+      );
       return {
         data,
         timestamp: new Date(),
         metadata: {
           source: this.name,
           count: data.length,
-          spreadsheets: this.sheetsConfig?.spreadsheetIds,
+          total: data.length,
         },
       };
-    } catch (error) {
-      console.error(`Error fetching current data from ${this.name}:`, error);
-      throw error;
     }
+
+    const data = await this.documentStore.query(
+      { source: this.name, batchId: latestBatchId },
+      { limit, offset, sortBy: 'effectiveDate', sortOrder: 'desc' }
+    );
+    const total = (await this.documentStore.query({ source: this.name, batchId: latestBatchId })).length;
+    return {
+      data,
+      timestamp: new Date(),
+      metadata: {
+        source: this.name,
+        count: data.length,
+        total,
+        batchId: latestBatchId,
+      },
+    };
   }
   
   async getPreviousData(options?: DataProviderOptions): Promise<DataProviderResponse<PriceData>> {
@@ -190,6 +246,71 @@ export class MegalekAteruHelper extends BaseDataProvider<PriceData> {
     } catch (error) {
       console.error(`Error fetching historical data from ${this.name}:`, error);
       throw error;
+    }
+  }
+
+  async syncData(): Promise<{
+    success: boolean;
+    recordsProcessed: number;
+    timestamp: Date;
+    error?: string;
+  }> {
+    const startTime = Date.now();
+    const timestamp = new Date();
+    const batchId = timestamp.toISOString();
+
+    try {
+      const response = await this.loadFromSource();
+      const dataWithSync = response.data.map((data) =>
+        this.attachSyncMetadata(data, batchId, timestamp)
+      );
+
+      if (this.documentStore && dataWithSync.length > 0) {
+        const items = dataWithSync.map((data, index) => {
+          const stableKey = this.generateKey(data, index);
+          return {
+            key: `${batchId}_${stableKey}`,
+            data,
+            metadata: {
+              syncTimestamp: timestamp,
+              source: this.name,
+              batchId,
+              stableKey,
+            },
+          };
+        });
+        await this.documentStore.batchPut(items);
+      }
+
+      this.previousBatchId = this.lastBatchId;
+      this.lastBatchId = batchId;
+      this.lastSyncDate = timestamp;
+      await this.persistState();
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: true,
+        recordsProcessed: dataWithSync.length,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        success: true,
+        recordsProcessed: dataWithSync.length,
+        timestamp,
+      };
+    } catch (error) {
+      recordProviderSyncMetrics({
+        provider: this.name,
+        success: false,
+        recordsProcessed: 0,
+        durationMs: Date.now() - startTime,
+      });
+      return {
+        success: false,
+        recordsProcessed: 0,
+        timestamp,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
   
