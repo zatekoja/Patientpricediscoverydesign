@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	redislib "github.com/redis/go-redis/v9"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
@@ -199,7 +200,17 @@ func main() {
 		facilityProcedureAdapter,
 		pageSize,
 	)
-	providerIngestionHandler := handlers.NewProviderIngestionHandler(ingestionService)
+	idempotencyTTL := 24 * time.Hour
+	if value := strings.TrimSpace(os.Getenv("PROVIDER_INGESTION_IDEMPOTENCY_TTL_MINUTES")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			idempotencyTTL = time.Duration(parsed) * time.Minute
+		}
+	}
+	var redisRaw *redislib.Client
+	if redisClient != nil {
+		redisRaw = redisClient.Client()
+	}
+	providerIngestionHandler := handlers.NewProviderIngestionHandler(ingestionService, redisRaw, idempotencyTTL)
 
 	// Set up router
 

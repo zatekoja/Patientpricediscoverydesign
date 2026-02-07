@@ -518,7 +518,7 @@ export class DataProviderAPI {
         { source: 'form' }
       );
 
-      await this.triggerIngestionWebhook(record.facilityId);
+      await this.triggerIngestionWebhook(record.facilityId, record.id);
 
       res.setHeader('Content-Type', 'text/html');
       res.send('<p>Thank you. Your capacity update has been recorded.</p>');
@@ -561,16 +561,21 @@ export class DataProviderAPI {
     next();
   }
 
-  private async triggerIngestionWebhook(facilityId: string): Promise<void> {
+  private async triggerIngestionWebhook(facilityId: string, eventId?: string): Promise<void> {
     const webhookUrl = process.env.PROVIDER_INGESTION_WEBHOOK_URL;
     if (!webhookUrl) {
       return;
     }
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (eventId) {
+        headers['Idempotency-Key'] = eventId;
+      }
       const response = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
+          eventId,
           facilityId,
           source: 'capacity_update',
           timestamp: new Date().toISOString(),

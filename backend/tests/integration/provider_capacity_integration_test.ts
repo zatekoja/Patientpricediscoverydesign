@@ -154,6 +154,7 @@ async function main() {
 
     const webhookPayload = await webhook.waitFor;
     assert.strictEqual(webhookPayload.facilityId, facility.id);
+    assert.ok(webhookPayload.eventId, 'expected eventId in webhook payload');
 
     webhook.close();
     server.close();
