@@ -118,10 +118,14 @@ load_balancer_ip = "XX.XX.XX.XX"
 ### Phase 4: Configure DNS (5 min + waiting time)
 
 1. Copy DNS nameservers from Terraform output
-2. Log in to your domain registrar (where you bought ohealth-ng.com)
-3. Navigate to DNS settings
-4. Replace existing nameservers with Google Cloud nameservers
-5. Save changes
+2. **For subdomain delegation** (recommended approach):
+   - Log in to your DNS management for the parent domain (ohealth-ng.com)
+   - This may be at your domain registrar or your DNS provider
+   - Navigate to DNS records for ohealth-ng.com
+   - Create **NS records** for the subdomain (e.g., dev.ohealth-ng.com)
+   - Point these NS records to the Google Cloud nameservers from Terraform output
+   - Do **not** replace the registrar nameservers for ohealth-ng.com
+3. Save changes
 
 **Verification (wait 10-15 minutes):**
 ```bash

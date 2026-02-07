@@ -73,19 +73,16 @@ resource "google_cloud_run_v2_service" "frontend" {
         }
       }
 
+      # Vite environment variables are resolved at build time
+      # These need to match the frontend's expected variable names
       env {
-        name  = "VITE_API_URL"
+        name  = "VITE_API_BASE_URL"
         value = "https://${var.environment}.api.${var.domain_name}"
       }
 
       env {
-        name  = "VITE_GRAPHQL_URL"
-        value = "https://${var.environment}.api.${var.domain_name}/graphql"
-      }
-
-      env {
-        name  = "VITE_SSE_URL"
-        value = "https://${var.environment}.api.${var.domain_name}/sse"
+        name  = "VITE_SSE_BASE_URL"
+        value = "https://${var.environment}.api.${var.domain_name}"
       }
     }
 
@@ -430,4 +427,24 @@ resource "google_cloud_run_v2_service_iam_member" "sse_noauth" {
   name     = google_cloud_run_v2_service.sse.name
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# Grant Cloud Run service accounts access to Secret Manager secrets
+# The default compute service account is used by Cloud Run services
+resource "google_secret_manager_secret_iam_member" "google_maps_access" {
+  secret_id = google_secret_manager_secret.google_maps_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+}
+
+resource "google_secret_manager_secret_iam_member" "typesense_access" {
+  secret_id = google_secret_manager_secret.typesense_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+}
+
+resource "google_secret_manager_secret_iam_member" "openai_access" {
+  secret_id = google_secret_manager_secret.openai_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
 }

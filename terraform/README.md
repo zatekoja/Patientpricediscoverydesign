@@ -109,7 +109,7 @@ postgres_password   = "your-secure-password"
 
 After deployment, Terraform outputs:
 
-- `dns_nameservers`: Configure these in your domain registrar
+- `dns_nameservers`: Use these as NS records in the parent zone to delegate the subdomain (e.g., add NS records for dev.ohealth-ng.com in the ohealth-ng.com DNS zone pointing to these nameservers); do not replace the registrar nameservers for the root domain
 - `frontend_url`: Frontend application URL
 - `api_url`: API endpoint URL
 - `load_balancer_ip`: Load balancer IP address

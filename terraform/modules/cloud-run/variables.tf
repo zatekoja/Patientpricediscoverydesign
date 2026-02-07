@@ -18,13 +18,13 @@ variable "vpc_connector_id" {
   type        = string
 }
 
-variable "postgres_connection_name" {
-  description = "Cloud SQL PostgreSQL connection name"
+variable "postgres_database_name" {
+  description = "PostgreSQL database name"
   type        = string
 }
 
-variable "postgres_database_name" {
-  description = "PostgreSQL database name"
+variable "postgres_password_secret_id" {
+  description = "Secret Manager secret ID for PostgreSQL password"
   type        = string
 }
 

@@ -62,10 +62,11 @@ dns_nameservers = [
 ]
 ```
 
-**Action Required:**
-1. Go to your domain registrar (where you bought ohealth-ng.com)
-2. Update nameservers with the values from Terraform output
-3. Wait for DNS propagation (15 minutes - 48 hours, usually < 2 hours)
+**Action Required (delegate the subdomain):**
+1. Go to the DNS management for your parent domain `ohealth-ng.com` (usually at your domain registrar or DNS provider).
+2. Create or update **NS records** for the subdomain you deployed (e.g., `dev.ohealth-ng.com`) with the values from the `dns_nameservers` Terraform output.
+3. Do **not** replace the registrar nameservers for the apex domain `ohealth-ng.com`; only delegate the subdomain.
+4. Wait for DNS propagation of the subdomain delegation (15 minutes – 48 hours, usually < 2 hours).
 
 ### 5. Build and Deploy Applications (10-15 minutes)
 

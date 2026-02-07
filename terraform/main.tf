@@ -1,28 +1,6 @@
 # Main Terraform configuration for Patient Price Discovery on GCP
 # This is the root module that orchestrates all infrastructure components
 
-terraform {
-  required_version = ">= 1.0"
-
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 6.0"
-    }
-    google-beta = {
-      source  = "hashicorp/google-beta"
-      version = "~> 6.0"
-    }
-  }
-
-  # Backend configuration for storing Terraform state
-  # Uncomment and configure when ready to use remote state
-  # backend "gcs" {
-  #   bucket = "open-health-index-dev-tfstate"
-  #   prefix = "terraform/state"
-  # }
-}
-
 # Configure the Google Cloud Provider
 provider "google" {
   project = var.project_id
@@ -105,12 +83,11 @@ module "cloud_run" {
   vpc_connector_id          = module.networking.vpc_connector_id
   
   # Database connections
-  postgres_connection_name  = module.databases.postgres_connection_name
-  postgres_database_name    = module.databases.postgres_database_name
+  postgres_database_name      = module.databases.postgres_database_name
   postgres_password_secret_id = module.databases.postgres_password_secret_id
-  postgres_private_ip       = module.databases.postgres_private_ip
-  redis_host                = module.databases.redis_host
-  redis_port                = module.databases.redis_port
+  postgres_private_ip         = module.databases.postgres_private_ip
+  redis_host                  = module.databases.redis_host
+  redis_port                  = module.databases.redis_port
 
   # API Keys (to be stored in Secret Manager)
   google_maps_api_key       = var.google_maps_api_key
@@ -148,7 +125,7 @@ module "load_balancer" {
 
 # Output important values
 output "dns_nameservers" {
-  description = "Name servers for the DNS zone - configure these in your domain registrar"
+  description = "Name servers for the environment subdomain DNS zone - add these as NS records in the parent domain zone (e.g., create NS records for dev.ohealth-ng.com in the ohealth-ng.com zone pointing to these nameservers)"
   value       = module.dns.nameservers
 }
 

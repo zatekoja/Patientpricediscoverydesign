@@ -110,7 +110,18 @@ Expected deployment time: **20-30 minutes**
 
 ### Step 4: Configure DNS
 
-After deployment, you'll receive DNS nameservers. Configure your domain registrar (where you purchased ohealth-ng.com) with these nameservers.
+After deployment, you'll receive the authoritative DNS nameservers for the environment subdomain zone (e.g., `dev.ohealth-ng.com`).
+
+**DNS Delegation Setup:**
+
+If `ohealth-ng.com` is managed outside this Terraform project, configure DNS *delegation* from the parent zone:
+
+1. In the DNS management UI for `ohealth-ng.com` (this may be at your registrar or another DNS host), create **NS records** for `dev.ohealth-ng.com`.
+2. Set those NS records to the nameservers output by Terraform for the `dev.ohealth-ng.com` zone.
+3. Do **not** replace the registrar nameservers for the apex domain `ohealth-ng.com`; only delegate the `dev.ohealth-ng.com` subdomain.
+4. Wait for DNS propagation (usually 15 minutes to 2 hours).
+
+If you also manage the parent `ohealth-ng.com` zone in Terraform, configure the NS delegation to `dev.ohealth-ng.com` in that parent zone instead of at the registrar.
 
 ### Step 5: Build and Push Docker Images
 

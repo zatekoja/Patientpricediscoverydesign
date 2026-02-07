@@ -25,24 +25,39 @@ variable "domain_name" {
 }
 
 variable "google_maps_api_key" {
-  description = "Google Maps API key for geolocation"
+  description = "Google Maps API key for geolocation (required)"
   type        = string
   sensitive   = true
   default     = ""
+
+  validation {
+    condition     = var.google_maps_api_key != ""
+    error_message = "Google Maps API key is required. Please set google_maps_api_key variable."
+  }
 }
 
 variable "typesense_api_key" {
-  description = "Typesense API key for search"
+  description = "Typesense API key for search (required)"
   type        = string
   sensitive   = true
   default     = ""
+
+  validation {
+    condition     = var.typesense_api_key != ""
+    error_message = "Typesense API key is required. Please set typesense_api_key variable."
+  }
 }
 
 variable "openai_api_key" {
-  description = "OpenAI API key for AI features"
+  description = "OpenAI API key for AI features (required)"
   type        = string
   sensitive   = true
   default     = ""
+
+  validation {
+    condition     = var.openai_api_key != ""
+    error_message = "OpenAI API key is required. Please set openai_api_key variable."
+  }
 }
 
 variable "postgres_password" {

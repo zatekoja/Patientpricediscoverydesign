@@ -55,9 +55,9 @@ if [ "$CONFIRMATION" = "yes" ]; then
   terraform output
   
   echo -e "\n${YELLOW}Next Steps:${NC}"
-  echo "1. Configure your domain nameservers with the DNS nameservers shown above"
-  echo "2. Wait for DNS propagation (can take up to 48 hours)"
-  echo "3. Wait for SSL certificate provisioning (can take up to 15 minutes)"
+  echo "1. In the parent DNS zone for your domain (e.g., ohealth-ng.com), add NS delegation records for the environment subdomain (e.g., dev.ohealth-ng.com) using the DNS nameservers shown above"
+  echo "2. Wait for DNS propagation of the new NS records (can take up to 48 hours, usually < 2 hours)"
+  echo "3. Wait for SSL certificate provisioning (can take up to 15 minutes after DNS propagation)"
   echo "4. Build and push Docker images using: ./scripts/build-and-push.sh"
   echo "5. Update Cloud Run services with new images"
 else
