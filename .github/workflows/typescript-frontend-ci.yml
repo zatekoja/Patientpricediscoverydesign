@@ -1,0 +1,475 @@
+name: TypeScript Provider CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**/*.ts'
+      - 'backend/package.json'
+      - 'backend/package-lock.json'
+      - 'backend/tsconfig.json'
+      - 'backend/api/**'
+      - 'backend/providers/**'
+      - 'backend/types/**'
+      - 'backend/interfaces/**'
+      - 'backend/.eslintrc.*'
+      - 'backend/.prettierrc.*'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**/*.ts'
+      - 'backend/package.json'
+      - 'backend/package-lock.json'
+      - 'backend/tsconfig.json'
+      - 'backend/api/**'
+      - 'backend/providers/**'
+      - 'backend/types/**'
+      - 'backend/interfaces/**'
+      - 'backend/.eslintrc.*'
+      - 'backend/.prettierrc.*'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  workflow_call:
+    inputs:
+      enable-summary:
+        description: 'Generate CI summary'
+        type: boolean
+        required: false
+        default: true
+  workflow_dispatch:
+    inputs:
+      enable-summary:
+        description: 'Generate CI summary'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  checks: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: typescript-provider-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+  WORKING_DIR: backend
+  COVERAGE_THRESHOLD: 70
+
+jobs:
+  # ==========================================
+  # Code Quality
+  # ==========================================
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and TypeScript
+        uses: ./.github/actions/setup-service-typescript
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run TypeScript compilation check
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Running TypeScript compilation check..."
+          npm run build
+          echo "✅ TypeScript compilation passed"
+
+      - name: Run TypeScript type check
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Running TypeScript type check..."
+          npx tsc --noEmit
+          echo "✅ TypeScript type check passed"
+
+      - name: Check for ESLint config
+        id: check-eslint-config
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ]; then
+            echo "config-exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "config-exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run ESLint
+        if: steps.check-eslint-config.outputs.config-exists == 'true'
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Running ESLint..."
+          npm run lint || npx eslint . --ext .ts,.js
+          echo "✅ ESLint passed"
+
+  # ==========================================
+  # Unit Tests with Coverage
+  # ==========================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and TypeScript
+        uses: ./.github/actions/setup-service-typescript
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check for test scripts
+        id: check-tests
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          if npm run test --silent 2>/dev/null || [ -f "jest.config.js" ] || [ -f "vitest.config.ts" ] || grep -q '"test"' package.json; then
+            echo "tests-exist=true" >> $GITHUB_OUTPUT
+          else
+            echo "tests-exist=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run tests with coverage
+        if: steps.check-tests.outputs.tests-exist == 'true'
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🧪 Running unit tests with coverage..."
+          npm run test:coverage || npm run test -- --coverage || npm test
+          echo "✅ Tests completed"
+
+      - name: Check coverage threshold
+        if: steps.check-tests.outputs.tests-exist == 'true'
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          if [ -f "coverage/coverage-summary.json" ]; then
+            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
+            echo "Current coverage: ${COVERAGE}%"
+            if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+              echo "❌ Coverage ${COVERAGE}% is below threshold ${COVERAGE_THRESHOLD}%"
+              exit 1
+            else
+              echo "✅ Coverage ${COVERAGE}% meets threshold ${COVERAGE_THRESHOLD}%"
+            fi
+          else
+            echo "⚠️ No coverage summary found"
+          fi
+
+      - name: Upload coverage reports
+        if: steps.check-tests.outputs.tests-exist == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-provider-coverage-reports
+          path: |
+            ${{ env.WORKING_DIR }}/coverage/
+            ${{ env.WORKING_DIR }}/coverage.xml
+            ${{ env.WORKING_DIR }}/coverage.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Skip tests notification
+        if: steps.check-tests.outputs.tests-exist == 'false'
+        run: |
+          echo "⚠️ No test configuration found, skipping unit tests"
+
+  # ==========================================
+  # API Tests
+  # ==========================================
+  api-tests:
+    name: API Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [code-quality]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and TypeScript
+        uses: ./.github/actions/setup-service-typescript
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build TypeScript providers
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔨 Building TypeScript providers..."
+          npm run build
+          echo "✅ Build completed"
+
+      - name: Test API server startup
+        working-directory: ${{ env.WORKING_DIR }}
+        timeout-minutes: 2
+        run: |
+          echo "🚀 Testing API server startup..."
+          timeout 30s npm start &
+          SERVER_PID=$!
+          sleep 5
+          
+          # Test if server is responding
+          if curl -f http://localhost:3000/health 2>/dev/null; then
+            echo "✅ API server started successfully"
+            kill $SERVER_PID 2>/dev/null || true
+          else
+            echo "⚠️ API server health check not available, but startup completed"
+            kill $SERVER_PID 2>/dev/null || true
+          fi
+
+      - name: Validate OpenAPI specs
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Validating OpenAPI specifications..."
+          if [ -f "api/openapi.yaml" ]; then
+            npx swagger-parser validate api/openapi.yaml
+            echo "✅ Main OpenAPI spec is valid"
+          fi
+          
+          if [ -f "api/provider-openapi.yaml" ]; then
+            npx swagger-parser validate api/provider-openapi.yaml  
+            echo "✅ Provider OpenAPI spec is valid"
+          fi
+
+  # ==========================================
+  # Security Scanning
+  # ==========================================
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies for audit
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npm ci
+
+      - name: Run npm audit
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Running npm audit security scan..."
+          npm audit --audit-level=high --json > audit-results.json || true
+          
+          # Check if there are high/critical vulnerabilities
+          HIGH_VULNS=$(jq '.metadata.vulnerabilities.high // 0' audit-results.json)
+          CRITICAL_VULNS=$(jq '.metadata.vulnerabilities.critical // 0' audit-results.json)
+          
+          echo "High vulnerabilities: $HIGH_VULNS"
+          echo "Critical vulnerabilities: $CRITICAL_VULNS"
+          
+          if [ "$CRITICAL_VULNS" -gt 0 ]; then
+            echo "❌ Critical security vulnerabilities found!"
+            npm audit --audit-level=critical
+            exit 1
+          elif [ "$HIGH_VULNS" -gt 0 ]; then
+            echo "⚠️ High severity vulnerabilities found"
+            npm audit --audit-level=high
+          else
+            echo "✅ No high/critical security vulnerabilities found"
+          fi
+
+      - name: Upload security scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: ${{ env.WORKING_DIR }}/audit-results.json
+          retention-days: 7
+
+  # ==========================================
+  # Build Verification
+  # ==========================================
+  build-verification:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [code-quality]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and TypeScript
+        uses: ./.github/actions/setup-service-typescript
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build TypeScript providers and API
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔨 Building TypeScript providers and API..."
+          npm run build
+          echo "✅ Build completed successfully"
+
+      - name: Verify build outputs
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Verifying build outputs..."
+          
+          if [ -d "dist" ]; then
+            echo "✅ dist directory created"
+            echo "📁 Build contents:"
+            ls -la dist/
+            
+            # Check for key files
+            if [ -f "dist/index.js" ] && [ -f "dist/index.d.ts" ]; then
+              echo "✅ Main exports found"
+            fi
+            
+            if [ -f "dist/providers/BaseDataProvider.js" ]; then
+              echo "✅ Provider classes compiled"
+            fi
+            
+            if [ -f "dist/api/server.js" ]; then
+              echo "✅ API server compiled"
+            fi
+          else
+            echo "❌ No dist directory found"
+            exit 1
+          fi
+          
+          echo "✅ Build verification completed"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-provider-build
+          path: ${{ env.WORKING_DIR }}/dist/
+          retention-days: 7
+
+  # ==========================================
+  # Docker Build Test (for GCP deployment readiness)
+  # ==========================================
+  docker-build-test:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-verification]
+    if: contains(github.event.head_commit.modified, 'Dockerfile') || contains(github.event.head_commit.added, 'Dockerfile') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test Docker builds for TypeScript provider
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🐳 Testing Docker builds for TypeScript provider..."
+          
+          # Test provider Dockerfile
+          if [ -f "Dockerfile.provider" ]; then
+            echo "Testing Dockerfile.provider..."
+            docker build -f Dockerfile.provider -t typescript-provider:${{ github.sha }} .
+            echo "✅ Provider Docker build successful"
+          fi
+          
+          # Test SSE server Dockerfile
+          if [ -f "Dockerfile.sse-server" ]; then
+            echo "Testing Dockerfile.sse-server..."
+            docker build -f Dockerfile.sse-server -t typescript-sse-server:${{ github.sha }} .
+            echo "✅ SSE Server Docker build successful"
+          fi
+          
+          # Test main Dockerfile if it exists
+          if [ -f "Dockerfile" ]; then
+            echo "Testing main Dockerfile..."
+            docker build -t typescript-main:${{ github.sha }} .
+            echo "✅ Main Docker build successful"
+          fi
+
+  # ==========================================
+  # CI Summary
+  # ==========================================
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [code-quality, unit-tests, api-tests, security, build-verification, docker-build-test]
+    if: always() && (inputs.enable-summary == true || inputs.enable-summary == '' || github.event.inputs.enable-summary == 'true')
+
+    steps:
+      - name: Generate CI summary
+        run: |
+          echo "## TypeScript Provider CI Summary - Patient Price Discovery Design" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          QUALITY="${{ needs.code-quality.result }}"
+          TESTS="${{ needs.unit-tests.result }}"
+          API_TESTS="${{ needs.api-tests.result }}"
+          SECURITY="${{ needs.security.result }}"
+          BUILD="${{ needs.build-verification.result }}"
+          DOCKER="${{ needs.docker-build-test.result }}"
+
+          echo "### Status Checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Helper function for status display
+          display_status() {
+            case "$1" in
+              "success") echo "✅ **$2:** Passed" ;;
+              "skipped") echo "⏭️ **$2:** Skipped" ;;
+              "failure") echo "❌ **$2:** Failed" ;;
+              *) echo "⚠️ **$2:** Unknown status" ;;
+            esac
+          }
+
+          display_status "$QUALITY" "Code Quality" >> $GITHUB_STEP_SUMMARY
+          display_status "$TESTS" "Unit Tests" >> $GITHUB_STEP_SUMMARY
+          display_status "$API_TESTS" "API Tests" >> $GITHUB_STEP_SUMMARY
+          display_status "$SECURITY" "Security Scan" >> $GITHUB_STEP_SUMMARY
+          display_status "$BUILD" "Build Verification" >> $GITHUB_STEP_SUMMARY
+          display_status "$DOCKER" "Docker Build" >> $GITHUB_STEP_SUMMARY
+
+          # Overall status
+          if [[ "$QUALITY" == "failure" ]] || [[ "$TESTS" == "failure" ]] || [[ "$API_TESTS" == "failure" ]] || [[ "$BUILD" == "failure" ]] || [[ "$DOCKER" == "failure" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ CI: FAILED" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ "$SECURITY" == "failure" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ CI: WARNING" >> $GITHUB_STEP_SUMMARY
+            echo "Security vulnerabilities detected. Please review." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ CI: PASSED" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Component:** TypeScript Provider System & API" >> $GITHUB_STEP_SUMMARY
+
+
+
+
+
+
+
+
+

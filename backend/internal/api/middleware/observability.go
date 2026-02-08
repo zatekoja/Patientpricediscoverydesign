@@ -35,6 +35,10 @@ func ObservabilityMiddleware(metrics *observability.Metrics) func(http.Handler) 
 			// Record start time
 			start := time.Now()
 
+			// Increment active requests
+			observability.IncrementActiveRequests()
+			defer observability.DecrementActiveRequests()
+
 			// Call the next handler
 			next.ServeHTTP(rw, r.WithContext(ctx))
 

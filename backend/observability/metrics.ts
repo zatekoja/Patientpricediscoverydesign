@@ -32,6 +32,10 @@ const apiRequestDuration = meter.createHistogram('api.request.duration_ms', {
   unit: 'ms',
 });
 
+const apiActiveRequests = meter.createObservableGauge('api.active_requests', {
+  description: 'Number of currently active API requests',
+});
+
 const tagGenerationCount = meter.createCounter('provider.tag_generation.count', {
   description: 'Number of tag generation attempts',
 });
@@ -150,6 +154,12 @@ type ProviderSyncState = {
 
 const providerSyncState = new Map<string, ProviderSyncState>();
 
+let activeRequestCount = 0;
+
+apiActiveRequests.addCallback((observableResult) => {
+  observableResult.observe(activeRequestCount);
+});
+
 const providerLastSyncAgeSeconds = meter.createObservableGauge('provider.last_sync_age_seconds', {
   description: 'Seconds since the last successful provider sync',
 });
@@ -223,13 +233,21 @@ export function recordApiRequest(params: {
   apiRequestCount.add(1, {
     method: params.method,
     path: params.path,
-    status: params.status,
+    status: String(params.status),
   });
   apiRequestDuration.record(params.durationMs, {
     method: params.method,
     path: params.path,
-    status: params.status,
+    status: String(params.status),
   });
+}
+
+export function incrementActiveRequests(): void {
+  activeRequestCount++;
+}
+
+export function decrementActiveRequests(): void {
+  activeRequestCount = Math.max(0, activeRequestCount - 1);
 }
 
 export function recordTagGeneration(params: {

@@ -369,12 +369,32 @@ func (r *queryResolver) Facilities(ctx context.Context, filter generated.Facilit
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
+	totalCount := len(facilities)
+	if searchAdapterWithCount, ok := r.searchAdapter.(interface {
+		SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+	}); ok {
+		var countErr error
+		facilities, totalCount, countErr = searchAdapterWithCount.SearchWithCount(ctx, params)
+		if countErr != nil {
+			return nil, fmt.Errorf("search with count failed: %w", countErr)
+		}
+	}
+
+	// Calculate pagination info
+	hasNextPage := false
+	hasPreviousPage := params.Offset > 0
+	currentPage := (params.Offset / params.Limit) + 1
+	totalPages := (totalCount + params.Limit - 1) / params.Limit
+	if params.Offset+params.Limit < totalCount {
+		hasNextPage = true
+	}
+
 	// Build result
 	result := &entities.GraphQLFacilitySearchResult{
 		FacilitiesData:  facilities,
-		TotalCountValue: len(facilities),
+		TotalCountValue: totalCount,
 		SearchTimeMs:    0, // TODO: track actual search time
-		// TODO: Implement facets and pagination
+		// TODO: Implement facets
 		FacetsData: &entities.SearchFacets{
 			FacilityTypes:      []entities.FacetCount{},
 			InsuranceProviders: []entities.FacetCount{},
@@ -385,10 +405,10 @@ func (r *queryResolver) Facilities(ctx context.Context, filter generated.Facilit
 			RatingDistribution: []entities.RatingFacet{},
 		},
 		PaginationData: &entities.PaginationInfo{
-			HasNextPage:     false,
-			HasPreviousPage: false,
-			CurrentPage:     1,
-			TotalPages:      1,
+			HasNextPage:     hasNextPage,
+			HasPreviousPage: hasPreviousPage,
+			CurrentPage:     currentPage,
+			TotalPages:      totalPages,
 			Limit:           params.Limit,
 			Offset:          params.Offset,
 		},
@@ -432,10 +452,30 @@ func (r *queryResolver) SearchFacilities(ctx context.Context, query string, loca
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
+	totalCount := len(facilities)
+	if searchAdapterWithCount, ok := r.searchAdapter.(interface {
+		SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+	}); ok {
+		var countErr error
+		facilities, totalCount, countErr = searchAdapterWithCount.SearchWithCount(ctx, params)
+		if countErr != nil {
+			return nil, fmt.Errorf("search with count failed: %w", countErr)
+		}
+	}
+
+	// Calculate pagination info
+	hasNextPage := false
+	hasPreviousPage := params.Offset > 0
+	currentPage := (params.Offset / params.Limit) + 1
+	totalPages := (totalCount + params.Limit - 1) / params.Limit
+	if params.Offset+params.Limit < totalCount {
+		hasNextPage = true
+	}
+
 	// Build result
 	result := &entities.GraphQLFacilitySearchResult{
 		FacilitiesData:  facilities,
-		TotalCountValue: len(facilities),
+		TotalCountValue: totalCount,
 		SearchTimeMs:    0, // TODO: track actual search time
 		FacetsData: &entities.SearchFacets{
 			FacilityTypes:      []entities.FacetCount{},
@@ -447,10 +487,10 @@ func (r *queryResolver) SearchFacilities(ctx context.Context, query string, loca
 			RatingDistribution: []entities.RatingFacet{},
 		},
 		PaginationData: &entities.PaginationInfo{
-			HasNextPage:     false,
-			HasPreviousPage: false,
-			CurrentPage:     1,
-			TotalPages:      1,
+			HasNextPage:     hasNextPage,
+			HasPreviousPage: hasPreviousPage,
+			CurrentPage:     currentPage,
+			TotalPages:      totalPages,
 			Limit:           params.Limit,
 			Offset:          params.Offset,
 		},

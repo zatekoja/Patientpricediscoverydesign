@@ -36,6 +36,11 @@ func (m *MockGeolocationProvider) Geocode(ctx context.Context, address string) (
 		}
 	}
 
+	if contains(address, "Nigeria") {
+		coords := mockCoordinates["Lagos"]
+		return &coords, nil
+	}
+
 	// Return a default coordinate
 	return &providers.Coordinates{Latitude: 37.7749, Longitude: -122.4194}, nil
 }

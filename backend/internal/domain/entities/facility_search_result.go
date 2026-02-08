@@ -10,6 +10,8 @@ type FacilitySearchResult struct {
 	Address             Address             `json:"address"`
 	Location            Location            `json:"location"`
 	PhoneNumber         string              `json:"phone_number,omitempty"`
+	WhatsAppNumber      string              `json:"whatsapp_number,omitempty"`
+	Email               string              `json:"email,omitempty"`
 	Website             string              `json:"website,omitempty"`
 	Rating              float64             `json:"rating"`
 	ReviewCount         int                 `json:"review_count"`
@@ -17,6 +19,7 @@ type FacilitySearchResult struct {
 	Price               *FacilityPriceRange `json:"price,omitempty"`
 	Services            []string            `json:"services"`
 	ServicePrices       []ServicePrice      `json:"service_prices"`
+	Tags                []string            `json:"tags,omitempty"`
 	AcceptedInsurance   []string            `json:"accepted_insurance"`
 	NextAvailableAt     *time.Time          `json:"next_available_at,omitempty"`
 	AvgWaitMinutes      *int                `json:"avg_wait_minutes,omitempty"`

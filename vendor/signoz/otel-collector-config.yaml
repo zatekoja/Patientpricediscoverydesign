@@ -1,0 +1,130 @@
+# OpenTelemetry Collector Configuration for SigNoz
+# This configuration receives traces, metrics, and logs from P2PBets services via OTLP
+
+receivers:
+  # OTLP receiver for gRPC and HTTP protocols (Core for OTel-native metrics)
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Prometheus receiver for scraping metrics from the collector itself
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector'
+          scrape_interval: 60s
+          static_configs:
+            - targets: ['localhost:8888']
+
+processors:
+  # Batch processor for efficient export
+  batch:
+    send_batch_size: 10000
+    send_batch_max_size: 11000
+    timeout: 10s
+
+  # Batch processor optimized for meter data
+  batch/meter:
+    send_batch_size: 1000
+    send_batch_max_size: 1100
+    timeout: 60s
+
+  # Batch processor optimized for logs
+  batch/logs:
+    send_batch_size: 1000
+    send_batch_max_size: 1100
+    timeout: 60s
+
+  # Resource detection for environment enrichment
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: ['os']
+    timeout: 2s
+    override: false
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+
+  # Signoz span metrics processor
+  signozspanmetrics:
+    metrics_exporter: signozclickhousemetrics
+    latency_histogram_buckets: [100us, 1ms, 2ms, 6ms, 10ms, 50ms, 100ms, 250ms, 500ms, 1000ms, 1400ms, 2000ms, 5s, 10s, 20s, 40s, 60s]
+    dimensions_cache_size: 10000
+    dimensions:
+      - name: service.namespace
+        default: default
+      - name: deployment.environment
+        default: local
+
+exporters:
+  # Debug exporter for debugging
+  debug:
+    verbosity: detailed
+
+  # ClickHouse exporter for traces
+  clickhousetraces:
+    datasource: tcp://signoz-clickhouse:9000/?database=signoz_traces&username=default&password=signoz
+    low_cardinal_exception_grouping: true
+
+  # ClickHouse exporter for metrics
+  signozclickhousemetrics:
+    dsn: tcp://signoz-clickhouse:9000/?database=signoz_metrics&username=default&password=signoz
+
+  # ClickHouse exporter for logs
+  clickhouselogsexporter:
+    dsn: tcp://signoz-clickhouse:9000/?database=signoz_logs&username=default&password=signoz
+    timeout: 60s
+    sending_queue:
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  zpages:
+    endpoint: 0.0.0.0:55679
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+service:
+  extensions: [health_check, zpages, pprof]
+
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, signozspanmetrics, batch]
+      exporters: [clickhousetraces, debug]
+
+    # Metrics pipeline (OTLP ONLY)
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [signozclickhousemetrics, debug]
+
+    # Prometheus metrics pipeline (for collector self-monitoring)
+    metrics/prometheus:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [signozclickhousemetrics]
+
+    # Logs pipeline
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/logs]
+      exporters: [clickhouselogsexporter]
+
+  telemetry:
+    logs:
+      level: info

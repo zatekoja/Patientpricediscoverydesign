@@ -1,0 +1,55 @@
+name: 'Generate Repo Dependencies'
+description: 'Generates GraphQL code and mocks for Patient Price Discovery Design'
+author: 'Patient Price Discovery Team'
+
+inputs:
+  working-directory:
+    description: 'Base working directory for the Go services'
+    required: false
+    default: 'backend'
+  generate-mocks:
+    description: 'Whether to also generate mocks if mockery config exists'
+    required: false
+    default: 'true'
+  go-version:
+    description: 'Go version to use'
+    required: false
+    default: '1.25.0'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate GraphQL code
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash
+      run: |
+        echo "🔧 Generating GraphQL code..."
+        if [ -f "gqlgen.yml" ]; then
+          go run github.com/99designs/gqlgen@latest generate
+          echo "✅ GraphQL code generated"
+        else
+          echo "ℹ️ No gqlgen.yml found, skipping GraphQL generation"
+        fi
+
+    - name: Generate mocks
+      if: inputs.generate-mocks == 'true'
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash
+      run: |
+        if [ -f ".mockery.yml" ] || [ -f ".mockery.yaml" ]; then
+          echo "🔧 Generating mocks..."
+          go install github.com/vektra/mockery/v2@latest
+          mockery
+          echo "✅ Mocks generated"
+        else
+          echo "ℹ️ No mockery config found, skipping mock generation"
+        fi
+
+    - name: Finalize Go dependencies
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash
+      run: |
+        echo "🔧 Finalizing Go dependencies after code generation..."
+        go mod download
+        go mod tidy
+        echo "✅ Go dependencies finalized"

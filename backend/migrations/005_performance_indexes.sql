@@ -108,15 +108,15 @@ BEGIN
              WHERE table_name = 'appointments') THEN
 
     -- Composite index for user's appointments
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_appointments_user_status
+    CREATE INDEX IF NOT EXISTS idx_appointments_user_status
       ON appointments(user_id, status, appointment_date DESC);
 
     -- Index for facility's appointments
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_appointments_facility_date
+    CREATE INDEX IF NOT EXISTS idx_appointments_facility_date
       ON appointments(facility_id, appointment_date, status);
 
     -- Index for upcoming appointments
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_appointments_upcoming
+    CREATE INDEX IF NOT EXISTS idx_appointments_upcoming
       ON appointments(appointment_date ASC)
       WHERE status IN ('scheduled', 'confirmed');
   END IF;
@@ -133,13 +133,12 @@ BEGIN
              WHERE table_name = 'feedback') THEN
 
     -- Index for facility feedback with rating
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_feedback_facility_rating
+    CREATE INDEX IF NOT EXISTS idx_feedback_facility_rating
       ON feedback(facility_id, rating DESC, created_at DESC);
 
     -- Index for recent feedback
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_feedback_recent
-      ON feedback(created_at DESC)
-      INCLUDE (facility_id, rating);
+    CREATE INDEX IF NOT EXISTS idx_feedback_recent
+      ON feedback(created_at DESC);
   END IF;
 END
 $$;

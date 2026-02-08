@@ -11,6 +11,7 @@ type Facility struct {
 	Address              Address   `json:"address" db:"-"`
 	Location             Location  `json:"location" db:"-"`
 	PhoneNumber          string    `json:"phone_number" db:"phone_number"`
+	WhatsAppNumber       string    `json:"whatsapp_number,omitempty" db:"whatsapp_number"`
 	Email                string    `json:"email" db:"email"`
 	Website              string    `json:"website" db:"website"`
 	Description          string    `json:"description" db:"description"`

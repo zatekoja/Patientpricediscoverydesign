@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { IExternalDataProvider, DataProviderOptions } from '../interfaces/IExternalDataProvider';
-import { recordApiRequest } from '../observability/metrics';
+import { recordApiRequest, incrementActiveRequests, decrementActiveRequests } from '../observability/metrics';
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
 import { CapacityRequestService } from '../ingestion/capacityRequestService';
 import { recordCapacityWebhook } from '../observability/metrics';
@@ -107,11 +107,16 @@ export class DataProviderAPI {
    */
   private validatePagination(
     limit?: string,
-    offset?: string
+    offset?: string,
+    options?: {
+      defaultLimit?: number;
+      defaultOffset?: number;
+      maxLimit?: number;
+    }
   ): { valid: true; limit: number; offset: number } | { valid: false; error: string } {
-    const MAX_LIMIT = 5000;
-    const DEFAULT_LIMIT = 100;
-    const DEFAULT_OFFSET = 0;
+    const MAX_LIMIT = options?.maxLimit ?? 5000;
+    const DEFAULT_LIMIT = options?.defaultLimit ?? 100;
+    const DEFAULT_OFFSET = options?.defaultOffset ?? 0;
 
     let parsedLimit = DEFAULT_LIMIT;
     let parsedOffset = DEFAULT_OFFSET;
@@ -154,7 +159,9 @@ export class DataProviderAPI {
     // API request metrics
     this.app.use((req, res, next) => {
       const start = process.hrtime.bigint();
+      incrementActiveRequests();
       res.on('finish', () => {
+        decrementActiveRequests();
         const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
         const routePath = `${req.baseUrl || ''}${req.route?.path || req.path}`;
         recordApiRequest({
@@ -355,12 +362,16 @@ export class DataProviderAPI {
         return;
       }
 
-      const parsedLimit = limit ? parseInt(limit as string, 10) : 1000;
-      const parsedOffset = offset ? parseInt(offset as string, 10) : 0;
-      if (Number.isNaN(parsedLimit) || Number.isNaN(parsedOffset)) {
+      const validatedPagination = this.validatePagination(
+        limit as string | undefined,
+        offset as string | undefined,
+        { defaultLimit: 1000 }
+      );
+
+      if (!validatedPagination.valid) {
         res.status(400).json({
           error: 'ValidationError',
-          message: 'limit and offset must be valid integers.',
+          message: validatedPagination.error,
         });
         return;
       }
@@ -369,8 +380,8 @@ export class DataProviderAPI {
         timeWindow: timeWindow as string,
         startDate: parsedStartDate,
         endDate: parsedEndDate,
-        limit: parsedLimit,
-        offset: parsedOffset,
+        limit: validatedPagination.limit,
+        offset: validatedPagination.offset,
       };
 
       const data = await provider.getHistoricalData(options);
@@ -470,9 +481,21 @@ export class DataProviderAPI {
         res.status(503).json({ error: 'Facility profiles not configured' });
         return;
       }
-      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
-      const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
-      const data = await this.facilityProfileService.listProfiles(limit, offset);
+      const validatedPagination = this.validatePagination(
+        req.query.limit as string | undefined,
+        req.query.offset as string | undefined
+      );
+      if (!validatedPagination.valid) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: validatedPagination.error,
+        });
+        return;
+      }
+      const data = await this.facilityProfileService.listProfiles(
+        validatedPagination.limit,
+        validatedPagination.offset
+      );
       res.json({ data, count: data.length });
     } catch (error) {
       next(error);

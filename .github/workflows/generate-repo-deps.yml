@@ -1,0 +1,83 @@
+name: Generate Repo Dependencies
+
+on:
+  workflow_dispatch:
+    inputs:
+      working-directory:
+        description: 'Base working directory for the Go services'
+        required: false
+        default: 'backend'
+      generate-mocks:
+        description: 'Whether to also generate mocks if mockery config exists'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  generate-dependencies:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: true
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      - name: Download Go dependencies
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          echo "📦 Downloading Go dependencies..."
+          go mod download
+          echo "✅ Dependencies downloaded"
+
+      - name: Generate GraphQL code
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          echo "🔧 Generating GraphQL code..."
+          if [ -f "gqlgen.yml" ]; then
+            go run github.com/99designs/gqlgen@latest generate
+            echo "✅ GraphQL code generated"
+          else
+            echo "ℹ️ No gqlgen.yml found, skipping GraphQL generation"
+          fi
+
+      - name: Generate mocks
+        if: inputs.generate-mocks == true
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          if [ -f ".mockery.yml" ] || [ -f ".mockery.yaml" ]; then
+            echo "🔧 Generating mocks..."
+            go install github.com/vektra/mockery/v2@latest
+            mockery
+            echo "✅ Mocks generated"
+          else
+            echo "ℹ️ No .mockery config found, skipping mock generation"
+          fi
+
+      - name: Tidy Go modules
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          echo "🔧 Tidying Go modules..."
+          go mod tidy
+          echo "✅ Go modules tidied"
+
+      - name: Verify generated files
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          echo "🔍 Verifying generated files..."
+          if [ -d "internal/graphql/generated" ]; then
+            echo "✅ GraphQL generated files found"
+          fi
+          echo "✅ Code generation completed successfully"

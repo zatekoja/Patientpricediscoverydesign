@@ -87,11 +87,12 @@ type FacilityProfile struct {
 		Latitude  float64 `json:"latitude"`
 		Longitude float64 `json:"longitude"`
 	} `json:"location"`
-	PhoneNumber string    `json:"phoneNumber"`
-	Email       string    `json:"email"`
-	Website     string    `json:"website"`
-	LastUpdated time.Time `json:"lastUpdated"`
-	Source      string    `json:"source"`
+	PhoneNumber    string    `json:"phoneNumber"`
+	WhatsAppNumber string    `json:"whatsAppNumber,omitempty"`
+	Email          string    `json:"email"`
+	Website        string    `json:"website"`
+	LastUpdated    time.Time `json:"lastUpdated"`
+	Source         string    `json:"source"`
 }
 
 type HistoricalDataRequest struct {
@@ -129,11 +130,18 @@ type SyncResponse struct {
 }
 
 func NewClient(baseURL string) *HTTPClient {
+	return NewClientWithTimeout(baseURL, 10*time.Second)
+}
+
+func NewClientWithTimeout(baseURL string, timeout time.Duration) *HTTPClient {
 	trimmed := strings.TrimRight(baseURL, "/")
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
 	return &HTTPClient{
 		baseURL: trimmed,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }

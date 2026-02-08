@@ -1,0 +1,5 @@
+{
+  "OPENAI_API_KEY": "dev-openai",
+  "GEOLOCATION_API_KEY": "AIzaSyASMvsfXPkitc9QblghrhaPfKTmTkre4jg",
+  "TYPESENSE_API_KEY": "xyz"
+}

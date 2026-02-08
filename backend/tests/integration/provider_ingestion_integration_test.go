@@ -56,12 +56,17 @@ func TestProviderIngestionServiceIntegration(t *testing.T) {
 	)
 
 	providerClient := providerapi.NewClient(baseURL)
+	enrichmentAdapter := database.NewProcedureEnrichmentAdapter(client)
 	ingestion := services.NewProviderIngestionService(
 		providerClient,
 		facilityRepo,
 		facilityService,
 		procedureRepo,
 		facilityProcedureRepo,
+		enrichmentAdapter,
+		nil, // no enrichment provider for test - enrichment will be skipped
+		nil, // no geolocation provider
+		nil, // no cache provider
 		200,
 	)
 

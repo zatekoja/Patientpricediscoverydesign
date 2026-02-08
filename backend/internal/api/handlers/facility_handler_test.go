@@ -52,6 +52,14 @@ func (m *MockFacilityService) SearchResults(ctx context.Context, params reposito
 	return args.Get(0).([]entities.FacilitySearchResult), args.Error(1)
 }
 
+func (m *MockFacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error) {
+	args := m.Called(ctx, params)
+	if args.Get(0) == nil {
+		return nil, 0, args.Error(2)
+	}
+	return args.Get(0).([]entities.FacilitySearchResult), args.Int(1), args.Error(2)
+}
+
 func (m *MockFacilityService) Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error) {
 	args := m.Called(ctx, query, lat, lon, limit)
 	if args.Get(0) == nil {
@@ -130,9 +138,9 @@ func TestFacilityHandler_SearchFacilities_ReturnsContract(t *testing.T) {
 		},
 	}
 
-	mockService.On("SearchResults", mock.Anything, mock.MatchedBy(func(p repositories.SearchParams) bool {
+	mockService.On("SearchResultsWithCount", mock.Anything, mock.MatchedBy(func(p repositories.SearchParams) bool {
 		return p.Latitude == 6.5244 && p.Longitude == 3.3792 && p.RadiusKm == 20 && p.Limit == 5 && p.Offset == 10 && p.Query == "clinic"
-	})).Return(expected, nil)
+	})).Return(expected, 42, nil)
 
 	req := httptest.NewRequest("GET", "/api/facilities/search?lat=6.5244&lon=3.3792&radius=20&limit=5&offset=10&query=clinic", nil)
 	w := httptest.NewRecorder()
@@ -145,7 +153,7 @@ func TestFacilityHandler_SearchFacilities_ReturnsContract(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	assert.NoError(t, err)
 	assert.Len(t, resp.Facilities, 1)
-	assert.Equal(t, 1, resp.Count)
+	assert.Equal(t, 42, resp.Count)
 	assert.Equal(t, expected[0].ID, resp.Facilities[0].ID)
 	assert.Equal(t, expected[0].Price.Currency, resp.Facilities[0].Price.Currency)
 	assert.Equal(t, expected[0].AcceptedInsurance, resp.Facilities[0].AcceptedInsurance)

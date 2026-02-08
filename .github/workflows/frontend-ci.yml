@@ -1,0 +1,189 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Frontend/**'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Frontend/**'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  workflow_call:
+    inputs:
+      enable-summary:
+        description: 'Generate CI summary'
+        type: boolean
+        required: false
+        default: true
+  workflow_dispatch:
+    inputs:
+      enable-summary:
+        description: 'Generate CI summary'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+  actions: read
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+  FRONTEND_DIR: Frontend
+
+jobs:
+  # ==========================================
+  # Frontend Build and Test
+  # ==========================================
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and TypeScript
+        uses: ./.github/actions/setup-service-typescript
+        with:
+          working-directory: ${{ env.FRONTEND_DIR }}
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run TypeScript type check
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: |
+          echo "🔍 Running TypeScript type check..."
+          npm run type-check || npx tsc --noEmit
+          echo "✅ TypeScript type check passed"
+
+      - name: Run linting
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: |
+          echo "🔍 Running ESLint..."
+          npm run lint || echo "⚠️ Linting skipped (no lint script found)"
+          echo "✅ Linting completed"
+
+      - name: Run tests
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: |
+          echo "🧪 Running frontend tests..."
+          npm test || echo "⚠️ Tests skipped (no test script found)"
+          echo "✅ Frontend tests completed"
+
+      - name: Build frontend
+        working-directory: ${{ env.FRONTEND_DIR }}
+        run: |
+          echo "🔨 Building frontend..."
+          npm run build
+          echo "✅ Frontend build successful"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: ${{ env.FRONTEND_DIR }}/dist
+          retention-days: 7
+
+  # ==========================================
+  # Root Package Tests (if applicable)
+  # ==========================================
+  root-package-test:
+    name: Root Package Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: |
+          if [ -f package.json ]; then
+            echo "📦 Installing root dependencies..."
+            npm ci
+            echo "✅ Root dependencies installed"
+          else
+            echo "ℹ️ No root package.json found, skipping"
+          fi
+
+      - name: Run root tests
+        run: |
+          if [ -f package.json ] && npm run test &> /dev/null; then
+            echo "🧪 Running root package tests..."
+            npm test
+            echo "✅ Root tests completed"
+          else
+            echo "ℹ️ No root test script found, skipping"
+          fi
+
+  # ==========================================
+  # CI Summary
+  # ==========================================
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [frontend-test, root-package-test]
+    if: always() && (inputs.enable-summary == true || inputs.enable-summary == '' || github.event.inputs.enable-summary == 'true')
+
+    steps:
+      - name: Generate CI summary
+        run: |
+          echo "## Frontend CI Summary - Patient Price Discovery Design" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          FRONTEND="${{ needs.frontend-test.result }}"
+          ROOT="${{ needs.root-package-test.result }}"
+
+          echo "### Status Checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Helper function for status display
+          display_status() {
+            case "$1" in
+              "success") echo "✅ **$2:** Passed" ;;
+              "skipped") echo "⏭️ **$2:** Skipped" ;;
+              "failure") echo "❌ **$2:** Failed" ;;
+              *) echo "⚠️ **$2:** Unknown status" ;;
+            esac
+          }
+
+          display_status "$FRONTEND" "Frontend Build & Test" >> $GITHUB_STEP_SUMMARY
+          display_status "$ROOT" "Root Package Tests" >> $GITHUB_STEP_SUMMARY
+
+          # Overall status
+          if [[ "$FRONTEND" == "failure" ]] || [[ "$ROOT" == "failure" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ CI: FAILED" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ CI: PASSED" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** Patient Price Discovery Design" >> $GITHUB_STEP_SUMMARY

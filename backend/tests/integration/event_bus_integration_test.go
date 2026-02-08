@@ -16,9 +16,6 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
 )
 
 func TestRedisEventBusFanoutIntegration(t *testing.T) {
@@ -109,37 +106,6 @@ func TestFacilityService_UpdateServiceAvailability_PublishesEvent(t *testing.T) 
 	assert.Equal(t, true, received.ChangedFields["is_available"])
 
 	cleanupFacilityAvailabilityData(t, db)
-}
-
-func newTestRedisClient(t *testing.T) *redis.Client {
-	t.Helper()
-
-	cfg := &config.RedisConfig{
-		Host: getEnv("TEST_REDIS_HOST", "localhost"),
-		Port: getEnvAsInt("TEST_REDIS_PORT", 6379),
-		DB:   0,
-	}
-
-	client, err := redis.NewClient(cfg)
-	require.NoError(t, err, "Failed to create redis client")
-	return client
-}
-
-func newTestPostgresClient(t *testing.T) *postgres.Client {
-	t.Helper()
-
-	cfg := &config.DatabaseConfig{
-		Host:     getEnv("TEST_DB_HOST", "localhost"),
-		Port:     getEnvAsInt("TEST_DB_PORT", 5432),
-		User:     getEnv("TEST_DB_USER", "postgres"),
-		Password: getEnv("TEST_DB_PASSWORD", "postgres"),
-		Database: getEnv("TEST_DB_NAME", "patient_price_discovery_test"),
-		SSLMode:  getEnv("TEST_DB_SSLMODE", "disable"),
-	}
-
-	client, err := postgres.NewClient(cfg)
-	require.NoError(t, err, "Failed to create postgres client")
-	return client
 }
 
 func runMigrations(t *testing.T, db *sql.DB, paths ...string) {

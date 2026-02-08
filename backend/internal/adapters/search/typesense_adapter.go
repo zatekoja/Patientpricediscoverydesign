@@ -108,6 +108,12 @@ func (a *TypesenseAdapter) Delete(ctx context.Context, id string) error {
 
 // Search searches facilities
 func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error) {
+	facilities, _, err := a.SearchWithCount(ctx, params)
+	return facilities, err
+}
+
+// SearchWithCount searches facilities and returns the total match count.
+func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
 	query := "*"
 	if params.Query != "" {
 		query = params.Query
@@ -144,7 +150,7 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 
 	result, err := a.client.Client().Collection(collectionName).Documents().Search(ctx, searchParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search facilities: %w", err)
+		return nil, 0, fmt.Errorf("failed to search facilities: %w", err)
 	}
 
 	facilities := []*entities.Facility{}
@@ -172,6 +178,15 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 				Longitude: lon,
 			},
 		}
+		if tagValues, ok := doc["tags"].([]interface{}); ok {
+			tags := make([]string, 0, len(tagValues))
+			for _, tag := range tagValues {
+				if tagStr, ok := tag.(string); ok {
+					tags = append(tags, tagStr)
+				}
+			}
+			facility.Tags = tags
+		}
 
 		if val, ok := doc["rating"].(float64); ok {
 			facility.Rating = val
@@ -183,7 +198,12 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 		facilities = append(facilities, facility)
 	}
 
-	return facilities, nil
+	totalCount := len(facilities)
+	if result.Found != nil {
+		totalCount = *result.Found
+	}
+
+	return facilities, totalCount, nil
 }
 
 // Suggest provides lightweight autocomplete suggestions using Typesense.
@@ -235,6 +255,15 @@ func (a *TypesenseAdapter) Suggest(ctx context.Context, query string, lat, lon f
 				Latitude:  latVal,
 				Longitude: lonVal,
 			},
+		}
+		if tagValues, ok := doc["tags"].([]interface{}); ok {
+			tags := make([]string, 0, len(tagValues))
+			for _, tag := range tagValues {
+				if tagStr, ok := tag.(string); ok {
+					tags = append(tags, tagStr)
+				}
+			}
+			facility.Tags = tags
 		}
 
 		facilities = append(facilities, facility)

@@ -423,6 +423,20 @@ Required environment variables:
 - `PORT` - Server port (default: 3000)
 - `NODE_ENV` - Environment (development/production)
 
+Optional Vault secrets (KV v1/v2):
+
+```bash
+VAULT_ENABLED=true
+VAULT_ADDR=https://vault.example.com
+VAULT_TOKEN=...
+VAULT_NAMESPACE=
+VAULT_MOUNT=secret
+VAULT_PROVIDER_PATH=patient-price-discovery/provider
+VAULT_KV_VERSION=2
+VAULT_TIMEOUT_MS=5000
+VAULT_OVERWRITE=false
+```
+
 ## Monitoring
 
 ### Logging

@@ -289,11 +289,49 @@ func (s *FacilityService) Search(ctx context.Context, params repositories.Search
 	return s.repo.Search(ctx, params)
 }
 
+func (s *FacilityService) searchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
+	if s.searchRepo != nil {
+		if adapterWithCount, ok := s.searchRepo.(interface {
+			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+		}); ok {
+			facilities, totalCount, err := adapterWithCount.SearchWithCount(ctx, params)
+			if err == nil {
+				return facilities, totalCount, nil
+			}
+			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
+		} else {
+			facilities, err := s.searchRepo.Search(ctx, params)
+			if err == nil {
+				return facilities, len(facilities), nil
+			}
+			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
+		}
+	}
+
+	if adapterWithCount, ok := s.repo.(interface {
+		SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+	}); ok {
+		return adapterWithCount.SearchWithCount(ctx, params)
+	}
+
+	facilities, err := s.repo.Search(ctx, params)
+	if err != nil {
+		return nil, 0, err
+	}
+	return facilities, len(facilities), nil
+}
+
 // SearchResults returns enriched facility search results for the UI.
 func (s *FacilityService) SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error) {
-	facilities, err := s.Search(ctx, params)
+	results, _, err := s.SearchResultsWithCount(ctx, params)
+	return results, err
+}
+
+// SearchResultsWithCount returns enriched facility search results and total count for pagination.
+func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error) {
+	facilities, totalCount, err := s.searchWithCount(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	results := make([]entities.FacilitySearchResult, 0, len(facilities))
@@ -304,8 +342,12 @@ func (s *FacilityService) SearchResults(ctx context.Context, params repositories
 
 		// If search results are partial (e.g., Typesense), load full record from DB.
 		if s.searchRepo != nil {
+			tags := facility.Tags
 			full, err := s.repo.GetByID(ctx, facility.ID)
 			if err == nil && full != nil {
+				if len(full.Tags) == 0 && len(tags) > 0 {
+					full.Tags = tags
+				}
 				facility = full
 			}
 		}
@@ -317,11 +359,14 @@ func (s *FacilityService) SearchResults(ctx context.Context, params repositories
 			Address:           facility.Address,
 			Location:          facility.Location,
 			PhoneNumber:       facility.PhoneNumber,
+			WhatsAppNumber:    facility.WhatsAppNumber,
+			Email:             facility.Email,
 			Website:           facility.Website,
 			Rating:            facility.Rating,
 			ReviewCount:       facility.ReviewCount,
 			DistanceKm:        haversineKm(params.Latitude, params.Longitude, facility.Location.Latitude, facility.Location.Longitude),
 			Services:          []string{},
+			Tags:              facility.Tags,
 			AcceptedInsurance: []string{},
 			UpdatedAt:         facility.UpdatedAt,
 		}
@@ -364,7 +409,7 @@ func (s *FacilityService) SearchResults(ctx context.Context, params repositories
 		results = append(results, result)
 	}
 
-	return results, nil
+	return results, totalCount, nil
 }
 
 // Suggest returns facility suggestions for a query.

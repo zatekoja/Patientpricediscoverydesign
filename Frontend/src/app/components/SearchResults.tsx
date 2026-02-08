@@ -1,5 +1,14 @@
-import { MapPin, Calendar, Clock, Star, CheckCircle2, Activity } from "lucide-react";
+import { MapPin, Calendar, Star, CheckCircle2, Activity, ShieldCheck, Clock, FileText, Phone, Mail, Globe, MessageCircle } from "lucide-react";
 import type { UIFacility } from "../../lib/mappers";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface SearchResultsProps {
   facilities: UIFacility[];
@@ -7,6 +16,10 @@ interface SearchResultsProps {
   searchStatus?: "idle" | "loading" | "ok" | "error";
   searchDurationMs?: number | null;
   lastSearchAt?: Date | null;
+  currentPage: number;
+  pageSize: number;
+  totalCount?: number;
+  onPageChange: (page: number) => void;
   onSelectFacility: (facility: UIFacility) => void;
 }
 
@@ -16,73 +29,44 @@ export function SearchResults({
   searchStatus = "idle",
   searchDurationMs = null,
   lastSearchAt = null,
+  currentPage,
+  pageSize,
+  totalCount,
+  onPageChange,
   onSelectFacility,
 }: SearchResultsProps) {
-  const formatUpdate = (iso?: string) => {
-    if (!iso) return null;
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return null;
-    return date.toLocaleString("en-NG", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+
+  const formatCurrency = (value: number, currency?: string | null) => {
+    const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
+    return `${symbol}${value.toLocaleString("en-NG")}`;
   };
-
-  const computeNextUpdate = (iso?: string) => {
-    if (!iso) return null;
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return null;
-    date.setHours(date.getHours() + 24);
-    return date.toLocaleString("en-NG", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const statusLabel = {
-    idle: "Idle",
-    loading: "Searching...",
-    ok: "Search OK",
-    error: "Search error",
-  }[searchStatus];
-
-  const statusColor = {
-    idle: "bg-gray-300",
-    loading: "bg-blue-500",
-    ok: "bg-green-500",
-    error: "bg-red-500",
-  }[searchStatus];
 
   const formatNextAvailable = (iso?: string | null) => {
     if (!iso) return "Check availability";
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return "Check availability";
-    return date.toLocaleString("en-NG", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    // Example: "Tomorrow, 09:00am" - simplified for now
+    const today = new Date();
+    const isToday = date.getDate() === today.getDate() && date.getMonth() === today.getMonth();
+    const isTomorrow = new Date(today.getTime() + 86400000).getDate() === date.getDate();
+    
+    let dayStr = date.toLocaleDateString("en-NG", { weekday: 'short', month: 'short', day: 'numeric' });
+    if (isToday) dayStr = "Today";
+    if (isTomorrow) dayStr = "Tomorrow";
+
+    const timeStr = date.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+    return `${dayStr}, ${timeStr}`;
   };
 
   const resolveCapacity = (status?: string | null) => {
     const normalized = (status || "").toLowerCase();
     if (normalized.includes("available")) {
-      return { label: "Available", tone: "green", badge: "bg-green-100 text-green-800", dot: "bg-green-600" };
+      return { label: "Available", badge: "bg-green-100 text-green-700", dot: "bg-green-500" };
     }
     if (normalized.includes("limited") || normalized.includes("busy")) {
-      return { label: status || "Limited", tone: "yellow", badge: "bg-yellow-100 text-yellow-800", dot: "bg-yellow-600" };
+      return { label: "Limited capacity", badge: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" };
     }
-    if (normalized.includes("full") || normalized.includes("closed")) {
-      return { label: status || "Full", tone: "red", badge: "bg-red-100 text-red-800", dot: "bg-red-600" };
-    }
-    return { label: status || "Unknown", tone: "gray", badge: "bg-gray-100 text-gray-700", dot: "bg-gray-400" };
+    return { label: status || "Unknown", badge: "bg-gray-100 text-gray-700", dot: "bg-gray-400" };
   };
 
   if (loading) {
@@ -96,173 +80,259 @@ export function SearchResults({
   if (facilities.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500 text-lg">No facilities found.</p>
+        <p className="text-gray-500 text-lg">No facilities found matching your criteria.</p>
       </div>
     );
   }
 
+  const resolvedTotal = totalCount != null
+    ? Math.max(totalCount, facilities.length)
+    : facilities.length;
+  const totalPages = Math.max(1, Math.ceil(resolvedTotal / pageSize));
+  
+  const buildPaginationItems = (page: number, total: number) => {
+    if (total <= 5) {
+      return Array.from({ length: total }, (_, index) => index + 1);
+    }
+    const pages = new Set<number>([1, total, page - 1, page, page + 1]);
+    const sorted = Array.from(pages)
+      .filter((value) => value >= 1 && value <= total)
+      .sort((a, b) => a - b);
+    const items: Array<number | "ellipsis"> = [];
+    let lastPage = 0;
+    sorted.forEach((value) => {
+      if (value - lastPage > 1) items.push("ellipsis");
+      items.push(value);
+      lastPage = value;
+    });
+    return items;
+  };
+
+  const paginationItems = buildPaginationItems(currentPage, totalPages);
+  const isPrevDisabled = currentPage <= 1;
+  const isNextDisabled = currentPage >= totalPages;
+
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">
-            {facilities.length} facilities found
-          </h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Showing results near your location
-          </p>
-          <div className="mt-2 text-xs text-gray-500">
-            Transparency: search index refreshes every 6 hours (configurable). Live availability updates stream in real time.
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 text-xs text-gray-600">
-            <span className={`h-2 w-2 rounded-full ${statusColor}`} />
-            <span>{statusLabel}</span>
-            {searchDurationMs != null && (
-              <span>· {Math.round(searchDurationMs)} ms</span>
-            )}
-            {lastSearchAt && (
-              <span>
-                · {lastSearchAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-700">Sort by:</label>
-            <select className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option>Distance</option>
-              <option>Price (Low to High)</option>
-              <option>Price (High to Low)</option>
-              <option>Rating</option>
-              <option>Availability</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
       <div className="space-y-4">
-        {facilities.map((facility) => (
-          <div
-            key={facility.id}
-            className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow cursor-pointer"
-            onClick={() => onSelectFacility(facility)}
-          >
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex-1">
+        {facilities.map((facility) => {
+          const capacity = resolveCapacity(facility.capacityStatus);
+          const priceDisplay = facility.priceMin 
+            ? `${formatCurrency(facility.priceMin, facility.currency)}${facility.priceMax && facility.priceMax !== facility.priceMin ? ` - ${formatCurrency(facility.priceMax, facility.currency)}` : ''}`
+            : "Price Varies";
+
+          return (
+            <div
+              key={facility.id}
+              className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => onSelectFacility(facility)}
+            >
+              {/* Header Row */}
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 mb-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h3 className="text-lg font-semibold text-gray-900">{facility.name}</h3>
+                  
+                  {/* Urgent Care Badge */}
+                  {facility.urgentCareAvailable && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                      Urgent care available
+                    </span>
+                  )}
+                  
+                  {/* Availability Badge */}
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${capacity.badge} border border-transparent`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${capacity.dot}`} />
+                    {capacity.label}
+                  </span>
+                </div>
+                
+                {/* Price Range */}
+                <div className="text-right">
+                  <span className="block font-semibold text-gray-900">{priceDisplay}</span>
+                </div>
+              </div>
+
+              {/* Sub-header: Type & Rating */}
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{facility.type}</span>
+                <div className="flex items-center gap-1">
+                  <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                  <span className="text-sm font-medium text-gray-900">{facility.rating}</span>
+                </div>
+              </div>
+
+              {/* Details Row 1 */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-3 border-t border-gray-100 border-dashed">
                 <div className="flex items-start gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {facility.name}
-                      </h3>
-                      {facility.urgentCareAvailable && (
-                        <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">
-                          Urgent Care Available
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600 mb-2">{facility.type}</p>
-                    <div className="flex items-center gap-1 mb-3">
-                      <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                      <span className="font-semibold text-gray-900">
-                        {facility.rating}
-                      </span>
-                      <span className="text-sm text-gray-600">
-                        ({facility.reviews} reviews)
-                      </span>
-                    </div>
-                  </div>
+                   <div className="p-1.5 rounded-full bg-gray-50">
+                     <MapPin className="w-4 h-4 text-gray-500" />
+                   </div>
+                   <div>
+                     <p className="text-sm text-gray-900 font-medium">{facility.address}</p>
+                     <p className="text-xs text-gray-500">{facility.distanceKm.toFixed(1)} miles away</p>
+                   </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                   <div className="p-1.5 rounded-full bg-gray-50">
+                     <Calendar className="w-4 h-4 text-gray-500" />
+                   </div>
+                   <div>
+                     <p className="text-sm text-gray-900 font-medium">{formatNextAvailable(facility.nextAvailableAt)}</p>
+                     <p className="text-xs text-gray-500">Next available</p>
+                   </div>
                 </div>
 
-                {/* Key Information Grid */}
-                <div className="grid grid-cols-2 gap-4 mb-4 lg:grid-cols-3">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {facility.distanceKm.toFixed(2)} km away
-                      </p>
-                      <p className="text-xs text-gray-600">{facility.address}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Calendar className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {formatNextAvailable(facility.nextAvailableAt)}
-                      </p>
-                      <p className="text-xs text-gray-600">Next available</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Activity className="w-4 h-4 text-gray-400 mt-0.5" />
-                    <div>
-                      {(() => {
-                        const capacity = resolveCapacity(facility.capacityStatus);
-                        return (
-                          <>
-                            <div className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs ${capacity.badge}`}>
-                              <span className={`h-2 w-2 rounded-full ${capacity.dot}`} />
-                              <span className="font-medium">Capacity {capacity.label}</span>
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">
-                              {facility.avgWaitMinutes != null
-                                ? `Avg. wait ${facility.avgWaitMinutes} min`
-                                : "Avg. wait not available"}
-                            </p>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-xs text-gray-500 mb-4">
-                  {formatUpdate(facility.updatedAt) && (
-                    <span>
-                      Last updated: {formatUpdate(facility.updatedAt)}
-                    </span>
-                  )}
-                  {computeNextUpdate(facility.updatedAt) && (
-                    <span>
-                      {" "}· Next update: {computeNextUpdate(facility.updatedAt)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Services & Insurance */}
-                <div className="space-y-2">
-                  {facility.services.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      <span className="text-sm text-gray-700">
-                        Services: {facility.services.join(", ")}
-                      </span>
-                    </div>
-                  )}
-                  {facility.insurance.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      <span className="text-sm text-gray-700">
-                        Insurance: {facility.insurance.slice(0, 3).join(", ")}
-                        {facility.insurance.length > 3 && ` +${facility.insurance.length - 3} more`}
-                      </span>
-                    </div>
-                  )}
+                <div className="flex items-start gap-3">
+                   <div className="p-1.5 rounded-full bg-gray-50">
+                     <Clock className="w-4 h-4 text-gray-500" />
+                   </div>
+                   <div>
+                     <p className="text-sm text-gray-900 font-medium">{facility.avgWaitMinutes || '--'} min</p>
+                     <p className="text-xs text-gray-500">Avg. wait time</p>
+                   </div>
                 </div>
               </div>
 
-              {/* Right Side - Capacity Status */}
-              <div className="flex items-center justify-between lg:flex-col lg:items-end lg:text-right">
-                <button className="px-6 py-2 bg-transparent text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
-                  View Details
-                </button>
+              {/* Details Row 2 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+                 <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <FileText className="w-4 h-4 text-gray-400" />
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      <span className="text-gray-500 mr-1">Services:</span>
+                      {facility.services.slice(0, 3).join(", ")}
+                      {facility.services.length > 3 && ", ..."}
+                    </div>
+                 </div>
+
+                 <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <ShieldCheck className="w-4 h-4 text-gray-400" />
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      <span className="text-gray-500 mr-1">Insurances:</span>
+                       {facility.insurance.slice(0, 2).join(", ")}
+                       {facility.insurance.length > 2 && ", ..."}
+                    </div>
+                 </div>
               </div>
+
+              {/* Contact Details Row */}
+              {(facility.phoneNumber || facility.whatsAppNumber || facility.email || facility.website) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-3 border-t border-gray-100">
+                  {facility.phoneNumber && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-gray-400" />
+                      <a 
+                        href={`tel:${facility.phoneNumber}`}
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {facility.phoneNumber}
+                      </a>
+                    </div>
+                  )}
+                  
+                  {(facility.whatsAppNumber || facility.phoneNumber) && (
+                    <div className="flex items-center gap-2">
+                      <MessageCircle className="w-4 h-4 text-green-500" />
+                      <a 
+                        href={`https://wa.me/${(facility.whatsAppNumber || facility.phoneNumber)?.replace(/[^0-9]/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-green-600 hover:text-green-800 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        WhatsApp
+                      </a>
+                    </div>
+                  )}
+                  
+                  {facility.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-gray-400" />
+                      <a 
+                        href={`mailto:${facility.email}`}
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline truncate"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {facility.email}
+                      </a>
+                    </div>
+                  )}
+                  
+                  {facility.website && (
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-gray-400" />
+                      <a 
+                        href={facility.website.startsWith('http') ? facility.website : `https://${facility.website}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline truncate"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Visit Website
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {totalPages > 1 && (
+        <div className="mt-8 flex justify-center">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  aria-disabled={isPrevDisabled}
+                  className={isPrevDisabled ? "pointer-events-none opacity-50" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (!isPrevDisabled) onPageChange(currentPage - 1);
+                  }}
+                />
+              </PaginationItem>
+              {paginationItems.map((item, index) => (
+                <PaginationItem key={`${item}-${index}`}>
+                  {item === "ellipsis" ? (
+                    <PaginationEllipsis />
+                  ) : (
+                    <PaginationLink
+                      href="#"
+                      isActive={item === currentPage}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (item !== currentPage) onPageChange(item);
+                      }}
+                    >
+                      {item}
+                    </PaginationLink>
+                  )}
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  aria-disabled={isNextDisabled}
+                  className={isNextDisabled ? "pointer-events-none opacity-50" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (!isNextDisabled) onPageChange(currentPage + 1);
+                  }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
     </div>
   );
 }

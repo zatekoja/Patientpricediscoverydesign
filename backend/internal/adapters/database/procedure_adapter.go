@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -389,13 +390,14 @@ func (a *FacilityProcedureAdapter) scanFacilityProcedure(ctx context.Context, qu
 	return fp, nil
 }
 
-// ListByFacility retrieves all procedures for a facility
+// ListByFacility retrieves all procedures for a facility (including unavailable ones marked with isAvailable=false)
+// Services with IsAvailable=false will be returned so they can be displayed as "grayed out" on the frontend
 func (a *FacilityProcedureAdapter) ListByFacility(ctx context.Context, facilityID string) ([]*entities.FacilityProcedure, error) {
 	query, args, err := a.db.Select(
 		"id", "facility_id", "procedure_id", "price", "currency",
 		"estimated_duration", "is_available", "created_at", "updated_at",
 	).From("facility_procedures").
-		Where(goqu.Ex{"facility_id": facilityID, "is_available": true}).
+		Where(goqu.Ex{"facility_id": facilityID}).
 		ToSQL()
 
 	if err != nil {
@@ -429,6 +431,154 @@ func (a *FacilityProcedureAdapter) ListByFacility(ctx context.Context, facilityI
 	}
 
 	return fps, nil
+}
+
+// ListByFacilityWithCount implements TDD-driven search-first pagination
+// CRITICAL: This method searches the ENTIRE dataset first, then applies pagination
+// This ensures users can find all relevant results across all pages
+func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
+	ctx context.Context,
+	facilityID string,
+	filter repositories.FacilityProcedureFilter,
+) ([]*entities.FacilityProcedure, int, error) {
+
+	// Step 1: Build base query with JOIN to procedures table for search capability
+	baseQuery := a.db.From(
+		a.db.Select("fp.*", "p.name as procedure_name", "p.category", "p.description").
+			From(goqu.T("facility_procedures").As("fp")).
+			Join(goqu.T("procedures").As("p"), goqu.On(goqu.I("fp.procedure_id").Eq(goqu.I("p.id")))).
+			Where(goqu.I("fp.facility_id").Eq(facilityID)).
+			Where(goqu.I("p.is_active").Eq(true)).
+			As("base_data"),
+	)
+
+	// Step 2: Apply ALL filters to entire dataset BEFORE pagination
+	filteredQuery := baseQuery
+
+	// Availability filter
+	if filter.IsAvailable != nil {
+		filteredQuery = filteredQuery.Where(goqu.I("is_available").Eq(*filter.IsAvailable))
+	}
+
+	// Category filter
+	if filter.Category != "" {
+		filteredQuery = filteredQuery.Where(goqu.I("category").ILike(fmt.Sprintf("%%%s%%", filter.Category)))
+	}
+
+	// Price range filters
+	if filter.MinPrice != nil {
+		filteredQuery = filteredQuery.Where(goqu.I("price").Gte(*filter.MinPrice))
+	}
+	if filter.MaxPrice != nil {
+		filteredQuery = filteredQuery.Where(goqu.I("price").Lte(*filter.MaxPrice))
+	}
+
+	// CRITICAL: Search query applied to ENTIRE dataset first
+	if filter.SearchQuery != "" {
+		searchPattern := fmt.Sprintf("%%%s%%", filter.SearchQuery)
+		filteredQuery = filteredQuery.Where(
+			goqu.Or(
+				goqu.I("procedure_name").ILike(searchPattern),
+				goqu.I("description").ILike(searchPattern),
+			),
+		)
+	}
+
+	// Step 3: Get total count of filtered results (before pagination)
+	countQuery := filteredQuery.Select(goqu.COUNT("*"))
+	countSQL, countArgs, err := countQuery.ToSQL()
+	if err != nil {
+		return nil, 0, apperrors.NewInternalError("failed to build count query", err)
+	}
+
+	var totalCount int
+	err = a.client.DB().QueryRowContext(ctx, countSQL, countArgs...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, apperrors.NewInternalError("failed to count filtered procedures", err)
+	}
+
+	// Step 4: Apply sorting to filtered data
+	sortedQuery := filteredQuery.Select(
+		"id", "facility_id", "procedure_id", "price", "currency",
+		"estimated_duration", "is_available", "created_at", "updated_at",
+	)
+
+	if filter.SortBy != "" {
+		switch filter.SortBy {
+		case "name":
+			if filter.SortOrder == "desc" {
+				sortedQuery = sortedQuery.Order(goqu.I("procedure_name").Desc())
+			} else {
+				sortedQuery = sortedQuery.Order(goqu.I("procedure_name").Asc())
+			}
+		case "category":
+			if filter.SortOrder == "desc" {
+				sortedQuery = sortedQuery.Order(goqu.I("category").Desc())
+			} else {
+				sortedQuery = sortedQuery.Order(goqu.I("category").Asc())
+			}
+		case "updated_at":
+			if filter.SortOrder == "desc" {
+				sortedQuery = sortedQuery.Order(goqu.I("updated_at").Desc())
+			} else {
+				sortedQuery = sortedQuery.Order(goqu.I("updated_at").Asc())
+			}
+		case "price":
+			if filter.SortOrder == "desc" {
+				sortedQuery = sortedQuery.Order(goqu.I("price").Desc())
+			} else {
+				sortedQuery = sortedQuery.Order(goqu.I("price").Asc())
+			}
+		default:
+			// default to price ascending
+			sortedQuery = sortedQuery.Order(goqu.I("price").Asc())
+		}
+	} else {
+		// Default sort by price ascending
+		sortedQuery = sortedQuery.Order(goqu.I("price").Asc())
+	}
+
+	// Step 5: Apply pagination LAST (after search, filter, sort)
+	if filter.Limit > 0 {
+		sortedQuery = sortedQuery.Limit(uint(filter.Limit))
+	}
+	if filter.Offset > 0 {
+		sortedQuery = sortedQuery.Offset(uint(filter.Offset))
+	}
+
+	// Step 6: Execute final query
+	finalSQL, finalArgs, err := sortedQuery.ToSQL()
+	if err != nil {
+		return nil, 0, apperrors.NewInternalError("failed to build final query", err)
+	}
+
+	rows, err := a.client.DB().QueryContext(ctx, finalSQL, finalArgs...)
+	if err != nil {
+		return nil, 0, apperrors.NewInternalError("failed to execute paginated query", err)
+	}
+	defer rows.Close()
+
+	var procedures []*entities.FacilityProcedure
+	for rows.Next() {
+		fp := &entities.FacilityProcedure{}
+		err := rows.Scan(
+			&fp.ID, &fp.FacilityID, &fp.ProcedureID, &fp.Price, &fp.Currency,
+			&fp.EstimatedDuration, &fp.IsAvailable, &fp.CreatedAt, &fp.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, apperrors.NewInternalError("failed to scan facility procedure", err)
+		}
+		procedures = append(procedures, fp)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, apperrors.NewInternalError("error iterating procedures", err)
+	}
+
+	// Audit log filtering behavior for debugging
+	logFilteringAudit(facilityID, filter, totalCount, len(procedures))
+
+	return procedures, totalCount, nil
 }
 
 // Update updates a facility procedure
@@ -494,4 +644,27 @@ func (a *FacilityProcedureAdapter) Delete(ctx context.Context, id string) error 
 	}
 
 	return nil
+}
+
+// logFilteringAudit logs information about service filtering for debugging
+// This helps understand why certain services are excluded from results
+func logFilteringAudit(facilityID string, filter repositories.FacilityProcedureFilter, totalCount, returnedCount int) {
+	auditLog := fmt.Sprintf(
+		"FILTER_AUDIT [FacilityID=%s] Total matching: %d, Returned (after pagination): %d | "+
+			"Category: %v, MinPrice: %v, MaxPrice: %v, IsAvailable: %v, Search: %q, "+
+			"Sort: %s %s, Limit: %d, Offset: %d",
+		facilityID,
+		totalCount,
+		returnedCount,
+		filter.Category,
+		filter.MinPrice,
+		filter.MaxPrice,
+		filter.IsAvailable,
+		filter.SearchQuery,
+		filter.SortBy,
+		filter.SortOrder,
+		filter.Limit,
+		filter.Offset,
+	)
+	log.Println(auditLog)
 }

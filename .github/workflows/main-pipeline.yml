@@ -1,0 +1,251 @@
+name: Main CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force-deploy:
+        description: 'Force deployment even on PR'
+        type: boolean
+        required: false
+        default: false
+      target-environment:
+        description: 'Target environment for deployment'
+        type: choice
+        required: false
+        default: 'dev'
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  checks: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: main-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25.0'
+  NODE_VERSION: '18'
+  GCP_PROJECT_ID: 'open-health-index-dev'
+
+jobs:
+  # ==========================================
+  # Change Detection
+  # ==========================================
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend-changed: ${{ steps.changes.outputs.backend }}
+      typescript-provider-changed: ${{ steps.changes.outputs.typescript-provider }}
+      frontend-changed: ${{ steps.changes.outputs.frontend }}
+      infrastructure-changed: ${{ steps.changes.outputs.infrastructure }}
+      should-deploy: ${{ steps.deploy-decision.outputs.should-deploy }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect file changes
+        id: changes
+        run: |
+          echo "Detecting changes..."
+          
+          # Check for backend Go changes
+          if git diff --name-only HEAD~1 HEAD | grep -q '^backend/.*\.go\|^backend/go\.mod\|^backend/go\.sum\|^backend/cmd/\|^backend/internal/\|^backend/pkg/'; then
+            echo "backend=true" >> $GITHUB_OUTPUT
+            echo "✅ Backend Go changes detected"
+          else
+            echo "backend=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No backend Go changes"
+          fi
+          
+          # Check for TypeScript provider changes
+          if git diff --name-only HEAD~1 HEAD | grep -q '^backend/.*\.ts\|^backend/package\.json\|^backend/tsconfig\.json\|^backend/api/\|^backend/providers/\|^backend/types/\|^backend/interfaces/'; then
+            echo "typescript-provider=true" >> $GITHUB_OUTPUT
+            echo "✅ TypeScript provider changes detected"
+          else
+            echo "typescript-provider=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No TypeScript provider changes"
+          fi
+          
+          # Check for frontend changes
+          if git diff --name-only HEAD~1 HEAD | grep -q '^Frontend/\|^package\.json\|^package-lock\.json\|^tsconfig\.json\|^tsconfig\.node\.json\|^vite\.config\|^\.eslintrc\|^\.prettierrc'; then
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "✅ Frontend changes detected"
+          else
+            echo "frontend=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No frontend changes"
+          fi
+          
+          # Check for infrastructure changes
+          if git diff --name-only HEAD~1 HEAD | grep -q '^infrastructure/\|^terraform/'; then
+            echo "infrastructure=true" >> $GITHUB_OUTPUT
+            echo "✅ Infrastructure changes detected"
+          else
+            echo "infrastructure=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No infrastructure changes"
+          fi
+
+      - name: Decide on deployment
+        id: deploy-decision
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ Will deploy - push to main branch"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force-deploy }}" = "true" ]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ Will deploy - forced via workflow dispatch"
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Will not deploy - PR or no force flag"
+          fi
+
+  # ==========================================
+  # Backend CI
+  # ==========================================
+  backend-ci:
+    name: Backend CI
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.backend-changed == 'true'
+    uses: ./.github/workflows/go-backend-ci.yml
+    with:
+      enable-summary: false
+    secrets: inherit
+
+  # ==========================================
+  # TypeScript Provider CI
+  # ==========================================
+  typescript-provider-ci:
+    name: TypeScript Provider CI
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.typescript-provider-changed == 'true'
+    uses: ./.github/workflows/typescript-frontend-ci.yml
+    with:
+      enable-summary: false
+    secrets: inherit
+
+  # ==========================================
+  # Frontend CI
+  # ==========================================
+  frontend-ci:
+    name: Frontend CI
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.frontend-changed == 'true'
+    uses: ./.github/workflows/frontend-ci.yml
+    with:
+      enable-summary: false
+    secrets: inherit
+
+  # ==========================================
+  # Deployment (only on main branch or forced)
+  # ==========================================
+  deploy:
+    name: Deploy to GCP
+    needs: [detect-changes, backend-ci, typescript-provider-ci, frontend-ci]
+    if: always() && needs.detect-changes.outputs.should-deploy == 'true' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.typescript-provider-ci.result == 'success' || needs.typescript-provider-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped')
+    uses: ./.github/workflows/cd-deploy.yml
+    with:
+      environment: ${{ inputs.target-environment || 'dev' }}
+      deployment-type: 'auto'
+      skip-approval: ${{ inputs.target-environment == 'dev' || inputs.target-environment == '' }}
+    secrets: inherit
+
+  # ==========================================
+  # Pipeline Summary
+  # ==========================================
+  pipeline-summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, backend-ci, typescript-provider-ci, frontend-ci, deploy]
+    if: always()
+
+    steps:
+      - name: Generate pipeline summary
+        run: |
+          echo "## 🚀 Patient Price Discovery Design - CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Event info
+          echo "### Event Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Changes detected
+          echo "### Changes Detected" >> $GITHUB_STEP_SUMMARY
+          BACKEND_CHANGED="${{ needs.detect-changes.outputs.backend-changed }}"
+          TS_PROVIDER_CHANGED="${{ needs.detect-changes.outputs.typescript-provider-changed }}"
+          FRONTEND_CHANGED="${{ needs.detect-changes.outputs.frontend-changed }}"
+          INFRA_CHANGED="${{ needs.detect-changes.outputs.infrastructure-changed }}"
+          
+          echo "- Backend (Go): $([ "$BACKEND_CHANGED" = "true" ] && echo "✅ Changed" || echo "⏭️ No changes")" >> $GITHUB_STEP_SUMMARY
+          echo "- TypeScript Provider: $([ "$TS_PROVIDER_CHANGED" = "true" ] && echo "✅ Changed" || echo "⏭️ No changes")" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend (React): $([ "$FRONTEND_CHANGED" = "true" ] && echo "✅ Changed" || echo "⏭️ No changes")" >> $GITHUB_STEP_SUMMARY
+          echo "- Infrastructure: $([ "$INFRA_CHANGED" = "true" ] && echo "✅ Changed" || echo "⏭️ No changes")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # CI Results
+          echo "### CI Results" >> $GITHUB_STEP_SUMMARY
+          BACKEND_CI="${{ needs.backend-ci.result }}"
+          TS_PROVIDER_CI="${{ needs.typescript-provider-ci.result }}"
+          FRONTEND_CI="${{ needs.frontend-ci.result }}"
+          DEPLOY_RESULT="${{ needs.deploy.result }}"
+          
+          display_status() {
+            case "$1" in
+              "success") echo "✅ **$2:** Passed" ;;
+              "skipped") echo "⏭️ **$2:** Skipped" ;;
+              "failure") echo "❌ **$2:** Failed" ;;
+              *) echo "⚠️ **$2:** Unknown" ;;
+            esac
+          }
+          
+          display_status "$BACKEND_CI" "Backend CI (Go)" >> $GITHUB_STEP_SUMMARY
+          display_status "$TS_PROVIDER_CI" "TypeScript Provider CI" >> $GITHUB_STEP_SUMMARY
+          display_status "$FRONTEND_CI" "Frontend CI (React)" >> $GITHUB_STEP_SUMMARY
+          display_status "$DEPLOY_RESULT" "Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Deployment info
+          if [ "$DEPLOY_RESULT" = "success" ]; then
+            TARGET_ENV="${{ inputs.target-environment || 'dev' }}"
+            echo "### 🌐 Deployment URLs" >> $GITHUB_STEP_SUMMARY
+            if [ "$TARGET_ENV" = "prod" ]; then
+              echo "- **Frontend:** https://ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
+              echo "- **API:** https://api.ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Frontend:** https://$TARGET_ENV.ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
+              echo "- **API:** https://$TARGET_ENV.api.ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Overall status
+          if [[ "$BACKEND_CI" == "failure" ]] || [[ "$TS_PROVIDER_CI" == "failure" ]] || [[ "$FRONTEND_CI" == "failure" ]] || [[ "$DEPLOY_RESULT" == "failure" ]]; then
+            echo "### ❌ PIPELINE: FAILED" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.detect-changes.outputs.should-deploy }}" = "true" ] && [ "$DEPLOY_RESULT" = "success" ]; then
+            echo "### ✅ PIPELINE: SUCCESS (DEPLOYED)" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$BACKEND_CI" == "success" || "$BACKEND_CI" == "skipped" ]] && [[ "$TS_PROVIDER_CI" == "success" || "$TS_PROVIDER_CI" == "skipped" ]] && [[ "$FRONTEND_CI" == "success" || "$FRONTEND_CI" == "skipped" ]]; then
+            echo "### ✅ PIPELINE: SUCCESS (CI ONLY)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ PIPELINE: PARTIAL SUCCESS" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**GCP Project:** ${{ env.GCP_PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Domain:** ohealth-ng.com" >> $GITHUB_STEP_SUMMARY

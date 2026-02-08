@@ -3,9 +3,8 @@ package services
 import (
 	"context"
 	"errors"
-	"time"
+	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
@@ -34,45 +33,25 @@ func NewProcedureEnrichmentService(
 	}
 }
 
-// GetEnrichment returns cached enrichment or generates and stores it.
+// GetEnrichment returns cached enrichment. It no longer generates enrichment on-demand.
+// Enrichment is now generated during ingestion and cached. Use GetEnrichment to retrieve cached data.
+// Returns error if no enrichment exists - enrichment should be generated during ingestion.
 func (s *ProcedureEnrichmentService) GetEnrichment(ctx context.Context, procedureID string, refresh bool) (*entities.ProcedureEnrichment, error) {
 	if procedureID == "" {
 		return nil, apperrors.NewValidationError("procedure ID is required")
 	}
 
-	if !refresh {
-		if cached, err := s.repo.GetByProcedureID(ctx, procedureID); err == nil && cached != nil {
-			return cached, nil
-		}
+	// Always fetch from cache (ignore refresh parameter for now as enrichment is from ingestion)
+	cached, err := s.repo.GetByProcedureID(ctx, procedureID)
+	if err == nil && cached != nil {
+		return cached, nil
 	}
 
-	if s.provider == nil {
-		return nil, apperrors.NewExternalError("procedure enrichment provider not configured", ErrEnrichmentUnavailable)
-	}
-
-	procedure, err := s.procedureRepo.GetByID(ctx, procedureID)
+	// If no cached enrichment exists, log it but don't generate on-demand
+	// Enrichment should be generated during ingestion via ProviderIngestionService.enrichProceduresBatch()
 	if err != nil {
-		return nil, err
+		return nil, apperrors.NewNotFoundError(fmt.Sprintf("enrichment not found for procedure %s (enrichment should be generated during ingestion)", procedureID))
 	}
 
-	enriched, err := s.provider.EnrichProcedure(ctx, procedure)
-	if err != nil {
-		return nil, apperrors.NewExternalError("failed to enrich procedure", err)
-	}
-
-	now := time.Now()
-	enriched.ID = uuid.New().String()
-	enriched.ProcedureID = procedure.ID
-	enriched.CreatedAt = now
-	enriched.UpdatedAt = now
-
-	if enriched.Description == "" {
-		enriched.Description = procedure.Description
-	}
-
-	if err := s.repo.Upsert(ctx, enriched); err != nil {
-		return nil, err
-	}
-
-	return enriched, nil
+	return nil, apperrors.NewNotFoundError(fmt.Sprintf("enrichment not found for procedure %s", procedureID))
 }

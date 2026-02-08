@@ -13,6 +13,7 @@ import { FilePriceListProvider, FilePriceListConfig } from '../providers/FilePri
 import { InMemoryDocumentStore } from '../stores/InMemoryDocumentStore';
 import { MongoDocumentStore } from '../stores/MongoDocumentStore';
 import { MongoProviderStateStore } from '../stores/MongoProviderStateStore';
+import { LLMDocumentParser, DocumentSummaryCacheRecord } from '../ingestion/llmDocumentParser';
 import { DataSyncScheduler, SyncIntervals } from '../config/DataSyncScheduler';
 import { PriceData, GoogleSheetsConfig } from '../types/PriceData';
 import { FacilityProfile } from '../types/FacilityProfile';
@@ -21,6 +22,7 @@ import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
 import { ProcedureProfileService } from '../ingestion/procedureProfileService';
+import { loadVaultSecretsToEnv } from '../config/vaultSecrets';
 import {
   CapacityRequestService,
   SesEmailSender,
@@ -32,6 +34,16 @@ import {
  * Initialize and start the API server
  */
 async function startServer() {
+  const vaultPath = process.env.VAULT_PROVIDER_PATH || process.env.VAULT_PATH;
+  const vaultResult = await loadVaultSecretsToEnv({ path: vaultPath });
+  if (vaultResult.enabled) {
+    if (vaultResult.error) {
+      console.warn(`⚠ Vault secrets not loaded: ${vaultResult.error}`);
+    } else {
+      console.log(`✓ Vault secrets loaded (${vaultResult.loaded} applied, ${vaultResult.skipped} skipped)`);
+    }
+  }
+
   const priceListFiles = (process.env.PRICE_LIST_FILES || '')
     .split(',')
     .map((value) => value.trim())
@@ -54,6 +66,8 @@ async function startServer() {
   const mongoURI = process.env.PROVIDER_MONGO_URI;
   const mongoDB = process.env.PROVIDER_MONGO_DB || 'provider_data';
   const mongoCollection = process.env.PROVIDER_MONGO_COLLECTION || 'price_records';
+  const mongoDocSummaryCollection =
+    process.env.PROVIDER_MONGO_DOC_SUMMARY_COLLECTION || 'document_summaries';
   const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
   const mongoFacilityCollection = process.env.PROVIDER_FACILITY_COLLECTION || 'facility_profiles';
   const mongoCapacityCollection = process.env.PROVIDER_CAPACITY_TOKEN_COLLECTION || 'capacity_request_tokens';
@@ -63,16 +77,24 @@ async function startServer() {
     : 30;
 
   let documentStore: IDocumentStore<PriceData>;
+  let docSummaryStore: IDocumentStore<DocumentSummaryCacheRecord>;
   let stateStore: IProviderStateStore | undefined;
 
   if (mongoURI) {
     documentStore = new MongoDocumentStore<PriceData>(mongoURI, mongoDB, mongoCollection, {
       ttlDays: Number.isFinite(mongoTTL) ? mongoTTL : 30,
     });
+    docSummaryStore = new MongoDocumentStore<DocumentSummaryCacheRecord>(
+      mongoURI,
+      mongoDB,
+      mongoDocSummaryCollection,
+      { ttlDays: Number.isFinite(mongoTTL) ? mongoTTL : 30 }
+    );
     stateStore = new MongoProviderStateStore(mongoURI, mongoDB, mongoStateCollection);
     console.log(`✓ Mongo provider store enabled (${mongoDB}.${mongoCollection})`);
   } else {
     documentStore = new InMemoryDocumentStore<PriceData>('price-data-store');
+    docSummaryStore = new InMemoryDocumentStore<DocumentSummaryCacheRecord>('doc-summary-store');
     console.warn('⚠ Using in-memory provider store. Set PROVIDER_MONGO_URI for persistence.');
   }
 
@@ -160,7 +182,29 @@ async function startServer() {
 
   if (useFileProvider) {
     providerId = 'file_price_list';
-    provider = new FilePriceListProvider(documentStore, stateStore, procedureProfileService);
+    const llmParserEnabled = process.env.LLM_DOC_PARSER_ENABLED === 'true';
+    const llmApiKey =
+      process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || process.env.PROVIDER_LLM_API_KEY || '';
+    const llmConfig = {
+      enabled: llmParserEnabled,
+      apiKey: llmApiKey,
+      apiEndpoint: process.env.LLM_API_ENDPOINT || 'https://api.openai.com/v1/chat/completions',
+      model: process.env.LLM_DOC_PARSER_MODEL || 'gpt-4o-mini',
+      temperature: process.env.LLM_DOC_PARSER_TEMPERATURE
+        ? Number.parseFloat(process.env.LLM_DOC_PARSER_TEMPERATURE)
+        : 0.2,
+      maxRows: process.env.LLM_DOC_PARSER_MAX_ROWS
+        ? Number.parseInt(process.env.LLM_DOC_PARSER_MAX_ROWS, 10)
+        : 5000,
+      maxChars: process.env.LLM_DOC_PARSER_MAX_CHARS
+        ? Number.parseInt(process.env.LLM_DOC_PARSER_MAX_CHARS, 10)
+        : 50_000,
+      maxBytes: process.env.LLM_DOC_PARSER_MAX_BYTES
+        ? Number.parseInt(process.env.LLM_DOC_PARSER_MAX_BYTES, 10)
+        : 5 * 1024 * 1024,
+    };
+    const llmDocumentParser = new LLMDocumentParser(llmConfig, docSummaryStore);
+    provider = new FilePriceListProvider(documentStore, stateStore, procedureProfileService, llmDocumentParser);
   }
 
   // Configuration (use environment variables or provide defaults for development)
@@ -185,6 +229,24 @@ async function startServer() {
     files: priceListFiles.map((filePath) => ({ path: filePath })),
     currency: process.env.PRICE_LIST_CURRENCY || 'NGN',
     defaultEffectiveDate: process.env.PRICE_LIST_EFFECTIVE_DATE,
+    explicitFacilityMapping: (() => {
+      const defaults: Record<string, string> = {
+        'MEGALEK NEW PRICE LIST 2026.csv': 'Ijede General Hospital',
+        'NEW LASUTH PRICE LIST (SERVICES).csv': 'Lagos State University Teaching Hospital (LASUTH)',
+        'PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv': 'Randle General Hospital',
+      };
+      const raw = process.env.PRICE_LIST_FACILITY_MAPPING;
+      if (!raw) {
+        return defaults;
+      }
+      try {
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        return { ...defaults, ...parsed };
+      } catch (error) {
+        console.warn('Failed to parse PRICE_LIST_FACILITY_MAPPING JSON; using defaults only');
+        return defaults;
+      }
+    })(),
   };
 
   // 4. Initialize the provider

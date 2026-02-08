@@ -1,0 +1,408 @@
+name: "CD - Deploy to GCP"
+
+# This workflow handles deployments to Google Cloud Platform
+# It runs AFTER CI passes on main branch merges or manual trigger
+# Supports deployment to dev, staging, and prod environments
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      deployment-type:
+        description: 'Deployment type'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto                    # Auto-detect what changed
+          - backend-only           # Deploy only backend services
+          - frontend-only          # Deploy only frontend
+          - infrastructure-only    # Deploy only infrastructure
+          - full                   # Deploy everything
+      skip-approval:
+        description: 'Skip manual approval (dev only)'
+        required: false
+        default: false
+        type: boolean
+
+# Prevent concurrent deployments to same environment
+concurrency:
+  group: cd-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: '1.25.0'
+  NODE_VERSION: '18'
+  GCP_PROJECT_ID: 'open-health-index-dev'
+  DOMAIN: 'ohealth-ng.com'
+
+jobs:
+  # ==========================================
+  # Phase 1: Determine Deployment Plan
+  # ==========================================
+  plan-deployment:
+    name: "📋 Plan Deployment"
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.plan.outputs.environment }}
+      deploy-infrastructure: ${{ steps.plan.outputs.deploy-infrastructure }}
+      deploy-backend: ${{ steps.plan.outputs.deploy-backend }}
+      deploy-frontend: ${{ steps.plan.outputs.deploy-frontend }}
+      needs-approval: ${{ steps.plan.outputs.needs-approval }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Plan deployment
+        id: plan
+        run: |
+          # Determine environment
+          ENV="${{ inputs.environment }}"
+          if [ -z "$ENV" ]; then
+            ENV="dev"
+          fi
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+
+          # Determine what to deploy
+          DEPLOY_TYPE="${{ inputs.deployment-type }}"
+          if [ "$DEPLOY_TYPE" = "auto" ]; then
+            # Auto-detect changes
+            if git diff --name-only HEAD~1 | grep -q '^backend/'; then
+              echo "deploy-backend=true" >> $GITHUB_OUTPUT
+            else
+              echo "deploy-backend=false" >> $GITHUB_OUTPUT
+            fi
+            
+            if git diff --name-only HEAD~1 | grep -q '^Frontend/\|^package\.json\|^tsconfig\.json'; then
+              echo "deploy-frontend=true" >> $GITHUB_OUTPUT
+            else
+              echo "deploy-frontend=false" >> $GITHUB_OUTPUT
+            fi
+            
+            if git diff --name-only HEAD~1 | grep -q '^infrastructure/\|^terraform/'; then
+              echo "deploy-infrastructure=true" >> $GITHUB_OUTPUT
+            else
+              echo "deploy-infrastructure=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            # Manual deployment type selection
+            case "$DEPLOY_TYPE" in
+              "backend-only")
+                echo "deploy-backend=true" >> $GITHUB_OUTPUT
+                echo "deploy-frontend=false" >> $GITHUB_OUTPUT
+                echo "deploy-infrastructure=false" >> $GITHUB_OUTPUT
+                ;;
+              "frontend-only")
+                echo "deploy-backend=false" >> $GITHUB_OUTPUT
+                echo "deploy-frontend=true" >> $GITHUB_OUTPUT
+                echo "deploy-infrastructure=false" >> $GITHUB_OUTPUT
+                ;;
+              "infrastructure-only")
+                echo "deploy-backend=false" >> $GITHUB_OUTPUT
+                echo "deploy-frontend=false" >> $GITHUB_OUTPUT
+                echo "deploy-infrastructure=true" >> $GITHUB_OUTPUT
+                ;;
+              "full")
+                echo "deploy-backend=true" >> $GITHUB_OUTPUT
+                echo "deploy-frontend=true" >> $GITHUB_OUTPUT
+                echo "deploy-infrastructure=true" >> $GITHUB_OUTPUT
+                ;;
+            esac
+          fi
+
+          # Determine if approval is needed
+          if [ "$ENV" = "dev" ] && [ "${{ inputs.skip-approval }}" = "true" ]; then
+            echo "needs-approval=false" >> $GITHUB_OUTPUT
+          elif [ "$ENV" = "dev" ]; then
+            echo "needs-approval=false" >> $GITHUB_OUTPUT
+          else
+            echo "needs-approval=true" >> $GITHUB_OUTPUT
+          fi
+
+          echo "📋 Deployment Plan:"
+          echo "Environment: $ENV"
+          echo "Infrastructure: $([ "$(cat $GITHUB_OUTPUT | grep deploy-infrastructure | cut -d= -f2)" = "true" ] && echo "✅" || echo "❌")"
+          echo "Backend: $([ "$(cat $GITHUB_OUTPUT | grep deploy-backend | cut -d= -f2)" = "true" ] && echo "✅" || echo "❌")"
+          echo "Frontend: $([ "$(cat $GITHUB_OUTPUT | grep deploy-frontend | cut -d= -f2)" = "true" ] && echo "✅" || echo "❌")"
+
+  # ==========================================
+  # Phase 2: Manual Approval (if needed)
+  # ==========================================
+  approval:
+    name: "🛡️ Manual Approval"
+    runs-on: ubuntu-latest
+    needs: [plan-deployment]
+    if: needs.plan-deployment.outputs.needs-approval == 'true'
+    environment:
+      name: ${{ needs.plan-deployment.outputs.environment }}
+      url: https://${{ needs.plan-deployment.outputs.environment == 'prod' && '' || format('{0}.', needs.plan-deployment.outputs.environment) }}${{ env.DOMAIN }}
+
+    steps:
+      - name: Wait for approval
+        run: |
+          echo "⏳ Waiting for manual approval for ${{ needs.plan-deployment.outputs.environment }} deployment..."
+          echo "This deployment will affect:"
+          echo "- Infrastructure: ${{ needs.plan-deployment.outputs.deploy-infrastructure }}"
+          echo "- Backend: ${{ needs.plan-deployment.outputs.deploy-backend }}"
+          echo "- Frontend: ${{ needs.plan-deployment.outputs.deploy-frontend }}"
+
+  # ==========================================
+  # Phase 3: Infrastructure Deployment
+  # ==========================================
+  deploy-infrastructure:
+    name: "🏗️ Deploy Infrastructure"
+    runs-on: ubuntu-latest
+    needs: [plan-deployment, approval]
+    if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && needs.plan-deployment.outputs.deploy-infrastructure == 'true'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy Terraform infrastructure
+        working-directory: infrastructure
+        run: |
+          echo "🏗️ Deploying infrastructure to ${{ needs.plan-deployment.outputs.environment }}..."
+          
+          # Initialize Terraform
+          terraform init
+          
+          # Select workspace for environment
+          terraform workspace select ${{ needs.plan-deployment.outputs.environment }} || terraform workspace new ${{ needs.plan-deployment.outputs.environment }}
+          
+          # Plan and apply
+          terraform plan -var="environment=${{ needs.plan-deployment.outputs.environment }}" -var="domain=${{ env.DOMAIN }}"
+          terraform apply -auto-approve -var="environment=${{ needs.plan-deployment.outputs.environment }}" -var="domain=${{ env.DOMAIN }}"
+          
+          echo "✅ Infrastructure deployment completed"
+
+  # ==========================================
+  # Phase 4: Backend Deployment
+  # ==========================================
+  deploy-backend:
+    name: "🚀 Deploy Backend"
+    runs-on: ubuntu-latest
+    needs: [plan-deployment, approval, deploy-infrastructure]
+    if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && (needs.deploy-infrastructure.result == 'success' || needs.deploy-infrastructure.result == 'skipped') && needs.plan-deployment.outputs.deploy-backend == 'true'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go and Generate code
+        uses: ./.github/actions/setup-service-go
+        with:
+          working-directory: backend
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io
+
+      - name: Build and push Docker images
+        working-directory: backend
+        run: |
+          echo "🐳 Building and pushing backend services..."
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          
+          # Build main API service
+          if [ -f "Dockerfile" ]; then
+            IMAGE_TAG="gcr.io/${{ env.GCP_PROJECT_ID }}/patient-price-api:${{ github.sha }}"
+            docker build -t $IMAGE_TAG .
+            docker push $IMAGE_TAG
+            echo "✅ Main API service built and pushed: $IMAGE_TAG"
+          fi
+          
+          # Build additional services
+          for dockerfile in Dockerfile.*; do
+            if [ -f "$dockerfile" ] && [ "$dockerfile" != "Dockerfile" ]; then
+              SERVICE_NAME=$(echo $dockerfile | cut -d. -f2)
+              IMAGE_TAG="gcr.io/${{ env.GCP_PROJECT_ID }}/patient-price-$SERVICE_NAME:${{ github.sha }}"
+              docker build -f "$dockerfile" -t $IMAGE_TAG .
+              docker push $IMAGE_TAG
+              echo "✅ $SERVICE_NAME service built and pushed: $IMAGE_TAG"
+            fi
+          done
+
+      - name: Deploy to Cloud Run
+        run: |
+          echo "☁️ Deploying to Cloud Run..."
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          
+          # Deploy main API service
+          gcloud run deploy patient-price-api-$ENV \
+            --image gcr.io/${{ env.GCP_PROJECT_ID }}/patient-price-api:${{ github.sha }} \
+            --platform managed \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --set-env-vars "ENVIRONMENT=$ENV" \
+            --project ${{ env.GCP_PROJECT_ID }}
+          
+          echo "✅ Backend services deployed to Cloud Run"
+
+  # ==========================================
+  # Phase 5: Frontend Deployment
+  # ==========================================
+  deploy-frontend:
+    name: "🌐 Deploy Frontend"
+    runs-on: ubuntu-latest
+    needs: [plan-deployment, approval, deploy-infrastructure, deploy-backend]
+    if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && (needs.deploy-infrastructure.result == 'success' || needs.deploy-infrastructure.result == 'skipped') && needs.plan-deployment.outputs.deploy-frontend == 'true'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and build frontend
+        uses: ./.github/actions/setup-service-typescript
+        with:
+          working-directory: Frontend
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build frontend for production
+        working-directory: Frontend
+        run: |
+          echo "🔨 Building frontend for ${{ needs.plan-deployment.outputs.environment }}..."
+          
+          # Set environment variables for build
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          if [ "$ENV" = "prod" ]; then
+            API_URL="https://api.${{ env.DOMAIN }}"
+            FRONTEND_URL="https://${{ env.DOMAIN }}"
+          else
+            API_URL="https://$ENV.api.${{ env.DOMAIN }}"
+            FRONTEND_URL="https://$ENV.${{ env.DOMAIN }}"
+          fi
+          
+          export VITE_API_URL=$API_URL
+          export VITE_ENVIRONMENT=$ENV
+          
+          npm run build
+          echo "✅ Frontend built successfully"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Storage and CDN
+        working-directory: Frontend
+        run: |
+          echo "☁️ Deploying frontend to Cloud Storage..."
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          
+          # Upload to Cloud Storage bucket
+          BUCKET_NAME="patient-price-frontend-$ENV"
+          gsutil -m rsync -r -d dist/ gs://$BUCKET_NAME/
+          
+          # Invalidate CDN cache if needed
+          echo "✅ Frontend deployed to Cloud Storage"
+
+  # ==========================================
+  # Phase 6: Deployment Summary
+  # ==========================================
+  deployment-summary:
+    name: "📊 Deployment Summary"
+    runs-on: ubuntu-latest
+    needs: [plan-deployment, deploy-infrastructure, deploy-backend, deploy-frontend]
+    if: always()
+
+    steps:
+      - name: Generate deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary - Patient Price Discovery Design" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          echo "### Environment: **$ENV**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # URLs
+          if [ "$ENV" = "prod" ]; then
+            echo "🌐 **Frontend URL:** https://${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **API URL:** https://api.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🌐 **Frontend URL:** https://$ENV.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **API URL:** https://$ENV.api.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Deployment status
+          echo "### Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          INFRA="${{ needs.deploy-infrastructure.result }}"
+          BACKEND="${{ needs.deploy-backend.result }}"
+          FRONTEND="${{ needs.deploy-frontend.result }}"
+          
+          display_status() {
+            case "$1" in
+              "success") echo "✅ **$2:** Deployed successfully" ;;
+              "skipped") echo "⏭️ **$2:** Skipped (no changes)" ;;
+              "failure") echo "❌ **$2:** Deployment failed" ;;
+              *) echo "⚠️ **$2:** Unknown status" ;;
+            esac
+          }
+          
+          display_status "$INFRA" "Infrastructure" >> $GITHUB_STEP_SUMMARY
+          display_status "$BACKEND" "Backend Services" >> $GITHUB_STEP_SUMMARY
+          display_status "$FRONTEND" "Frontend Application" >> $GITHUB_STEP_SUMMARY
+          
+          # Overall status
+          if [[ "$INFRA" == "failure" ]] || [[ "$BACKEND" == "failure" ]] || [[ "$FRONTEND" == "failure" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ DEPLOYMENT: FAILED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ DEPLOYMENT: SUCCESS" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**GCP Project:** ${{ env.GCP_PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY

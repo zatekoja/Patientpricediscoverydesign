@@ -7,6 +7,10 @@ import {
   FeedbackResponse,
   ProcedureEnrichment,
   SearchParams,
+  ServiceSearchParams,
+  ServiceSearchResponse,
+  ProviderHealthResponse,
+  ProviderListResponse,
 } from '../types/api';
 
 type ApiEnv = {
@@ -73,8 +77,8 @@ class ApiClient {
 
     if (params.query) queryParams.append('query', params.query);
     if (params.radius) queryParams.append('radius', params.radius.toString());
-    if (params.limit) queryParams.append('limit', params.limit.toString());
-    if (params.offset) queryParams.append('offset', params.offset.toString());
+    if (params.limit != null) queryParams.append('limit', params.limit.toString());
+    if (params.offset != null) queryParams.append('offset', params.offset.toString());
     if (params.insurance_provider) queryParams.append('insurance_provider', params.insurance_provider);
     if (params.min_price != null) queryParams.append('min_price', params.min_price.toString());
     if (params.max_price != null) queryParams.append('max_price', params.max_price.toString());
@@ -135,6 +139,46 @@ class ApiClient {
     return this.request(`/facilities/${facilityId}/availability?${query.toString()}`);
   }
 
+  // TDD-driven facility services with search across ALL data before pagination
+  async getFacilityServices(
+    facilityId: string,
+    params: ServiceSearchParams,
+    signal?: AbortSignal
+  ): Promise<ServiceSearchResponse> {
+    const queryParams = new URLSearchParams({
+      limit: params.limit.toString(),
+      offset: params.offset.toString(),
+    });
+
+    // Add search parameters - these will search ENTIRE dataset first, then paginate
+    if (params.search?.trim()) {
+      queryParams.set('search', params.search.trim());
+    }
+    if (params.category?.trim()) {
+      queryParams.set('category', params.category.trim());
+    }
+    if (params.minPrice !== undefined && params.minPrice >= 0) {
+      queryParams.set('min_price', params.minPrice.toString());
+    }
+    if (params.maxPrice !== undefined && params.maxPrice >= 0) {
+      queryParams.set('max_price', params.maxPrice.toString());
+    }
+    if (params.available !== undefined) {
+      queryParams.set('available', params.available.toString());
+    }
+    if (params.sort) {
+      queryParams.set('sort', params.sort);
+    }
+    if (params.order) {
+      queryParams.set('order', params.order);
+    }
+
+    return this.request<ServiceSearchResponse>(
+      `/facilities/${facilityId}/services?${queryParams.toString()}`,
+      { signal }
+    );
+  }
+
   async bookAppointment(data: any): Promise<any> {
     return this.request('/appointments', {
       method: 'POST',
@@ -153,6 +197,15 @@ class ApiClient {
       },
       body: JSON.stringify(payload),
     });
+  }
+
+  async getProviderHealth(providerId?: string): Promise<ProviderHealthResponse> {
+    const query = providerId ? `?providerId=${encodeURIComponent(providerId)}` : '';
+    return this.request(`/provider/health${query}`);
+  }
+
+  async listProviders(): Promise<ProviderListResponse> {
+    return this.request('/provider/list');
   }
 }
 

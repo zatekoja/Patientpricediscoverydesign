@@ -35,6 +35,23 @@ func (m *MockCacheProvider) Set(ctx context.Context, key string, value []byte, e
 	return nil
 }
 
+func (m *MockCacheProvider) GetMulti(ctx context.Context, keys []string) (map[string][]byte, error) {
+	result := make(map[string][]byte)
+	for _, key := range keys {
+		if val, ok := m.data[key]; ok {
+			result[key] = val
+		}
+	}
+	return result, nil
+}
+
+func (m *MockCacheProvider) SetMulti(ctx context.Context, items map[string][]byte, expirationSeconds int) error {
+	for key, value := range items {
+		m.data[key] = value
+	}
+	return nil
+}
+
 func (m *MockCacheProvider) Delete(ctx context.Context, key string) error {
 	delete(m.data, key)
 	m.deleted = append(m.deleted, key)
@@ -54,6 +71,14 @@ func (m *MockCacheProvider) DeletePattern(ctx context.Context, pattern string) e
 		m.deleted = append(m.deleted, key)
 	}
 	return nil
+}
+
+func (m *MockCacheProvider) TTL(ctx context.Context, key string) (time.Duration, error) {
+	// Mock implementation - return a default TTL if key exists
+	if _, ok := m.data[key]; ok {
+		return time.Minute * 5, nil
+	}
+	return 0, nil
 }
 
 // MockEventBus for testing

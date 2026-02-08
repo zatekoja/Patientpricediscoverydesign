@@ -50,7 +50,8 @@ type TypesenseConfig struct {
 
 // ProviderAPIConfig holds provider API configuration
 type ProviderAPIConfig struct {
-	BaseURL string
+	BaseURL        string
+	TimeoutSeconds int
 }
 
 // GeolocationConfig holds geolocation provider configuration
@@ -61,8 +62,10 @@ type GeolocationConfig struct {
 
 // OpenAIConfig holds OpenAI configuration
 type OpenAIConfig struct {
-	APIKey string
-	Model  string
+	APIKey         string
+	Model          string
+	RateLimitRPM   int
+	RateLimitBurst int
 }
 
 // OTELConfig holds OpenTelemetry configuration
@@ -99,15 +102,18 @@ func Load() (*Config, error) {
 			APIKey: getEnv("TYPESENSE_API_KEY", "xyz"),
 		},
 		ProviderAPI: ProviderAPIConfig{
-			BaseURL: getEnv("PROVIDER_API_BASE_URL", "http://localhost:3002/api/v1"),
+			BaseURL:        getEnv("PROVIDER_API_BASE_URL", "http://localhost:3002/api/v1"),
+			TimeoutSeconds: getEnvAsInt("PROVIDER_API_TIMEOUT_SECONDS", 30),
 		},
 		Geolocation: GeolocationConfig{
 			Provider: getEnv("GEOLOCATION_PROVIDER", "mock"),
 			APIKey:   getEnv("GEOLOCATION_API_KEY", ""),
 		},
 		OpenAI: OpenAIConfig{
-			APIKey: getEnv("OPENAI_API_KEY", ""),
-			Model:  getEnv("OPENAI_MODEL", "gpt-4o-mini"),
+			APIKey:         getEnv("OPENAI_API_KEY", ""),
+			Model:          getEnv("OPENAI_MODEL", "gpt-4o-mini"),
+			RateLimitRPM:   getEnvAsInt("OPENAI_RATE_LIMIT_RPM", 60),
+			RateLimitBurst: getEnvAsInt("OPENAI_RATE_LIMIT_BURST", 5),
 		},
 		OTEL: OTELConfig{
 			ServiceName:    getEnv("OTEL_SERVICE_NAME", "patient-price-discovery"),

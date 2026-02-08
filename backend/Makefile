@@ -1,4 +1,4 @@
-.PHONY: help build run test test-coverage clean deps mocks migrate-up migrate-down docker-up docker-down test-provider-integration test-provider-unit
+.PHONY: help build run test test-coverage clean deps mocks migrate-up migrate-down docker-up docker-down test-provider-integration test-provider-unit vault-init
 
 help: ## Display this help message
 	@echo "Available commands:"
@@ -103,6 +103,10 @@ docker-down: ## Stop Docker containers
 
 docker-logs: ## View Docker logs
 	docker-compose logs -f
+
+vault-init: ## Start Vault and seed dev secrets
+	@echo "Starting Vault + seeding dev secrets..."
+	docker-compose up -d vault vault-init
 
 install-tools: ## Install development tools
 	go install github.com/vektra/mockery/v2@latest

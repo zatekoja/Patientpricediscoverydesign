@@ -45,6 +45,15 @@ func facilitiesSearchCacheKey(params string) string {
 	return fmt.Sprintf("facilities:search:%s", params)
 }
 
+func facilitiesSearchCountCacheKey(params string) string {
+	return fmt.Sprintf("facilities:search:count:%s", params)
+}
+
+type cachedSearchResult struct {
+	Facilities []*entities.Facility `json:"facilities"`
+	TotalCount int                  `json:"total_count"`
+}
+
 // GetByID retrieves a facility by ID with caching
 func (a *CachedFacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Facility, error) {
 	cacheKey := facilityCacheKey(id)
@@ -261,34 +270,63 @@ func (a *CachedFacilityAdapter) Delete(ctx context.Context, id string) error {
 
 // Search searches for facilities with caching
 func (a *CachedFacilityAdapter) Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error) {
+	facilities, _, err := a.SearchWithCount(ctx, params)
+	return facilities, err
+}
+
+// SearchWithCount searches for facilities with caching and returns total count.
+func (a *CachedFacilityAdapter) SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
 	// Generate cache key from search parameters
 	paramsJSON, _ := json.Marshal(params)
-	cacheKey := facilitiesSearchCacheKey(string(paramsJSON))
+	cacheKey := facilitiesSearchCountCacheKey(string(paramsJSON))
 
 	// Try to get from cache first
 	if cached, err := a.cache.Get(ctx, cacheKey); err == nil {
-		var facilities []*entities.Facility
-		if err := json.Unmarshal(cached, &facilities); err == nil {
-			return facilities, nil
+		var cachedResult cachedSearchResult
+		if err := json.Unmarshal(cached, &cachedResult); err == nil {
+			return cachedResult.Facilities, cachedResult.TotalCount, nil
 		}
 		log.Printf("Failed to unmarshal cached search results: %v", err)
 	}
 
-	// Cache miss - search in database
+	// Cache miss - search in database or underlying adapter
+	if adapterWithCount, ok := a.adapter.(interface {
+		SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+	}); ok {
+		facilities, totalCount, err := adapterWithCount.SearchWithCount(ctx, params)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Update cache asynchronously
+		go func() {
+			bgCtx := context.Background()
+			payload := cachedSearchResult{Facilities: facilities, TotalCount: totalCount}
+			if data, err := json.Marshal(payload); err == nil {
+				if err := a.cache.Set(bgCtx, cacheKey, data, searchResultsTTL); err != nil {
+					log.Printf("Failed to cache search results: %v", err)
+				}
+			}
+		}()
+
+		return facilities, totalCount, nil
+	}
+
 	facilities, err := a.adapter.Search(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Update cache asynchronously
 	go func() {
 		bgCtx := context.Background()
-		if data, err := json.Marshal(facilities); err == nil {
+		payload := cachedSearchResult{Facilities: facilities, TotalCount: len(facilities)}
+		if data, err := json.Marshal(payload); err == nil {
 			if err := a.cache.Set(bgCtx, cacheKey, data, searchResultsTTL); err != nil {
 				log.Printf("Failed to cache search results: %v", err)
 			}
 		}
 	}()
 
-	return facilities, nil
+	return facilities, len(facilities), nil
 }

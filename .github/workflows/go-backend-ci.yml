@@ -1,0 +1,340 @@
+name: Go Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  workflow_call:
+    inputs:
+      enable-summary:
+        description: 'Generate CI summary'
+        type: boolean
+        required: false
+        default: true
+  workflow_dispatch:
+    inputs:
+      enable-summary:
+        description: 'Generate CI summary'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  checks: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: go-backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25.0'
+  WORKING_DIR: backend
+  COVERAGE_THRESHOLD: 70
+
+jobs:
+  # ==========================================
+  # Code Quality
+  # ==========================================
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go and Generate code
+        uses: ./.github/actions/setup-service-go
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run go vet
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Running go vet..."
+          go vet ./...
+          echo "✅ go vet passed"
+
+      - name: Run go fmt check
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Checking code formatting..."
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "❌ The following files are not formatted:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+          echo "✅ All files are properly formatted"
+
+      - name: Check for golangci-lint config
+        id: check-config
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          if [ -f ".golangci.yml" ] || [ -f ".golangci.yaml" ]; then
+            echo "config-exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "config-exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run golangci-lint
+        if: steps.check-config.outputs.config-exists == 'true'
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          working-directory: ${{ env.WORKING_DIR }}
+          args: --timeout=15m
+          skip-cache: false
+
+  # ==========================================
+  # Unit Tests with Coverage
+  # ==========================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go and Generate code
+        uses: ./.github/actions/setup-service-go
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests with coverage
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🧪 Running unit tests with coverage..."
+          go test -v -race -coverprofile=coverage.out ./...
+          echo "✅ Tests completed"
+
+      - name: Check coverage threshold
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          if [ -f coverage.out ]; then
+            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
+            echo "Current coverage: ${COVERAGE}%"
+            if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+              echo "❌ Coverage ${COVERAGE}% is below threshold ${COVERAGE_THRESHOLD}%"
+              exit 1
+            else
+              echo "✅ Coverage ${COVERAGE}% meets threshold ${COVERAGE_THRESHOLD}%"
+            fi
+          else
+            echo "⚠️ No coverage report generated"
+          fi
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-reports
+          path: ${{ env.WORKING_DIR }}/coverage.out
+          retention-days: 7
+
+  # ==========================================
+  # Security Scanning
+  # ==========================================
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install and Run Gosec
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔍 Installing Gosec security scanner..."
+          go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+          
+          echo "🔍 Running security scan..."
+          gosec -no-fail -fmt sarif -out gosec.sarif ./...
+          
+          echo "✅ Security scan completed"
+
+      - name: Upload security scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-results
+          path: ${{ env.WORKING_DIR }}/gosec.sarif
+          retention-days: 7
+
+  # ==========================================
+  # Build Verification
+  # ==========================================
+  build-verification:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [code-quality]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go and Generate code
+        uses: ./.github/actions/setup-service-go
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build all services
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🔨 Building all services..."
+          
+          # Check if cmd directory exists
+          if [ -d "cmd" ]; then
+            echo "Building command services..."
+            for dir in cmd/*/; do
+              if [ -d "$dir" ]; then
+                SERVICE_NAME=$(basename "$dir")
+                echo "Building $SERVICE_NAME..."
+                if ! go build -v -o "/tmp/$SERVICE_NAME" "./$dir"; then
+                  echo "❌ Failed to build $SERVICE_NAME"
+                  exit 1
+                fi
+                echo "✅ $SERVICE_NAME built successfully"
+              fi
+            done
+          else
+            # Build the entire module if no cmd directory
+            echo "Building entire backend module..."
+            if ! go build ./...; then
+              echo "❌ Failed to build backend module"
+              exit 1
+            fi
+            echo "✅ Backend module built successfully"
+          fi
+          
+          echo "✅ All builds completed successfully"
+
+  # ==========================================
+  # Docker Build Test (for GCP deployment readiness)
+  # ==========================================
+  docker-build-test:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-verification]
+    if: contains(github.event.head_commit.modified, 'Dockerfile') || contains(github.event.head_commit.added, 'Dockerfile') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test Docker builds
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "🐳 Testing Docker builds..."
+          
+          # Test main Dockerfile
+          if [ -f "Dockerfile" ]; then
+            echo "Testing main Dockerfile..."
+            docker build -t backend-main:${{ github.sha }} .
+            echo "✅ Main Docker build successful"
+          fi
+          
+          # Test service-specific Dockerfiles
+          for dockerfile in Dockerfile.*; do
+            if [ -f "$dockerfile" ] && [ "$dockerfile" != "Dockerfile" ]; then
+              SERVICE_NAME=$(echo $dockerfile | cut -d. -f2)
+              echo "Testing $dockerfile..."
+              docker build -f "$dockerfile" -t backend-$SERVICE_NAME:${{ github.sha }} .
+              echo "✅ $SERVICE_NAME Docker build successful"
+            fi
+          done
+
+  # ==========================================
+  # CI Summary
+  # ==========================================
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [code-quality, unit-tests, security, build-verification, docker-build-test]
+    if: always() && (inputs.enable-summary == true || inputs.enable-summary == '' || github.event.inputs.enable-summary == 'true')
+
+    steps:
+      - name: Generate CI summary
+        run: |
+          echo "## Go Backend CI Summary - Patient Price Discovery Design" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          QUALITY="${{ needs.code-quality.result }}"
+          TESTS="${{ needs.unit-tests.result }}"
+          SECURITY="${{ needs.security.result }}"
+          BUILD="${{ needs.build-verification.result }}"
+          DOCKER="${{ needs.docker-build-test.result }}"
+
+          echo "### Status Checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Helper function for status display
+          display_status() {
+            case "$1" in
+              "success") echo "✅ **$2:** Passed" ;;
+              "skipped") echo "⏭️ **$2:** Skipped" ;;
+              "failure") echo "❌ **$2:** Failed" ;;
+              *) echo "⚠️ **$2:** Unknown status" ;;
+            esac
+          }
+
+          display_status "$QUALITY" "Code Quality" >> $GITHUB_STEP_SUMMARY
+          display_status "$TESTS" "Unit Tests" >> $GITHUB_STEP_SUMMARY
+          display_status "$SECURITY" "Security Scan" >> $GITHUB_STEP_SUMMARY
+          display_status "$BUILD" "Build Verification" >> $GITHUB_STEP_SUMMARY
+          display_status "$DOCKER" "Docker Build" >> $GITHUB_STEP_SUMMARY
+
+          # Overall status
+          if [[ "$QUALITY" == "failure" ]] || [[ "$TESTS" == "failure" ]] || [[ "$BUILD" == "failure" ]] || [[ "$DOCKER" == "failure" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ CI: FAILED" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ "$SECURITY" == "failure" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ CI: WARNING" >> $GITHUB_STEP_SUMMARY
+            echo "Security issues detected. Please review." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ CI: PASSED" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** Patient Price Discovery Design" >> $GITHUB_STEP_SUMMARY

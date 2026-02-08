@@ -141,7 +141,10 @@ func main() {
 	// Initialize Provider API client
 	var providerClient providerapi.Client
 	if cfg.ProviderAPI.BaseURL != "" {
-		providerClient = providerapi.NewClient(cfg.ProviderAPI.BaseURL)
+		providerClient = providerapi.NewClientWithTimeout(
+			cfg.ProviderAPI.BaseURL,
+			time.Duration(cfg.ProviderAPI.TimeoutSeconds)*time.Second,
+		)
 		log.Info().Msg("Provider API client initialized successfully")
 	}
 
@@ -302,6 +305,8 @@ func main() {
 		facilityService,
 		procedureAdapter,
 		facilityProcedureAdapter,
+		procedureEnrichmentAdapter,
+		enrichmentProvider,
 		geolocationProvider,
 		cacheProvider,
 		pageSize,

@@ -28,6 +28,15 @@ type Facility {
   specialties: [Specialty!]!
   procedures(limit: Int = 10, offset: Int = 0): ProcedureConnection!
 
+  # Available Services with TDD-driven search across ALL data
+  availableServices(
+    filter: ServiceFilter
+    limit: Int = 20
+    offset: Int = 0
+    sortBy: ServiceSortField = PRICE
+    sortOrder: SortOrder = ASC
+  ): ServiceConnection!
+
   # Metadata
   languagesSpoken: [String!]!
   avgWaitTime: Int
@@ -232,6 +241,27 @@ input AppointmentSearchInput {
   offset: Int
 }
 
+# TDD-driven Service Filtering Inputs
+input ServiceFilter {
+  categories: [String!]
+  minPrice: Float
+  maxPrice: Float
+  isAvailable: Boolean
+  search: String
+}
+
+enum ServiceSortField {
+  PRICE
+  NAME
+  CATEGORY
+  UPDATED_AT
+}
+
+enum SortOrder {
+  ASC
+  DESC
+}
+
 # ============================================================================
 # Search Results & Pagination
 # ============================================================================
@@ -248,6 +278,25 @@ type ProcedureConnection {
   nodes: [Procedure!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+# TDD-driven Services Pagination Types
+type ServiceConnection {
+  nodes: [FacilityService!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  priceRange: PriceRange!
+  categories: [String!]!
+}
+
+type FacilityService {
+  id: ID!
+  procedure: Procedure!
+  price: Float!
+  currency: String!
+  isAvailable: Boolean!
+  estimatedDuration: Int
+  lastUpdated: DateTime!
 }
 
 type FacilityFacets {

@@ -27,8 +27,8 @@ function findRecord(records: PriceData[], query: string) {
 }
 
 async function main() {
-  await runTest('parse MEGALEK CSV (category + price)', () => {
-    const records = parseCsvFile(megalekCsv, { currency: 'NGN' });
+  await runTest('parse MEGALEK CSV (category + price)', async () => {
+    const records = await parseCsvFile(megalekCsv, { currency: 'NGN' });
     assert(records.length > 0, 'expected records from MEGALEK CSV');
 
     const padRecord = findRecord(records, 'pad');
@@ -37,8 +37,8 @@ async function main() {
     assert.strictEqual(padRecord!.metadata?.category, 'CONSUMABLES', 'expected category CONSUMABLES');
   });
 
-  await runTest('parse LASUTH CSV (area + tier)', () => {
-    const records = parseCsvFile(lasuthCsv, { currency: 'NGN' });
+  await runTest('parse LASUTH CSV (area + tier)', async () => {
+    const records = await parseCsvFile(lasuthCsv, { currency: 'NGN' });
     assert(records.length > 0, 'expected records from LASUTH CSV');
 
     const emergencyRecord = findRecord(records, 'emergency wards');
@@ -54,8 +54,8 @@ async function main() {
     assert.strictEqual(adultVariant!.price, 5000, 'expected adult price 5000');
   });
 
-  await runTest('parse RANDLE CSV (unit detection)', () => {
-    const records = parseCsvFile(randleCsv, { currency: 'NGN' });
+  await runTest('parse RANDLE CSV (unit detection)', async () => {
+    const records = await parseCsvFile(randleCsv, { currency: 'NGN' });
     assert(records.length > 0, 'expected records from RANDLE CSV');
 
     const extraDay = findRecord(records, 'extral day');
@@ -64,8 +64,8 @@ async function main() {
     assert.strictEqual(extraDay!.metadata?.unit, 'per_day', 'expected unit per_day');
   });
 
-  await runTest('parse DOCX price list', () => {
-    const records = parseDocxFile(officeDocx, { currency: 'NGN' });
+  await runTest('parse DOCX price list', async () => {
+    const records = await parseDocxFile(officeDocx, { currency: 'NGN' });
     assert(records.length > 0, 'expected records from DOCX');
 
     const pelvicScan = findRecord(records, 'pelvic scan');

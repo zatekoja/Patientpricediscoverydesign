@@ -1,0 +1,18 @@
+<yandex>
+    <zookeeper>
+        <node>
+            <host>zookeeper</host>
+            <port>2181</port>
+        </node>
+    </zookeeper>
+    <remote_servers>
+        <cluster>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </cluster>
+    </remote_servers>
+</yandex>

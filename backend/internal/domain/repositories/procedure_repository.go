@@ -52,9 +52,33 @@ type FacilityProcedureRepository interface {
 	// ListByFacility retrieves all procedures for a facility
 	ListByFacility(ctx context.Context, facilityID string) ([]*entities.FacilityProcedure, error)
 
+	// ListByFacilityWithCount retrieves paginated procedures for a facility with total count
+	// CRITICAL: Search is performed across ALL data first, then filtered, then paginated
+	// This ensures search results are complete, not limited to current page
+	ListByFacilityWithCount(ctx context.Context, facilityID string, filter FacilityProcedureFilter) ([]*entities.FacilityProcedure, int, error)
+
 	// Update updates a facility procedure
 	Update(ctx context.Context, fp *entities.FacilityProcedure) error
 
 	// Delete deletes a facility procedure
 	Delete(ctx context.Context, id string) error
+}
+
+// FacilityProcedureFilter defines filters for facility procedure queries
+// All filters are applied BEFORE pagination to ensure search works across entire dataset
+type FacilityProcedureFilter struct {
+	// Search and filtering (applied to ALL data before pagination)
+	Category    string   // Filter by procedure category
+	MinPrice    *float64 // Minimum price filter
+	MaxPrice    *float64 // Maximum price filter
+	IsAvailable *bool    // Availability filter
+	SearchQuery string   // Text search in procedure name/description (searches ALL data first)
+
+	// Sorting (applied to filtered data before pagination)
+	SortBy    string // "price", "name", "category", "updated_at"
+	SortOrder string // "asc", "desc"
+
+	// Pagination (applied LAST after search/filter/sort)
+	Limit  int // Pagination limit (applied after filtering/searching)
+	Offset int // Pagination offset (applied after filtering/searching)
 }

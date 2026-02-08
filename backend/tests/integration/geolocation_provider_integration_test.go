@@ -13,8 +13,6 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/providers/geolocation"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/redis"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
 )
 
 func TestGoogleProviderAndStaticMapCaching(t *testing.T) {
@@ -22,7 +20,7 @@ func TestGoogleProviderAndStaticMapCaching(t *testing.T) {
 		t.Skip("Skipping integration test")
 	}
 
-	redisClient := newTestRedisClient(t)
+	redisClient := maybeTestRedisClient(t)
 	if redisClient == nil {
 		t.Skip("Redis not available for integration test")
 	}
@@ -99,17 +97,53 @@ func TestGoogleProviderAndStaticMapCaching(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&mapCalls))
 }
 
-func newTestRedisClient(t *testing.T) *redis.Client {
-	cfg := &config.RedisConfig{
-		Host:     getEnv("TEST_REDIS_HOST", "localhost"),
-		Port:     getEnvAsInt("TEST_REDIS_PORT", 6379),
-		Password: getEnv("TEST_REDIS_PASSWORD", ""),
-		DB:       getEnvAsInt("TEST_REDIS_DB", 0),
+func TestGoogleProviderPlacesFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test")
 	}
-	client, err := redis.NewClient(cfg)
-	if err != nil {
-		t.Logf("Redis unavailable: %v", err)
-		return nil
-	}
-	return client
+
+	var geocodeCalls int32
+	var placesCalls int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/geocode":
+			atomic.AddInt32(&geocodeCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+  "status": "ZERO_RESULTS",
+  "results": []
+}`))
+		case "/place/textsearch":
+			atomic.AddInt32(&placesCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+  "status": "OK",
+  "results": [{
+    "formatted_address": "Badagry, Lagos, Nigeria",
+    "name": "General Hospital Badagry",
+    "place_id": "test-place-id",
+    "geometry": { "location": { "lat": 6.4152, "lng": 2.8866 } }
+  }]
+}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	provider := geolocation.NewGoogleGeolocationProviderWithOptions(
+		"test-key",
+		nil,
+		server.URL+"/geocode",
+		server.Client(),
+	)
+
+	coords, err := provider.Geocode(context.Background(), "General Hospital Badagry, Nigeria")
+	require.NoError(t, err)
+	require.NotNil(t, coords)
+	require.Equal(t, 6.4152, coords.Latitude)
+	require.Equal(t, 2.8866, coords.Longitude)
+	require.Equal(t, int32(0), atomic.LoadInt32(&geocodeCalls))
+	require.Equal(t, int32(1), atomic.LoadInt32(&placesCalls))
 }

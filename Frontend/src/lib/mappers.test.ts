@@ -46,8 +46,8 @@ describe('mapFacilitySearchResultToUI', () => {
     expect(result.currency).toBe('NGN');
     expect(result.services).toEqual(['MRI', 'CT Scan']);
     expect(result.servicePrices).toEqual([
-      { name: 'MRI', price: 15000, currency: 'NGN' },
-      { name: 'CT Scan', price: 20000, currency: 'NGN' },
+      expect.objectContaining({ name: 'MRI', price: 15000, currency: 'NGN' }),
+      expect.objectContaining({ name: 'CT Scan', price: 20000, currency: 'NGN' }),
     ]);
     expect(result.insurance).toEqual(['NHIS', 'AXA']);
     expect(result.nextAvailableAt).toBe('2026-02-07T14:30:00Z');

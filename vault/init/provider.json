@@ -1,0 +1,4 @@
+{
+  "PROVIDER_LLM_API_KEY": "sk-test-placeholder",
+  "PROVIDER_LLM_API_ENDPOINT": "https://api.openai.com/v1/chat/completions"
+}

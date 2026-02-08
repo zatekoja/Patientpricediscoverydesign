@@ -3,8 +3,10 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { parse as csvParse } from 'csv-parse/sync';
+import { parse as csvParseStream } from 'csv-parse';
+import * as xlsx from 'xlsx';
 import { PriceData } from '../types/PriceData';
-import { buildFacilityId } from './facilityIds';
+import { buildFacilityId, normalizeFacilityName } from './facilityIds';
 
 export interface PriceListParseContext {
   facilityName?: string;
@@ -31,15 +33,25 @@ interface PriceVariant {
   rawText: string;
 }
 
-export function parseCsvFile(filePath: string, context?: PriceListParseContext): PriceData[] {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const rows = parseCsvContent(content);
+export async function parseCsvFile(filePath: string, context?: PriceListParseContext): Promise<PriceData[]> {
+  const rows = await parseCsvFileRows(filePath);
   return rowsToPriceData(rows, buildContext(filePath, context));
 }
 
-export function parseDocxFile(filePath: string, context?: PriceListParseContext): PriceData[] {
-  const buffer = fs.readFileSync(filePath);
+export async function parseDocxFile(filePath: string, context?: PriceListParseContext): Promise<PriceData[]> {
+  const buffer = await fs.promises.readFile(filePath);
   const rows = parseDocxBuffer(buffer);
+  return rowsToPriceData(rows, buildContext(filePath, context));
+}
+
+export async function parseXlsxFile(filePath: string, context?: PriceListParseContext): Promise<PriceData[]> {
+  const workbook = xlsx.readFile(filePath);
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    return [];
+  }
+  const sheet = workbook.Sheets[sheetName];
+  const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: true }) as any[][];
   return rowsToPriceData(rows, buildContext(filePath, context));
 }
 
@@ -79,6 +91,8 @@ function buildContext(filePath: string, context?: PriceListParseContext): PriceL
     currency: context?.currency || 'NGN',
     defaultEffectiveDate: context?.defaultEffectiveDate,
     providerId: context?.providerId,
+    explicitFacilityMapping: context?.explicitFacilityMapping,
+    facilityInferenceThreshold: context?.facilityInferenceThreshold,
   };
 }
 
@@ -97,14 +111,28 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
       console.log(`Using explicit facility mapping: ${facilityName}`);
     } else {
       facilityName = context.facilityName || 
-        inferFacilityName(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
+        inferFacilityName(
+          normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10),
+          context.sourceFile,
+          context.facilityInferenceThreshold
+        );
     }
   } else {
     facilityName = context.facilityName ||
-      inferFacilityName(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
+      inferFacilityName(
+        normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10),
+        context.sourceFile,
+        context.facilityInferenceThreshold
+      );
   }
-  
-  const facilityId = buildFacilityId(context.providerId, facilityName);
+
+  const normalizedFacilityName = normalizeFacilityName(facilityName, context.sourceFile);
+  if (!normalizedFacilityName) {
+    console.warn(`Skipping price list; unable to normalize facility name from ${context.sourceFile || 'unknown source'}`);
+    return [];
+  }
+
+  const facilityId = buildFacilityId(context.providerId, normalizedFacilityName);
   const effectiveDate =
     context.defaultEffectiveDate ||
     inferEffectiveDate(normalizedRows.slice(0, headerIndex > 0 ? headerIndex : 10), context.sourceFile);
@@ -147,10 +175,10 @@ function rowsToPriceData(rows: string[][], context: PriceListParseContext): Pric
     const variants = expandPriceVariants(priceText, description);
     for (const variant of variants) {
       const procedureCode = buildProcedureCode(description, i);
-      const id = buildId(facilityName, description, variant, i);
+      const id = buildId(normalizedFacilityName, description, variant, i);
       priceData.push({
         id,
-        facilityName,
+        facilityName: normalizedFacilityName,
         facilityId: facilityId || undefined,
         procedureCode,
         procedureDescription: description,
@@ -214,6 +242,51 @@ function parseCsvLine(line: string): string[] {
   return cells;
 }
 
+async function parseCsvFileRows(filePath: string): Promise<string[][]> {
+  return new Promise((resolve, reject) => {
+    const records: string[][] = [];
+    let settled = false;
+    const parser = csvParseStream({
+      relax_quotes: true,
+      skip_empty_lines: false,
+      trim: false,
+      relax_column_count: true,
+    });
+
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    });
+    parser.on('data', (row: string[]) => records.push(row));
+    parser.on('error', async () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      stream.destroy();
+      try {
+        const content = await fs.promises.readFile(filePath, 'utf-8');
+        resolve(parseCsvContent(content));
+      } catch (fallbackError) {
+        reject(fallbackError);
+      }
+    });
+    parser.on('end', () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(records);
+    });
+
+    stream.pipe(parser);
+  });
+}
+
 function extractDocxTableRows(xml: string): string[][] {
   const parser = new XMLParser({ ignoreAttributes: false });
   const doc = parser.parse(xml);
@@ -265,8 +338,8 @@ function collectNodes(node: any, key: string): any[] {
   return results;
 }
 
-function normalizeCell(value: string): string {
-  return (value || '').replace(/\s+/g, ' ').trim();
+function normalizeCell(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
 function containsLetters(value: string): boolean {
@@ -546,7 +619,11 @@ function extractUnit(value: string): string | undefined {
   return undefined;
 }
 
-function inferFacilityName(rows: string[][], sourceFile?: string): string {
+function inferFacilityName(
+  rows: string[][],
+  sourceFile?: string,
+  minimumConfidence: number = 0
+): string {
   // Try to find facility name in first few rows
   for (const row of rows) {
     const line = normalizeCell(row.join(' '));
@@ -561,16 +638,22 @@ function inferFacilityName(rows: string[][], sourceFile?: string): string {
       if (!lower.includes('price list') && !lower.includes('rate') && !lower.includes('charges')) {
         // Extra safeguard: check that the line has reasonable length (not just "hospital")
         if (line.length > 10 && line.length < 200) {
-          console.log(`Inferred facility name from content: ${line}`);
-          return line;
+          const confidence = scoreFacilityNameCandidate(line);
+          if (confidence >= minimumConfidence) {
+            console.log(`Inferred facility name from content: ${line}`);
+            return line;
+          }
         }
       }
     }
     
     // Special case for specific well-known facilities
     if (lower.includes('lasuth')) {
-      console.log(`Inferred facility name from content: ${line}`);
-      return line;
+      const confidence = scoreFacilityNameCandidate(line);
+      if (confidence >= minimumConfidence) {
+        console.log(`Inferred facility name from content: ${line}`);
+        return line;
+      }
     }
   }
   
@@ -584,6 +667,32 @@ function inferFacilityName(rows: string[][], sourceFile?: string): string {
   // Last resort
   console.warn('Could not reliably infer facility name, using default');
   return 'Unknown Facility';
+}
+
+function scoreFacilityNameCandidate(value: string): number {
+  const lower = value.toLowerCase();
+  let score = 0;
+
+  if (lower.includes('hospital') || lower.includes('clinic') || lower.includes('medical center')) {
+    score += 0.6;
+  }
+  if (lower.includes('teaching') || lower.includes('university') || lower.includes('general')) {
+    score += 0.2;
+  }
+  if (lower.includes('price list') || lower.includes('rate') || lower.includes('charges')) {
+    score -= 0.5;
+  }
+  if (value.length > 10 && value.length < 200) {
+    score += 0.1;
+  }
+
+  if (score < 0) {
+    return 0;
+  }
+  if (score > 1) {
+    return 1;
+  }
+  return score;
 }
 
 function inferEffectiveDate(rows: string[][], sourceFile?: string): Date {

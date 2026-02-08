@@ -5,7 +5,8 @@ import { DataProviderOptions, DataProviderResponse } from '../interfaces/IExtern
 import { IDocumentStore } from '../interfaces/IDocumentStore';
 import { IProviderStateStore } from '../interfaces/IProviderStateStore';
 import { PriceData } from '../types/PriceData';
-import { parseCsvFile, parseDocxFile, PriceListParseContext } from '../ingestion/priceListParser';
+import { parseCsvFile, parseDocxFile, parseXlsxFile, PriceListParseContext } from '../ingestion/priceListParser';
+import { DocumentSummaryParser, summaryToPriceData } from '../ingestion/documentSummary';
 import { applyCuratedTags } from '../ingestion/tagHydration';
 import { ProcedureProfileService } from '../ingestion/procedureProfileService';
 import { recordProviderDataMetrics, recordProviderSyncMetrics } from '../observability/metrics';
@@ -18,19 +19,26 @@ export interface FilePriceListConfig {
   }>;
   currency?: string;
   defaultEffectiveDate?: string;
+  /** Optional mapping of source filename to facility name */
+  explicitFacilityMapping?: Record<string, string>;
+  /** Minimum confidence threshold for facility inference (0-1). */
+  facilityInferenceThreshold?: number;
 }
 
 export class FilePriceListProvider extends BaseDataProvider<PriceData> {
   private fileConfig?: FilePriceListConfig;
   private procedureProfileService?: ProcedureProfileService;
+  private documentSummaryParser?: DocumentSummaryParser;
 
   constructor(
     documentStore?: IDocumentStore<PriceData>,
     stateStore?: IProviderStateStore,
-    procedureProfileService?: ProcedureProfileService
+    procedureProfileService?: ProcedureProfileService,
+    documentSummaryParser?: DocumentSummaryParser
   ) {
     super('file_price_list', documentStore, stateStore);
     this.procedureProfileService = procedureProfileService;
+    this.documentSummaryParser = documentSummaryParser;
   }
 
   validateConfig(config: Record<string, any>): boolean {
@@ -94,6 +102,8 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
               defaultEffectiveDate,
               sourceFile: path.basename(file.path),
               providerId: this.name,
+              explicitFacilityMapping: this.fileConfig?.explicitFacilityMapping,
+              facilityInferenceThreshold: this.fileConfig?.facilityInferenceThreshold,
             };
 
             const ext = path.extname(file.path).toLowerCase();
@@ -107,16 +117,33 @@ export class FilePriceListProvider extends BaseDataProvider<PriceData> {
                   extension: ext,
                 },
               },
-              (fileSpan) => {
+              async (fileSpan) => {
                 try {
+                  if (this.documentSummaryParser) {
+                    const summary = await this.documentSummaryParser.parse(file.path, context);
+                    if (summary && summary.items.length > 0) {
+                      const hydrated = summaryToPriceData(summary, context);
+                      fileSpan.setAttribute('records', hydrated.length);
+                      fileSpan.setAttribute('parser', 'llm_summary');
+                      return hydrated;
+                    }
+                  }
                   if (ext === '.csv') {
-                    const rows = parseCsvFile(file.path, context);
+                    const rows = await parseCsvFile(file.path, context);
                     fileSpan.setAttribute('records', rows.length);
+                    fileSpan.setAttribute('parser', 'csv');
                     return rows;
                   }
                   if (ext === '.docx') {
-                    const rows = parseDocxFile(file.path, context);
+                    const rows = await parseDocxFile(file.path, context);
                     fileSpan.setAttribute('records', rows.length);
+                    fileSpan.setAttribute('parser', 'docx');
+                    return rows;
+                  }
+                  if (ext === '.xlsx') {
+                    const rows = await parseXlsxFile(file.path, context);
+                    fileSpan.setAttribute('records', rows.length);
+                    fileSpan.setAttribute('parser', 'xlsx');
                     return rows;
                   }
                   console.warn(`Unsupported file type: ${file.path}`);

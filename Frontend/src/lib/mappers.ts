@@ -24,11 +24,14 @@ export type UIFacility = {
     category?: string;
     code?: string;
     estimatedDuration?: number;
+    isAvailable?: boolean;
   }[];
   lat?: number;
   lon?: number;
   updatedAt?: string;
   phoneNumber?: string | null;
+  whatsAppNumber?: string | null;
+  email?: string | null;
   website?: string | null;
   capacityStatus?: string | null;
   avgWaitMinutes?: number | null;
@@ -83,11 +86,14 @@ export const mapFacilitySearchResultToUI = (
       category: item.category,
       code: item.code,
       estimatedDuration: item.estimated_duration,
+      isAvailable: item.is_available ?? true,
     })),
     lat: facility.location?.latitude,
     lon: facility.location?.longitude,
     updatedAt: facility.updated_at,
     phoneNumber: facility.phone_number ?? null,
+    whatsAppNumber: facility.whatsapp_number ?? null,
+    email: facility.email ?? null,
     website: facility.website ?? null,
     capacityStatus: facility.capacity_status ?? null,
     avgWaitMinutes: facility.avg_wait_minutes ?? null,

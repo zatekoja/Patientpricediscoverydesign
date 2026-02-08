@@ -153,8 +153,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: >
       "for i in 1 2 3 4 5; do vault status >/dev/null 2>&1 && break; sleep 1; done;
-       vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
-       vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
+       vault kv get -mount=secret patient-price-discovery/api >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
+       vault kv get -mount=secret patient-price-discovery/provider >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
        exit 0"
     restart: "no"
 
@@ -216,6 +216,7 @@ services:
       - PROVIDER_RUN_INITIAL_SYNC=true
       - PRICE_LIST_CURRENCY=NGN
       - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
+      - LLM_DOC_PARSER_ENABLED=${LLM_DOC_PARSER_ENABLED:-true}
       - VAULT_ENABLED=${VAULT_ENABLED:-false}
       - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
       - VAULT_TOKEN=${VAULT_TOKEN:-root}
@@ -327,7 +328,7 @@ services:
       - PROVIDER_INGEST_INTERVAL_MINUTES=60
       - PROVIDER_INGEST_TIMEOUT_SECONDS=180
       - GEOLOCATION_PROVIDER=google
-      - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - GEOLOCATION_API_KEY=${GEOLOCATION_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - VAULT_ENABLED=${VAULT_ENABLED:-false}
@@ -396,7 +397,7 @@ services:
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
       - PROVIDER_API_BASE_URL=http://provider-api:3000/api/v1
       - GEOLOCATION_PROVIDER=google
-      - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - GEOLOCATION_API_KEY=${GEOLOCATION_API_KEY:-}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
       - ENV=development

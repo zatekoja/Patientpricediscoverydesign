@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -287,8 +286,8 @@ func (suite *FacilityAdapterIntegrationTestSuite) TestNullableFields() {
 
 	// Arrange - create facility with minimal required fields
 	facility := &entities.Facility{
-		ID:   "nullable-test-1",
-		Name: "Minimal Hospital",
+		ID:      "nullable-test-1",
+		Name:    "Minimal Hospital",
 		Address: entities.Address{
 			// Leave nullable fields empty
 		},
@@ -346,22 +345,6 @@ func (suite *FacilityAdapterIntegrationTestSuite) createTestFacility(id, name st
 }
 
 // Helper functions
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
-		}
-	}
-	return defaultValue
-}
-
 // TestFacilityAdapterIntegration runs the test suite
 func TestFacilityAdapterIntegration(t *testing.T) {
 	if testing.Short() {

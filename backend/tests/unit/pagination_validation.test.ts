@@ -71,6 +71,21 @@ async function main() {
     assert.strictEqual(result.limit, 5000);
   });
 
+  await runTest('validatePagination honors default limit override', () => {
+    const api = new DataProviderAPI();
+    const result = (api as any).validatePagination(undefined, undefined, { defaultLimit: 1000 });
+    assert.strictEqual(result.valid, true);
+    assert.strictEqual(result.limit, 1000);
+    assert.strictEqual(result.offset, 0);
+  });
+
+  await runTest('validatePagination honors max limit override', () => {
+    const api = new DataProviderAPI();
+    const result = (api as any).validatePagination('6000', '0', { maxLimit: 6000 });
+    assert.strictEqual(result.valid, true);
+    assert.strictEqual(result.limit, 6000);
+  });
+
   if (process.exitCode) {
     process.exit(1);
   }

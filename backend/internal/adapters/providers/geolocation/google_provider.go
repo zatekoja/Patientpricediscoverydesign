@@ -16,6 +16,7 @@ import (
 
 const (
 	googleGeocodeURL       = "https://maps.googleapis.com/maps/api/geocode/json"
+	googlePlacesTextURL    = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 	defaultGeocodeCacheTTL = 60 * 60 * 24 * 30
 	defaultReverseCacheTTL = 60 * 60 * 24 * 30
 	defaultHTTPTimeout     = 8 * time.Second
@@ -27,6 +28,7 @@ type GoogleGeolocationProvider struct {
 	httpClient *http.Client
 	cache      providers.CacheProvider
 	baseURL    string
+	placesURL  string
 }
 
 // NewGoogleGeolocationProvider creates a new Google geolocation provider.
@@ -42,11 +44,20 @@ func NewGoogleGeolocationProviderWithOptions(apiKey string, cache providers.Cach
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
+	placesURL := googlePlacesTextURL
+	if baseURL != googleGeocodeURL {
+		if strings.HasSuffix(baseURL, "/geocode") {
+			placesURL = strings.TrimSuffix(baseURL, "/geocode") + "/place/textsearch"
+		} else {
+			placesURL = ""
+		}
+	}
 	return &GoogleGeolocationProvider{
 		apiKey:     apiKey,
 		httpClient: httpClient,
 		cache:      cache,
 		baseURL:    baseURL,
+		placesURL:  placesURL,
 	}
 }
 
@@ -64,6 +75,17 @@ func (g *GoogleGeolocationProvider) Geocode(ctx context.Context, address string)
 			if err := json.Unmarshal(cached, &coords); err == nil {
 				return &coords, nil
 			}
+		}
+	}
+
+	if g.placesURL != "" {
+		if coords, err := g.searchPlaceCoordinates(ctx, trimmed); err == nil && coords != nil {
+			if g.cache != nil {
+				if payload, err := json.Marshal(*coords); err == nil {
+					_ = g.cache.Set(ctx, cacheKey, payload, defaultGeocodeCacheTTL)
+				}
+			}
+			return coords, nil
 		}
 	}
 
@@ -171,7 +193,66 @@ func (g *GoogleGeolocationProvider) doGeocodeRequest(ctx context.Context, params
 	}
 
 	if payload.Status != "OK" {
+		if payload.ErrorMessage != "" {
+			return nil, fmt.Errorf("geocode request failed: %s - %s", payload.Status, payload.ErrorMessage)
+		}
 		return nil, fmt.Errorf("geocode request failed: %s", payload.Status)
+	}
+
+	return &payload, nil
+}
+
+func (g *GoogleGeolocationProvider) searchPlaceCoordinates(ctx context.Context, query string) (*providers.Coordinates, error) {
+	resp, err := g.doPlacesTextSearch(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status == "ZERO_RESULTS" || len(resp.Results) == 0 {
+		return nil, nil
+	}
+	if resp.Status != "OK" {
+		if resp.ErrorMessage != "" {
+			return nil, fmt.Errorf("places text search failed: %s - %s", resp.Status, resp.ErrorMessage)
+		}
+		return nil, fmt.Errorf("places text search failed: %s", resp.Status)
+	}
+
+	location := resp.Results[0].Geometry.Location
+	return &providers.Coordinates{Latitude: location.Lat, Longitude: location.Lng}, nil
+}
+
+func (g *GoogleGeolocationProvider) doPlacesTextSearch(ctx context.Context, query string) (*googlePlacesTextSearchResponse, error) {
+	if g.apiKey == "" {
+		return nil, fmt.Errorf("google maps api key is required")
+	}
+	if strings.TrimSpace(g.placesURL) == "" {
+		return nil, fmt.Errorf("places url is not configured")
+	}
+
+	params := url.Values{}
+	params.Set("query", query)
+	params.Set("region", "ng")
+	params.Set("key", g.apiKey)
+
+	reqURL := fmt.Sprintf("%s?%s", g.placesURL, params.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build places text search request: %w", err)
+	}
+
+	resp, err := g.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("places text search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("places text search returned status %d", resp.StatusCode)
+	}
+
+	var payload googlePlacesTextSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("failed to decode places text search response: %w", err)
 	}
 
 	return &payload, nil
@@ -220,8 +301,9 @@ func containsType(types []string, target string) bool {
 }
 
 type googleGeocodeResponse struct {
-	Status  string                `json:"status"`
-	Results []googleGeocodeResult `json:"results"`
+	Status       string                `json:"status"`
+	ErrorMessage string                `json:"error_message,omitempty"`
+	Results      []googleGeocodeResult `json:"results"`
 }
 
 type googleGeocodeResult struct {
@@ -242,4 +324,17 @@ type googleGeometry struct {
 type googleLocation struct {
 	Lat float64 `json:"lat"`
 	Lng float64 `json:"lng"`
+}
+
+type googlePlacesTextSearchResponse struct {
+	Status       string                         `json:"status"`
+	ErrorMessage string                         `json:"error_message,omitempty"`
+	Results      []googlePlacesTextSearchResult `json:"results"`
+}
+
+type googlePlacesTextSearchResult struct {
+	FormattedAddress string         `json:"formatted_address"`
+	PlaceID          string         `json:"place_id"`
+	Name             string         `json:"name"`
+	Geometry         googleGeometry `json:"geometry"`
 }

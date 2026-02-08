@@ -85,10 +85,21 @@ backend/
 - **Database**: PostgreSQL (with spatial queries support)
 - **Search Engine**: Typesense
 - **Cache**: Redis
-- **Observability**: OpenTelemetry (OTEL)
+- **Observability**: SigNoz with OpenTelemetry (OTEL), Fluent Bit
 - **Testing**: testify, mockery
 - **Geolocation**: Mock provider (can be replaced with Google Maps, Mapbox, etc.)
 - **Query Builder**: goqu for type-safe SQL generation
+
+### Observability
+
+Comprehensive observability is built-in using SigNoz:
+
+- **Metrics**: Real-time performance tracking (request rates, latency, DB performance)
+- **Tracing**: Distributed tracing across all services
+- **Logs**: Centralized log collection with correlation to traces
+- **Dashboards**: Pre-configured dashboards in `vendor/dashboards/`
+
+For detailed setup and usage, see [OBSERVABILITY.md](../OBSERVABILITY.md).
 
 ### Getting Started
 
@@ -126,6 +137,12 @@ REDIS_DB=0
 GEOLOCATION_PROVIDER=mock
 GEOLOCATION_API_KEY=
 
+# OpenAI (procedure enrichment)
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_RATE_LIMIT_RPM=60
+OPENAI_RATE_LIMIT_BURST=5
+
 # Provider API (for ingesting price list facilities)
 PROVIDER_API_BASE_URL=http://localhost:3002/api/v1
 PROVIDER_INGEST_ON_START=false
@@ -137,6 +154,22 @@ OTEL_ENABLED=false
 OTEL_SERVICE_NAME=patient-price-discovery
 OTEL_SERVICE_VERSION=1.0.0
 OTEL_ENDPOINT=
+```
+
+#### Optional Vault Secrets
+
+The API can load secrets from HashiCorp Vault (KV v1/v2). Vault values are applied to the process environment; existing env vars are kept unless `VAULT_OVERWRITE=true`.
+
+```bash
+VAULT_ENABLED=true
+VAULT_ADDR=https://vault.example.com
+VAULT_TOKEN=...
+VAULT_NAMESPACE=
+VAULT_MOUNT=secret
+VAULT_API_PATH=patient-price-discovery/api
+VAULT_KV_VERSION=2
+VAULT_TIMEOUT_MS=5000
+VAULT_OVERWRITE=false
 ```
 
 #### Installation
@@ -613,6 +646,20 @@ GOOGLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----
 GOOGLE_PROJECT_ID=my-project-id
 SPREADSHEET_IDS=id1,id2,id3
 SYNC_INTERVAL_MS=259200000  # 3 days
+```
+
+Optional Vault secrets for the provider service:
+
+```bash
+VAULT_ENABLED=true
+VAULT_ADDR=https://vault.example.com
+VAULT_TOKEN=...
+VAULT_NAMESPACE=
+VAULT_MOUNT=secret
+VAULT_PROVIDER_PATH=patient-price-discovery/provider
+VAULT_KV_VERSION=2
+VAULT_TIMEOUT_MS=5000
+VAULT_OVERWRITE=false
 ```
 
 #### Dependencies

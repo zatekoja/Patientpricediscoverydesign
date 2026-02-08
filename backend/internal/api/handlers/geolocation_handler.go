@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -61,6 +62,7 @@ func (h *GeolocationHandler) ReverseGeocode(w http.ResponseWriter, r *http.Reque
 
 	address, err := h.provider.ReverseGeocode(r.Context(), lat, lon)
 	if err != nil {
+		log.Printf("ReverseGeocode error: %v", err)
 		respondWithError(w, http.StatusBadGateway, "failed to reverse geocode")
 		return
 	}

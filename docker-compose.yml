@@ -96,8 +96,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: >
       "for i in 1 2 3 4 5; do vault status >/dev/null 2>&1 && break; sleep 1; done;
-       vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
-       vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
+       vault kv get -mount=secret patient-price-discovery/api >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
+       vault kv get -mount=secret patient-price-discovery/provider >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
        exit 0"
     restart: "no"
 
@@ -109,6 +109,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: ppd_api
+    env_file:
+      - .env
     ports:
       - "8080:8080"
     environment:
@@ -130,7 +132,7 @@ services:
       - PROVIDER_INGEST_INTERVAL_MINUTES=60
       - PROVIDER_INGEST_TIMEOUT_SECONDS=180
       - GEOLOCATION_PROVIDER=google
-      - GEOLOCATION_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - GEOLOCATION_API_KEY=${GEOLOCATION_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - VAULT_ENABLED=${VAULT_ENABLED:-false}
@@ -141,7 +143,7 @@ services:
       - VAULT_API_PATH=${VAULT_API_PATH:-patient-price-discovery/api}
       - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
       - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
-      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-false}
+      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-true}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
     depends_on:
@@ -162,6 +164,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.provider
     container_name: ppd_provider_api
+    env_file:
+      - .env
     ports:
       - "3001:3000"
     environment:
@@ -179,7 +183,8 @@ services:
       - PROVIDER_RUN_INITIAL_SYNC=true
       - PRICE_LIST_CURRENCY=NGN
       - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
-      - VAULT_ENABLED=${VAULT_ENABLED:-false}
+      - LLM_DOC_PARSER_ENABLED=true
+      - VAULT_ENABLED=true
       - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
       - VAULT_TOKEN=${VAULT_TOKEN:-root}
       - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
@@ -202,6 +207,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.sse-server
     container_name: ppd_sse
+    env_file:
+      - .env
     ports:
       - "8082:8082"
     environment:
@@ -221,6 +228,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.indexer
     container_name: ppd_reindexer
+    env_file:
+      - .env
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -243,6 +252,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.graphql-server
     container_name: ppd_graphql
+    env_file:
+      - .env
     ports:
       - "8081:8081"
     environment:

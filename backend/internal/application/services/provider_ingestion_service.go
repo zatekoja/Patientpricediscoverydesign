@@ -17,13 +17,15 @@ import (
 )
 
 type ProviderIngestionSummary struct {
-	RecordsProcessed          int `json:"records_processed"`
-	FacilitiesCreated         int `json:"facilities_created"`
-	FacilitiesUpdated         int `json:"facilities_updated"`
-	ProceduresCreated         int `json:"procedures_created"`
-	ProceduresUpdated         int `json:"procedures_updated"`
-	FacilityProceduresCreated int `json:"facility_procedures_created"`
-	FacilityProceduresUpdated int `json:"facility_procedures_updated"`
+	RecordsProcessed            int `json:"records_processed"`
+	FacilitiesCreated           int `json:"facilities_created"`
+	FacilitiesUpdated           int `json:"facilities_updated"`
+	ProceduresCreated           int `json:"procedures_created"`
+	ProceduresUpdated           int `json:"procedures_updated"`
+	FacilityProceduresCreated   int `json:"facility_procedures_created"`
+	FacilityProceduresUpdated   int `json:"facility_procedures_updated"`
+	ProcedureEnrichmentsCreated int `json:"procedure_enrichments_created"`
+	ProcedureEnrichmentsFailed  int `json:"procedure_enrichments_failed"`
 }
 
 // ProviderIngestionService hydrates provider data into core backend storage.
@@ -33,6 +35,8 @@ type ProviderIngestionService struct {
 	facilityService       *FacilityService
 	procedureRepo         repositories.ProcedureRepository
 	facilityProcedureRepo repositories.FacilityProcedureRepository
+	enrichmentRepo        repositories.ProcedureEnrichmentRepository
+	enrichmentProvider    providers.ProcedureEnrichmentProvider
 	geolocationProvider   providers.GeolocationProvider
 	geocodeCache          map[string]*providers.GeocodedAddress
 	cacheProvider         providers.CacheProvider
@@ -45,6 +49,8 @@ func NewProviderIngestionService(
 	facilityService *FacilityService,
 	procedureRepo repositories.ProcedureRepository,
 	facilityProcedureRepo repositories.FacilityProcedureRepository,
+	enrichmentRepo repositories.ProcedureEnrichmentRepository,
+	enrichmentProvider providers.ProcedureEnrichmentProvider,
 	geolocationProvider providers.GeolocationProvider,
 	cacheProvider providers.CacheProvider,
 	pageSize int,
@@ -58,6 +64,8 @@ func NewProviderIngestionService(
 		facilityService:       facilityService,
 		procedureRepo:         procedureRepo,
 		facilityProcedureRepo: facilityProcedureRepo,
+		enrichmentRepo:        enrichmentRepo,
+		enrichmentProvider:    enrichmentProvider,
 		geolocationProvider:   geolocationProvider,
 		geocodeCache:          map[string]*providers.GeocodedAddress{},
 		cacheProvider:         cacheProvider,
@@ -241,6 +249,12 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 	}
 
 	s.invalidateSearchCaches(ctx)
+
+	// Enrich procedures during ingestion
+	enrichmentSummary := s.enrichProceduresBatch(ctx)
+	summary.ProcedureEnrichmentsCreated = enrichmentSummary.Created
+	summary.ProcedureEnrichmentsFailed = enrichmentSummary.Failed
+
 	return summary, nil
 }
 
@@ -292,6 +306,7 @@ func (s *ProviderIngestionService) ensureFacility(ctx context.Context, id string
 	if profile != nil {
 		facility.Description = profile.Description
 		facility.PhoneNumber = profile.PhoneNumber
+		facility.WhatsAppNumber = profile.WhatsAppNumber
 		facility.Email = profile.Email
 		facility.Website = profile.Website
 		facility.Address = entities.Address{
@@ -359,20 +374,41 @@ func (s *ProviderIngestionService) ensureFacilityLocation(ctx context.Context, f
 		return false
 	}
 
-	region := inferRegionFromTags(tags)
-	geo := &providers.GeocodedAddress{
-		FormattedAddress: query,
-		City:             firstNonEmpty(facility.Address.City, region),
-		State:            facility.Address.State,
-		Country:          firstNonEmpty(facility.Address.Country, "Nigeria"),
-		Coordinates: providers.Coordinates{
-			Latitude:  coords.Latitude,
-			Longitude: coords.Longitude,
-		},
-	}
+	geo := s.reverseGeocodeOrFallback(ctx, coords, facility, query, tags)
 	applyGeocodedAddress(facility, geo)
 	s.geocodeCache[query] = geo
 	return true
+}
+
+func (s *ProviderIngestionService) reverseGeocodeOrFallback(ctx context.Context, coords *providers.Coordinates, facility *entities.Facility, query string, tags []string) *providers.GeocodedAddress {
+	if coords == nil {
+		return buildFallbackGeocodedAddress(facility, query, tags, providers.Coordinates{})
+	}
+
+	reverse, err := s.geolocationProvider.ReverseGeocode(ctx, coords.Latitude, coords.Longitude)
+	if err == nil && reverse != nil {
+		if !isLikelyNigeria(tags, query) || strings.EqualFold(reverse.Country, "Nigeria") || reverse.Country == "" {
+			return reverse
+		}
+	}
+
+	return buildFallbackGeocodedAddress(facility, query, tags, *coords)
+}
+
+func buildFallbackGeocodedAddress(facility *entities.Facility, query string, tags []string, coords providers.Coordinates) *providers.GeocodedAddress {
+	// FIX: Don't use tag inference to fill missing city - it causes incorrect defaults
+	// If coordinates are valid but reverse geocoding failed, leave city empty rather than guessing from tags
+	// The actual city should come from:
+	// 1. Facility address (if provided)
+	// 2. Reverse geocoding with coordinates (already attempted before calling this)
+	// 3. Left empty if neither available (DO NOT use tag inference)
+	return &providers.GeocodedAddress{
+		FormattedAddress: query,
+		City:             facility.Address.City, // Use only actual address, not tag inference
+		State:            facility.Address.State,
+		Country:          firstNonEmpty(facility.Address.Country, "Nigeria"),
+		Coordinates:      coords,
+	}
 }
 
 func applyGeocodedAddress(facility *entities.Facility, geo *providers.GeocodedAddress) {
@@ -479,9 +515,21 @@ func buildGeocodeQuery(facility *entities.Facility, record providerapi.PriceReco
 		}
 	}
 
-	region := inferRegionFromTags(tags)
-	if region != "" {
-		parts = append(parts, region)
+	// FIX: Only use tag-based region inference as last resort when no address components exist
+	// Don't add inferred region if we have actual city/state - it biases geocoding results
+	hasAddress := false
+	if profile != nil {
+		hasAddress = profile.Address.City != "" || profile.Address.State != ""
+	} else {
+		hasAddress = facility.Address.City != "" || facility.Address.State != ""
+	}
+
+	if !hasAddress && len(parts) > 0 {
+		// Only infer region if we have no address components but have facility name
+		region := inferRegionFromTags(tags)
+		if region != "" {
+			parts = append(parts, region)
+		}
 	}
 
 	if !containsToken(parts, "Nigeria") {
@@ -492,12 +540,23 @@ func buildGeocodeQuery(facility *entities.Facility, record providerapi.PriceReco
 }
 
 func inferRegionFromTags(tags []string) string {
+	// FIX: Made more strict - only exact matches, not substring matches
+	// This prevents tags like "teaching_hospital_lagos_affiliated" from being treated as location
 	for _, tag := range tags {
-		switch strings.ToLower(tag) {
-		case "lagos", "lagos_state":
+		tagLower := strings.ToLower(strings.TrimSpace(tag))
+		switch tagLower {
+		case "lagos", "lagos_state", "lagos state":
 			return "Lagos"
-		case "abuja", "fct", "federal_capital_territory":
+		case "abuja", "fct", "federal_capital_territory", "federal capital territory":
 			return "Abuja"
+		case "port_harcourt", "port harcourt", "rivers", "rivers_state", "rivers state":
+			return "Port Harcourt"
+		case "kano", "kano_state", "kano state":
+			return "Kano"
+		case "ibadan", "oyo", "oyo_state", "oyo state":
+			return "Ibadan"
+		case "enugu", "enugu_state", "enugu state":
+			return "Enugu"
 		}
 	}
 	return ""
@@ -601,7 +660,12 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 func (s *ProviderIngestionService) ensureFacilityProcedure(ctx context.Context, facilityID, procedureID string, record providerapi.PriceRecord) (bool, error) {
 	existing, err := s.facilityProcedureRepo.GetByFacilityAndProcedure(ctx, facilityID, procedureID)
 	if err == nil && existing != nil {
-		existing.Price = record.Price
+		// Price Aggregation Strategy: Average prices from multiple providers
+		// When a facility-procedure already exists (from another provider),
+		// calculate the average price between the existing price and the new price
+		averagePrice := calculateAveragePrice(existing.Price, record.Price)
+
+		existing.Price = averagePrice
 		existing.Currency = record.Currency
 		existing.IsAvailable = true
 		if record.EstimatedDurationMin != nil {
@@ -649,6 +713,21 @@ func isNotFound(err error) bool {
 		return appErr.Type == apperrors.ErrorTypeNotFound
 	}
 	return false
+}
+
+// calculateAveragePrice computes the average of two prices
+// Used for price aggregation strategy when multiple providers report prices for same facility-procedure
+func calculateAveragePrice(existingPrice, newPrice float64) float64 {
+	if existingPrice == 0 && newPrice == 0 {
+		return 0
+	}
+	if existingPrice == 0 {
+		return newPrice
+	}
+	if newPrice == 0 {
+		return existingPrice
+	}
+	return (existingPrice + newPrice) / 2.0
 }
 
 func buildFacilityID(providerID, name string) string {
@@ -798,6 +877,91 @@ func applyProfileStatus(facility *entities.Facility, profile *providerapi.Facili
 	}
 
 	return changed
+}
+
+// enrichProceduresBatch enriches all procedures that don't have enrichment data yet.
+// This runs after ingestion to populate enrichment data once for all procedures.
+func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *struct {
+	Created int
+	Failed  int
+} {
+	result := &struct {
+		Created int
+		Failed  int
+	}{}
+
+	if s.enrichmentProvider == nil || s.enrichmentRepo == nil {
+		log.Println("procedure enrichment provider or repository not configured, skipping enrichment")
+		return result
+	}
+
+	// Get all procedures
+	procedures, err := s.procedureRepo.List(ctx, repositories.ProcedureFilter{})
+	if err != nil {
+		log.Printf("failed to list procedures for enrichment: %v", err)
+		return result
+	}
+
+	if len(procedures) == 0 {
+		return result
+	}
+
+	// Check which procedures need enrichment
+	var proceduresToEnrich []*entities.Procedure
+	for _, proc := range procedures {
+		// Check if enrichment already exists
+		existing, err := s.enrichmentRepo.GetByProcedureID(ctx, proc.ID)
+		if err == nil && existing != nil {
+			// Enrichment already exists, skip
+			continue
+		}
+		proceduresToEnrich = append(proceduresToEnrich, proc)
+	}
+
+	if len(proceduresToEnrich) == 0 {
+		return result
+	}
+
+	now := time.Now()
+	for _, proc := range proceduresToEnrich {
+		enriched, err := s.enrichmentProvider.EnrichProcedure(ctx, proc)
+		if err != nil {
+			log.Printf("failed to enrich procedure %s (%s): %v", proc.ID, proc.Name, err)
+			result.Failed++
+			continue
+		}
+
+		// Ensure required fields are populated
+		if enriched.ID == "" {
+			enriched.ID = fmt.Sprintf("enrich_%s_%d", proc.ID, now.UnixNano())
+		}
+		if enriched.ProcedureID == "" {
+			enriched.ProcedureID = proc.ID
+		}
+		if enriched.CreatedAt.IsZero() {
+			enriched.CreatedAt = now
+		}
+		if enriched.UpdatedAt.IsZero() {
+			enriched.UpdatedAt = now
+		}
+
+		// Use procedure description if enrichment doesn't have one
+		if enriched.Description == "" {
+			enriched.Description = proc.Description
+		}
+
+		// Store enrichment
+		if err := s.enrichmentRepo.Upsert(ctx, enriched); err != nil {
+			log.Printf("failed to store enrichment for procedure %s: %v", proc.ID, err)
+			result.Failed++
+			continue
+		}
+
+		result.Created++
+	}
+
+	log.Printf("batch enriched %d procedures (%d failed)", result.Created, result.Failed)
+	return result
 }
 
 func hashString(value string) string {
