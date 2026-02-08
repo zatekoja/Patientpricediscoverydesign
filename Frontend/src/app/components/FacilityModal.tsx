@@ -48,6 +48,14 @@ interface FacilityModalProps {
     avgWaitMinutes?: number | null;
     urgentCareAvailable?: boolean | null;
     nextAvailableAt?: string | null;
+    wards?: {
+      wardName: string;
+      wardType?: string;
+      capacityStatus?: string;
+      avgWaitMinutes?: number;
+      urgentCareAvailable?: boolean;
+      lastUpdated: string;
+    }[];
   };
   onClose: () => void;
 }
@@ -385,21 +393,97 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
                         Last synced: {new Date(providerHealth.lastSync).toLocaleString()}
                       </p>
                     )}
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="p-3 bg-blue-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">Capacity Status</p>
-                        <p className="font-semibold text-blue-900">
-                          {facility.capacityStatus || "Normal"}
-                        </p>
+                    {/* Facility-wide capacity (if no wards or as fallback) */}
+                    {(!facility.wards || facility.wards.length === 0) && (
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="p-3 bg-blue-50 rounded-lg">
+                          <p className="text-xs text-gray-600 mb-1">Capacity Status</p>
+                          <p className="font-semibold text-blue-900">
+                            {facility.capacityStatus || "Normal"}
+                          </p>
+                        </div>
+                        <div className="p-3 bg-purple-50 rounded-lg">
+                          <p className="text-xs text-gray-600 mb-1">Avg Wait Time</p>
+                          <p className="font-semibold text-purple-900">
+                            {facility.avgWaitMinutes ? `${facility.avgWaitMinutes} mins` : "N/A"}
+                          </p>
+                        </div>
                       </div>
-                      <div className="p-3 bg-purple-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">Avg Wait Time</p>
-                        <p className="font-semibold text-purple-900">
-                          {facility.avgWaitMinutes ? `${facility.avgWaitMinutes} mins` : "N/A"}
-                        </p>
+                    )}
+
+                    {/* Ward-specific capacity */}
+                    {facility.wards && facility.wards.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-gray-700">Ward/Department Capacity</p>
+                        <div className="space-y-2">
+                          {facility.wards.map((ward, index) => {
+                            const capacityColor = ward.capacityStatus?.toLowerCase() === 'available' 
+                              ? 'bg-green-50 border-green-200' 
+                              : ward.capacityStatus?.toLowerCase() === 'busy'
+                              ? 'bg-yellow-50 border-yellow-200'
+                              : ward.capacityStatus?.toLowerCase() === 'full'
+                              ? 'bg-red-50 border-red-200'
+                              : ward.capacityStatus?.toLowerCase() === 'closed'
+                              ? 'bg-gray-50 border-gray-200'
+                              : 'bg-blue-50 border-blue-200';
+                            
+                            const statusColor = ward.capacityStatus?.toLowerCase() === 'available'
+                              ? 'text-green-700'
+                              : ward.capacityStatus?.toLowerCase() === 'busy'
+                              ? 'text-yellow-700'
+                              : ward.capacityStatus?.toLowerCase() === 'full'
+                              ? 'text-red-700'
+                              : ward.capacityStatus?.toLowerCase() === 'closed'
+                              ? 'text-gray-700'
+                              : 'text-blue-700';
+
+                            return (
+                              <div key={index} className={`p-3 rounded-lg border ${capacityColor}`}>
+                                <div className="flex items-start justify-between mb-2">
+                                  <div>
+                                    <p className="font-semibold text-gray-900 text-sm">
+                                      {ward.wardName}
+                                    </p>
+                                    {ward.wardType && (
+                                      <p className="text-xs text-gray-500 mt-0.5">
+                                        {ward.wardType}
+                                      </p>
+                                    )}
+                                  </div>
+                                  {ward.capacityStatus && (
+                                    <span className={`text-xs font-medium px-2 py-1 rounded ${statusColor} bg-white/60`}>
+                                      {ward.capacityStatus.charAt(0).toUpperCase() + ward.capacityStatus.slice(1)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  {ward.avgWaitMinutes !== undefined && ward.avgWaitMinutes !== null && (
+                                    <div>
+                                      <span className="text-gray-600">Wait: </span>
+                                      <span className="font-medium text-gray-900">
+                                        {ward.avgWaitMinutes} mins
+                                      </span>
+                                    </div>
+                                  )}
+                                  {ward.urgentCareAvailable && (
+                                    <div className="flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                                      <span className="text-gray-600">Urgent care</span>
+                                    </div>
+                                  )}
+                                </div>
+                                {ward.lastUpdated && (
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    Updated: {new Date(ward.lastUpdated).toLocaleString()}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-xs text-gray-500 italic">
+                    )}
+                    <p className="text-xs text-gray-500 italic mt-3">
                       Provider health powers real-time capacity and wait time updates via SSE
                     </p>
                   </div>

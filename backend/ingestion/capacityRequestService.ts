@@ -14,6 +14,7 @@ export type CapacityChannel = 'email' | 'whatsapp';
 export interface CapacityRequestToken {
   id: string;
   facilityId: string;
+  wardName?: string; // Optional: if specified, token is for ward-specific update
   channel: CapacityChannel;
   recipient: string;
   createdAt: string;
@@ -109,7 +110,7 @@ export class CapacityRequestService {
     return record;
   }
 
-  async sendSingleRequest(facilityId: string, channel?: CapacityChannel): Promise<void> {
+  async sendSingleRequest(facilityId: string, channel?: CapacityChannel, wardName?: string): Promise<void> {
     const facility = await this.options.facilityProfileService.getProfile(facilityId);
     if (!facility) {
       throw new Error('Facility not found');
@@ -120,29 +121,29 @@ export class CapacityRequestService {
         if (!emailRecipient || !this.options.emailSender) {
           throw new Error('Email sender not configured or facility email missing');
         }
-        await this.sendRequest(facility, 'email', emailRecipient);
+        await this.sendRequest(facility, 'email', emailRecipient, wardName);
         return;
       }
       const phoneRecipient = facility.phoneNumber?.trim();
       if (!phoneRecipient || !this.options.whatsappSender) {
         throw new Error('WhatsApp sender not configured or facility phone missing');
       }
-      await this.sendRequest(facility, 'whatsapp', phoneRecipient);
+      await this.sendRequest(facility, 'whatsapp', phoneRecipient, wardName);
       return;
     }
 
-    await this.requestForFacility(facility);
+    await this.requestForFacility(facility, wardName);
   }
 
-  private async requestForFacility(facility: FacilityProfile): Promise<void> {
+  private async requestForFacility(facility: FacilityProfile, wardName?: string): Promise<void> {
     const emailRecipient = facility.email?.trim();
     const phoneRecipient = facility.phoneNumber?.trim();
 
     if (emailRecipient && this.options.emailSender) {
-      await this.sendRequest(facility, 'email', emailRecipient);
+      await this.sendRequest(facility, 'email', emailRecipient, wardName);
     }
     if (phoneRecipient && this.options.whatsappSender) {
-      await this.sendRequest(facility, 'whatsapp', phoneRecipient);
+      await this.sendRequest(facility, 'whatsapp', phoneRecipient, wardName);
     }
   }
 
@@ -150,8 +151,9 @@ export class CapacityRequestService {
     facility: FacilityProfile,
     channel: CapacityChannel,
     recipient: string,
+    wardName?: string,
   ): Promise<void> {
-    const active = await this.findActiveToken(facility.id, channel, recipient);
+    const active = await this.findActiveToken(facility.id, channel, recipient, wardName);
     if (active) {
       return;
     }
@@ -164,7 +166,8 @@ export class CapacityRequestService {
       facility.id,
       channel,
       recipient,
-      tokenTTL
+      tokenTTL,
+      wardName
     );
     await this.options.tokenStore.put(tokenRecord.id, tokenRecord, {
       facilityId: facility.id,
@@ -226,7 +229,8 @@ export class CapacityRequestService {
   private async findActiveToken(
     facilityId: string,
     channel: CapacityChannel,
-    recipient: string
+    recipient: string,
+    wardName?: string
   ): Promise<CapacityRequestToken | null> {
     const tokens = await this.options.tokenStore.query(
       { facilityId, channel, recipient },
@@ -235,6 +239,10 @@ export class CapacityRequestService {
     const now = Date.now();
     for (const token of tokens) {
       if (token.usedAt) {
+        continue;
+      }
+      // Match ward name if specified (both must be undefined or both must match)
+      if (token.wardName !== wardName) {
         continue;
       }
       if (new Date(token.expiresAt).getTime() < now) {
@@ -327,7 +335,8 @@ function createTokenRecord(
   facilityId: string,
   channel: CapacityChannel,
   recipient: string,
-  ttlMinutes: number
+  ttlMinutes: number,
+  wardName?: string
 ): { rawToken: string; tokenRecord: CapacityRequestToken } {
   const rawToken = crypto.randomBytes(32).toString('base64url');
   const tokenHash = hashToken(rawToken);
@@ -336,6 +345,7 @@ function createTokenRecord(
   const tokenRecord: CapacityRequestToken = {
     id: tokenHash,
     facilityId,
+    wardName,
     channel,
     recipient,
     createdAt: now.toISOString(),

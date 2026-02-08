@@ -16,6 +16,7 @@ import (
 // FacilityService handles business logic for facilities
 type FacilityService struct {
 	repo                 repositories.FacilityRepository
+	facilityWardRepo     repositories.FacilityWardRepository
 	searchRepo           repositories.FacilitySearchRepository
 	procedureRepo        repositories.FacilityProcedureRepository
 	procedureCatalogRepo repositories.ProcedureRepository
@@ -35,12 +36,18 @@ func NewFacilityService(
 ) *FacilityService {
 	return &FacilityService{
 		repo:                 repo,
+		facilityWardRepo:     nil, // Optional - injected separately if needed
 		searchRepo:           searchRepo,
 		procedureRepo:        procedureRepo,
 		procedureCatalogRepo: procedureCatalogRepo,
 		insuranceRepo:        insuranceRepo,
 		eventBus:             nil, // Injected separately to avoid breaking existing code
 	}
+}
+
+// SetFacilityWardRepository sets the facility ward repository (optional)
+func (s *FacilityService) SetFacilityWardRepository(repo repositories.FacilityWardRepository) {
+	s.facilityWardRepo = repo
 }
 
 // SetEventBus sets the event bus for publishing real-time updates
@@ -379,6 +386,32 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 		}
 		if facility.UrgentCareAvailable != nil {
 			result.UrgentCareAvailable = facility.UrgentCareAvailable
+		}
+
+		// Load ward capacity if repository is available
+		if s.facilityWardRepo != nil {
+			if wards, err := s.facilityWardRepo.GetByFacilityID(ctx, facility.ID); err == nil && len(wards) > 0 {
+				result.Wards = make([]entities.WardCapacityResult, 0, len(wards))
+				for _, ward := range wards {
+					wardResult := entities.WardCapacityResult{
+						WardName:            ward.WardName,
+						LastUpdated:         ward.LastUpdated,
+					}
+					if ward.WardType != nil {
+						wardResult.WardType = *ward.WardType
+					}
+					if ward.CapacityStatus != nil {
+						wardResult.CapacityStatus = *ward.CapacityStatus
+					}
+					if ward.AvgWaitMinutes != nil {
+						wardResult.AvgWaitMinutes = ward.AvgWaitMinutes
+					}
+					if ward.UrgentCareAvailable != nil {
+						wardResult.UrgentCareAvailable = ward.UrgentCareAvailable
+					}
+					result.Wards = append(result.Wards, wardResult)
+				}
+			}
 		}
 
 		if s.procedureRepo != nil {

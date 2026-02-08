@@ -211,60 +211,15 @@ The following functional scenarios have been fully automated and verified (11/11
 
 **Remaining Manual Testing (Visual/Integration/UAT):**
 
-These tests require manual verification as they involve visual inspection, real-world integration, or user feedback:
+For detailed step-by-step instructions on manual testing, see: **[`CAPACITY_FORM_FRONTEND_TESTING_GUIDE.md`](./CAPACITY_FORM_FRONTEND_TESTING_GUIDE.md)**
 
-- [ ] **Form Appearance & Responsiveness** - Visual/UX testing
-  - [ ] Test form rendering on desktop browsers (Chrome, Firefox, Safari, Edge)
-  - [ ] Test form on mobile devices (iOS Safari, Android Chrome)
-  - [ ] Verify form styling matches design system (colors: #030213, #f3f3f5, typography, spacing)
-  - [ ] Test form accessibility (keyboard navigation, screen readers, ARIA labels)
-  - [ ] Verify responsive layout at different screen sizes (320px, 768px, 1024px, 1920px)
-  - [ ] Test form validation messages display correctly
-  - [ ] Verify success page displays correctly after submission
-  - [ ] Test form with different browser zoom levels (50%, 100%, 200%)
+**Quick Reference - Manual Testing Areas:**
 
+- [ ] **Form Appearance & Responsiveness** - Visual/UX testing (see detailed guide)
 - [ ] **Real Email Delivery** - Integration testing in staging
-  - [ ] Send test capacity request to real email address
-  - [ ] Verify email formatting renders correctly in email clients
-  - [ ] Test email links work and redirect to form correctly
-  - [ ] Test custom email template with real email delivery
-  - [ ] Verify email works across different providers (Gmail, Outlook, Yahoo, etc.)
-  - [ ] Test email spam filtering (ensure emails don't go to spam)
-  - [ ] Verify email displays correctly on mobile email clients
-
 - [ ] **Real Webhook Integration** - End-to-end testing
-  - [ ] Test webhook delivery to actual core API endpoint
-  - [ ] Verify webhook payload format matches core API expectations
-  - [ ] Test webhook retry behavior with real network conditions
-  - [ ] Test webhook with actual ingestion service running
-  - [ ] Monitor webhook success/failure rates in production-like environment
-  - [ ] Verify capacity updates sync to PostgreSQL correctly
-  - [ ] Verify SSE events are published after webhook triggers ingestion
-  - [ ] Test webhook retry timing with actual network delays
-
 - [ ] **Performance & Load Testing**
-  - [ ] Test capacity update flow under normal load (10-50 concurrent requests)
-  - [ ] Test concurrent capacity updates from multiple facilities
-  - [ ] Test webhook retry behavior under high load
-  - [ ] Monitor system performance metrics (response times, error rates)
-  - [ ] Test token generation performance with many facilities (100+)
-  - [ ] Verify system handles webhook failures gracefully under load
-  - [ ] Test database performance with frequent capacity updates
-
 - [ ] **User Acceptance Testing (UAT)**
-  - [ ] Have actual data providers test the complete flow
-  - [ ] Collect feedback on form usability and clarity
-  - [ ] Verify providers can successfully update capacity without confusion
-  - [ ] Test with real-world scenarios (different facility types, sizes)
-  - [ ] Verify providers understand capacity status options
-  - [ ] Test edge cases reported by actual users
-  - [ ] Gather feedback on email clarity and form instructions
-
-- [ ] **User acceptance testing (UAT)**
-  - [ ] Have actual data providers test the form
-  - [ ] Collect feedback on form usability
-  - [ ] Verify providers can successfully update capacity
-  - [ ] Test with real-world scenarios and edge cases
 
 ### Test Execution
 

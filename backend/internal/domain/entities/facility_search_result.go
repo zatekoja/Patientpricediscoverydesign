@@ -2,6 +2,16 @@ package entities
 
 import "time"
 
+// WardCapacityResult represents ward capacity data in search results
+type WardCapacityResult struct {
+	WardName             string    `json:"ward_name"`
+	WardType             string    `json:"ward_type,omitempty"`
+	CapacityStatus       string    `json:"capacity_status,omitempty"`
+	AvgWaitMinutes       *int      `json:"avg_wait_minutes,omitempty"`
+	UrgentCareAvailable  *bool     `json:"urgent_care_available,omitempty"`
+	LastUpdated          time.Time `json:"last_updated"`
+}
+
 // FacilitySearchResult represents the enriched search payload returned to the UI.
 type FacilitySearchResult struct {
 	ID                  string              `json:"id"`
@@ -25,6 +35,7 @@ type FacilitySearchResult struct {
 	AvgWaitMinutes      *int                `json:"avg_wait_minutes,omitempty"`
 	CapacityStatus      string              `json:"capacity_status,omitempty"`
 	UrgentCareAvailable *bool               `json:"urgent_care_available,omitempty"`
+	Wards                []WardCapacityResult `json:"wards,omitempty"`
 	UpdatedAt           time.Time           `json:"updated_at"`
 }
 
