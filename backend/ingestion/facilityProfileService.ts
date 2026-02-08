@@ -37,6 +37,7 @@ export interface FacilityStatusUpdate {
     trend: string;
     estimatedWaitMinutes?: number;
   };
+  wardName?: string; // Optional: if provided, update ward-specific capacity instead of facility-wide
 }
 
 export class FacilityProfileService {
@@ -71,13 +72,9 @@ export class FacilityProfileService {
       throw new Error('Facility not found');
     }
     const now = new Date();
-    
     let eventPayload: any = null;
 
-    if (update.capacityStatus !== undefined) {
-      profile.capacityStatus = update.capacityStatus ?? undefined;
-    }
-    
+    // Transaction-based ward update (wardStatuses)
     if (update.wardUpdate) {
       if (!profile.wardStatuses) {
         profile.wardStatuses = {};
@@ -89,28 +86,13 @@ export class FacilityProfileService {
         estimatedWaitMinutes: (update as any).wardUpdate.estimatedWaitMinutes,
         lastUpdated: now
       };
-      
-      // Update high-level status based on the most constrained ward
       const wardInfos = Object.values(profile.wardStatuses);
       const statuses = wardInfos.map(s => s.status);
-      
-      if (statuses.includes('full')) {
-        profile.capacityStatus = 'full';
-      } else if (statuses.includes('busy')) {
-        profile.capacityStatus = 'busy';
-      } else {
-        profile.capacityStatus = 'available';
-      }
-
-      // Update facility-level average wait (max of all wards)
-      const waits = wardInfos
-        .map(s => (s as any).estimatedWaitMinutes)
-        .filter(w => typeof w === 'number');
-      
-      if (waits.length > 0) {
-        profile.avgWaitMinutes = Math.max(...waits);
-      }
-
+      if (statuses.includes('full')) profile.capacityStatus = 'full';
+      else if (statuses.includes('busy')) profile.capacityStatus = 'busy';
+      else profile.capacityStatus = 'available';
+      const waits = wardInfos.map(s => (s as any).estimatedWaitMinutes).filter(w => typeof w === 'number');
+      if (waits.length > 0) profile.avgWaitMinutes = Math.max(...waits);
       eventPayload = {
         id: `ev_${Date.now()}`,
         facility_id: id,
@@ -127,14 +109,42 @@ export class FacilityProfileService {
           avg_wait_minutes: profile.avgWaitMinutes
         }
       };
+    } else if (update.wardName) {
+      // Form-based ward capacity update (wards array)
+      if (!profile.wards) profile.wards = [];
+      const wardName = update.wardName!;
+      let ward = profile.wards.find(w => w.wardName.toLowerCase() === wardName.toLowerCase());
+      if (!ward) {
+        ward = { wardName: wardName, lastUpdated: now };
+        profile.wards.push(ward);
+      }
+      if (update.capacityStatus !== undefined) ward.capacityStatus = update.capacityStatus ?? undefined;
+      if (update.avgWaitMinutes !== undefined) ward.avgWaitMinutes = update.avgWaitMinutes ?? undefined;
+      if (update.urgentCareAvailable !== undefined) ward.urgentCareAvailable = update.urgentCareAvailable ?? undefined;
+      ward.lastUpdated = now;
+      eventPayload = {
+        id: `ev_${Date.now()}`,
+        facility_id: id,
+        event_type: 'capacity_update',
+        timestamp: now.toISOString(),
+        location: profile.location || { latitude: 0, longitude: 0 },
+        changed_fields: { ward_name: wardName, capacity_status: ward.capacityStatus, avg_wait_minutes: ward.avgWaitMinutes }
+      };
+    } else {
+      // Facility-wide capacity (legacy)
+      if (update.capacityStatus !== undefined) profile.capacityStatus = update.capacityStatus ?? undefined;
+      if (update.avgWaitMinutes !== undefined) profile.avgWaitMinutes = update.avgWaitMinutes ?? undefined;
+      if (update.urgentCareAvailable !== undefined) profile.urgentCareAvailable = update.urgentCareAvailable ?? undefined;
+      eventPayload = {
+        id: `ev_${Date.now()}`,
+        facility_id: id,
+        event_type: 'capacity_update',
+        timestamp: now.toISOString(),
+        location: profile.location || { latitude: 0, longitude: 0 },
+        changed_fields: { capacity_status: profile.capacityStatus, avg_wait_minutes: profile.avgWaitMinutes }
+      };
     }
 
-    if (update.avgWaitMinutes !== undefined) {
-      profile.avgWaitMinutes = update.avgWaitMinutes ?? undefined;
-    }
-    if (update.urgentCareAvailable !== undefined) {
-      profile.urgentCareAvailable = update.urgentCareAvailable ?? undefined;
-    }
     profile.lastUpdated = now;
     await this.store.put(id, profile, {
       source: profile.source,

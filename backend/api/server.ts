@@ -24,14 +24,50 @@ class ProviderNotFoundError extends Error {
   }
 }
 
-function buildCapacityForm(token: string): string {
+// Predefined ward types for common hospital departments
+const PREDEFINED_WARD_TYPES = [
+  { value: 'maternity', label: 'Maternity' },
+  { value: 'pharmacy', label: 'Pharmacy' },
+  { value: 'inpatient', label: 'Inpatient' },
+  { value: 'outpatient', label: 'Outpatient' },
+  { value: 'emergency', label: 'Emergency' },
+  { value: 'surgery', label: 'Surgery' },
+  { value: 'icu', label: 'ICU' },
+  { value: 'pediatrics', label: 'Pediatrics' },
+  { value: 'radiology', label: 'Radiology' },
+  { value: 'laboratory', label: 'Laboratory' },
+  { value: 'other', label: 'Other (Custom)' },
+];
+
+function buildCapacityForm(
+  token: string,
+  facilityName: string,
+  availableWards?: string[],
+  preselectedWard?: string,
+  errorMessage?: string
+): string {
+  // Get available wards from facility metadata or use predefined list
+  const wardOptions = availableWards && availableWards.length > 0
+    ? availableWards.map(ward => {
+        const predefined = PREDEFINED_WARD_TYPES.find(w => w.value === ward.toLowerCase());
+        return {
+          value: ward,
+          label: predefined ? predefined.label : ward.charAt(0).toUpperCase() + ward.slice(1)
+        };
+      })
+    : PREDEFINED_WARD_TYPES;
+
+  const wardSelectOptions = wardOptions
+    .map(w => `<option value="${w.value}" ${w.value === preselectedWard ? 'selected' : ''}>${w.label}</option>`)
+    .join('');
+
   return `
     <!DOCTYPE html>
     <html lang="en">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Update Capacity - Patient Price Discovery</title>
+        <title>Update Capacity - ${facilityName}</title>
         <style>
           * {
             margin: 0;
@@ -64,6 +100,14 @@ function buildCapacityForm(token: string): string {
             font-size: 0.875rem;
             margin-bottom: 24px;
           }
+          .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 0.5rem;
+            margin-bottom: 20px;
+            font-size: 0.875rem;
+          }
           .form-group {
             margin-bottom: 20px;
           }
@@ -74,7 +118,7 @@ function buildCapacityForm(token: string): string {
             margin-bottom: 8px;
             color: #030213;
           }
-          select, input[type="number"] {
+          select, input[type="number"], input[type="text"] {
             width: 100%;
             padding: 8px 12px;
             font-size: 0.875rem;
@@ -84,7 +128,7 @@ function buildCapacityForm(token: string): string {
             color: #030213;
             transition: all 0.2s;
           }
-          select:focus, input[type="number"]:focus {
+          select:focus, input[type="number"]:focus, input[type="text"]:focus {
             outline: none;
             border-color: #030213;
             box-shadow: 0 0 0 3px rgba(3, 2, 19, 0.1);
@@ -127,6 +171,13 @@ function buildCapacityForm(token: string): string {
             color: #717182;
             margin-top: 4px;
           }
+          #customWardInput {
+            margin-top: 8px;
+            display: none;
+          }
+          #customWardInput.show {
+            display: block;
+          }
           @media (max-width: 640px) {
             .container {
               padding: 24px;
@@ -139,10 +190,20 @@ function buildCapacityForm(token: string): string {
       </head>
       <body>
         <div class="container">
-          <h1>Facility Capacity Update</h1>
+          <h1>Update Capacity - ${facilityName}</h1>
           <p class="subtitle">Please update your current capacity and wait time information</p>
-          <form method="POST" action="/api/v1/capacity/submit">
+          ${errorMessage ? `<div class="error-message">${errorMessage}</div>` : ''}
+          <form method="POST" action="/api/v1/capacity/submit" id="capacityForm">
             <input type="hidden" name="token" value="${token}" />
+            <div class="form-group">
+              <label for="wardName">Ward/Department</label>
+              <select name="wardName" id="wardName">
+                <option value="">Facility-wide (all departments)</option>
+                ${wardSelectOptions}
+              </select>
+              <p class="help-text">Select a specific ward/department or leave blank for facility-wide update</p>
+              <input type="text" name="customWardName" id="customWardInput" placeholder="Enter custom ward name" />
+            </div>
             <div class="form-group">
               <label for="capacityStatus">Capacity Status *</label>
               <select name="capacityStatus" id="capacityStatus" required>
@@ -167,6 +228,37 @@ function buildCapacityForm(token: string): string {
             <button type="submit">Submit Update</button>
           </form>
         </div>
+        <script>
+          // Show custom ward input when "Other" is selected
+          const wardSelect = document.getElementById('wardName');
+          const customWardInput = document.getElementById('customWardInput');
+          const customWardNameInput = document.getElementById('customWardInput');
+          
+          wardSelect.addEventListener('change', function() {
+            if (this.value === 'other') {
+              customWardInput.classList.add('show');
+              customWardNameInput.setAttribute('required', 'required');
+            } else {
+              customWardInput.classList.remove('show');
+              customWardNameInput.removeAttribute('required');
+              customWardNameInput.value = '';
+            }
+          });
+
+          // Handle form submission - use custom ward name if "other" selected
+          document.getElementById('capacityForm').addEventListener('submit', function(e) {
+            if (wardSelect.value === 'other' && customWardNameInput.value.trim()) {
+              // Create a hidden input with the custom ward name
+              const hiddenInput = document.createElement('input');
+              hiddenInput.type = 'hidden';
+              hiddenInput.name = 'wardName';
+              hiddenInput.value = customWardNameInput.value.trim();
+              this.appendChild(hiddenInput);
+              // Clear the original wardName select
+              wardSelect.removeAttribute('name');
+            }
+          });
+        </script>
       </body>
     </html>
   `;
@@ -692,13 +784,44 @@ export class DataProviderAPI {
    * GET /api/v1/capacity/form/:token
    */
   private async handleCapacityForm(req: Request, res: Response): Promise<void> {
-    if (!this.capacityRequestService) {
+    if (!this.capacityRequestService || !this.facilityProfileService) {
       res.status(503).send('Capacity service not configured');
       return;
     }
     const token = req.params.token;
-    res.setHeader('Content-Type', 'text/html');
-    res.send(buildCapacityForm(token));
+    
+    try {
+      // Validate token and get facility info
+      const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
+      const tokenStore = this.capacityRequestService['options'].tokenStore;
+      const record = await tokenStore.get(tokenHash);
+      
+      if (!record) {
+        res.status(400).send('Invalid token');
+        return;
+      }
+      
+      if (record.usedAt) {
+        res.status(400).send('Token already used');
+        return;
+      }
+      
+      if (new Date(record.expiresAt) < new Date()) {
+        res.status(400).send('Token expired');
+        return;
+      }
+
+      // Get facility profile to show name and available wards
+      const facility = await this.facilityProfileService.getProfile(record.facilityId);
+      const facilityName = facility?.name || 'Facility';
+      const availableWards = facility?.metadata?.availableWards;
+      const preselectedWard = record.wardName;
+
+      res.setHeader('Content-Type', 'text/html');
+      res.send(buildCapacityForm(token, facilityName, availableWards, preselectedWard));
+    } catch (error: any) {
+      res.status(500).send(`Error loading form: ${error.message}`);
+    }
   }
 
   /**
@@ -761,9 +884,15 @@ export class DataProviderAPI {
           ? req.body.urgentCareAvailable === 'true'
           : req.body?.urgentCareAvailable === true;
 
+      // Get ward name from form (or from token if specified)
+      const wardName = req.body?.wardName 
+        ? String(req.body.wardName).trim() 
+        : record.wardName || undefined;
+
       await this.facilityProfileService.updateStatus(
         record.facilityId,
         {
+          wardName, // Pass ward name for ward-specific update
           capacityStatus,
           avgWaitMinutes: Number.isFinite(avgWaitMinutes) ? avgWaitMinutes : undefined,
           urgentCareAvailable,
@@ -849,7 +978,8 @@ export class DataProviderAPI {
       }
       const channelRaw = (req.body?.channel || req.query?.channel || '').toString().trim().toLowerCase();
       const channel = channelRaw === 'email' || channelRaw === 'whatsapp' ? channelRaw : undefined;
-      await this.capacityRequestService.sendSingleRequest(facilityId, channel);
+      const wardName = req.body?.wardName ? String(req.body.wardName).trim() : undefined;
+      await this.capacityRequestService.sendSingleRequest(facilityId, channel, wardName);
       res.json({ success: true });
     } catch (error) {
       next(error);

@@ -44,6 +44,7 @@ func TestProviderIngestionServiceIntegration(t *testing.T) {
 	cleanupProviderIngestionTables(t, client)
 
 	facilityRepo := database.NewFacilityAdapter(client)
+	facilityWardRepo := database.NewFacilityWardAdapter(client)
 	procedureRepo := database.NewProcedureAdapter(client)
 	facilityProcedureRepo := database.NewFacilityProcedureAdapter(client)
 
@@ -57,9 +58,11 @@ func TestProviderIngestionServiceIntegration(t *testing.T) {
 
 	providerClient := providerapi.NewClient(baseURL)
 	enrichmentAdapter := database.NewProcedureEnrichmentAdapter(client)
+	facilityWardRepo := database.NewFacilityWardAdapter(client)
 	ingestion := services.NewProviderIngestionService(
 		providerClient,
 		facilityRepo,
+		facilityWardRepo,
 		facilityService,
 		procedureRepo,
 		facilityProcedureRepo,

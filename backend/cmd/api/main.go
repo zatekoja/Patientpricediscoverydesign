@@ -158,6 +158,7 @@ func main() {
 
 	insuranceAdapter := database.NewInsuranceAdapter(pgClient)
 	feedbackAdapter := database.NewFeedbackAdapter(pgClient)
+	facilityWardAdapter := database.NewFacilityWardAdapter(pgClient)
 
 	var searchRepo repositories.FacilitySearchRepository
 
@@ -311,6 +312,12 @@ func main() {
 		facilityService.SetMetrics(metrics)
 	}
 
+	// Set facility ward repository for ward capacity data
+	if facilityWardAdapter != nil {
+		facilityService.SetFacilityWardRepository(facilityWardAdapter)
+		log.Info().Msg("Facility ward repository configured for facility service")
+	}
+
 	// Set event bus for real-time updates
 	if eventBus != nil {
 		facilityService.SetEventBus(eventBus)
@@ -409,6 +416,7 @@ func main() {
 	ingestionService := services.NewProviderIngestionService(
 		providerClient,
 		facilityAdapter,
+		facilityWardAdapter,
 		facilityService,
 		procedureAdapter,
 		facilityProcedureAdapter,

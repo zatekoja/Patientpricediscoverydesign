@@ -44,6 +44,14 @@ export type UIFacility = {
     trend: string;
     lastUpdated: string | Date;
   }>;
+  wards?: {
+    wardName: string;
+    wardType?: string;
+    capacityStatus?: string;
+    avgWaitMinutes?: number;
+    urgentCareAvailable?: boolean;
+    lastUpdated: string;
+  }[];
 };
 
 const buildAddress = (facility: FacilitySearchResult): string => {
@@ -108,6 +116,14 @@ export const mapFacilitySearchResultToUI = (
     capacityStatus: facility.capacity_status ?? null,
     avgWaitMinutes: facility.avg_wait_minutes ?? null,
     urgentCareAvailable: facility.urgent_care_available ?? null,
-    wardStatuses: facility.ward_statuses as any ?? null,
+    wardStatuses: facility.ward_statuses as any ?? undefined,
+    wards: facility.wards?.map((ward) => ({
+      wardName: ward.ward_name,
+      wardType: ward.ward_type,
+      capacityStatus: ward.capacity_status,
+      avgWaitMinutes: ward.avg_wait_minutes,
+      urgentCareAvailable: ward.urgent_care_available,
+      lastUpdated: ward.last_updated,
+    })),
   };
 };

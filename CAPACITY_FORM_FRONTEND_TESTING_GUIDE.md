@@ -3,7 +3,10 @@
 ## Overview
 This guide provides step-by-step instructions for testing the capacity update form that providers use to update hospital capacity in real-time.
 
-**For complete end-to-end testing (Form → Backend → Frontend), see:** `PRODUCTION_LIKE_TESTING_GUIDE.md`
+**Related Documentation:**
+- **Implementation Details:** See [`CAPACITY_UPDATE_IMPLEMENTATION.md`](./CAPACITY_UPDATE_IMPLEMENTATION.md)
+- **Ward-Level Capacity:** See [`WARD_LEVEL_CAPACITY_IMPLEMENTATION.md`](./WARD_LEVEL_CAPACITY_IMPLEMENTATION.md)
+- **Complete End-to-End Testing:** See [`PRODUCTION_LIKE_TESTING_GUIDE.md`](./PRODUCTION_LIKE_TESTING_GUIDE.md)
 
 ## 🚀 Quick Start (Easiest Method)
 
