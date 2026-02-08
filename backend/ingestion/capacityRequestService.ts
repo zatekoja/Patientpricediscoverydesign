@@ -33,9 +33,10 @@ export interface CapacityRequestServiceOptions {
   facilityProfileService: FacilityProfileService;
   tokenStore: IDocumentStore<CapacityRequestToken>;
   publicBaseUrl: string;
-  tokenTTLMinutes?: number;
+  tokenTTLMinutes?: number; // Default: 120 minutes, can be overridden per facility
   emailSender?: EmailSender;
   whatsappSender?: WhatsAppSender;
+  emailTemplate?: (facilityName: string, link: string) => string; // Custom email template
 }
 
 export class CapacityRequestService {
@@ -155,11 +156,15 @@ export class CapacityRequestService {
       return;
     }
 
+    // Get TTL from facility metadata or use default
+    const facilityTTL = facility.metadata?.capacityTokenTTLMinutes;
+    const tokenTTL = facilityTTL ?? this.options.tokenTTLMinutes ?? 120;
+
     const { rawToken, tokenRecord } = createTokenRecord(
       facility.id,
       channel,
       recipient,
-      this.options.tokenTTLMinutes || 120
+      tokenTTL
     );
     await this.options.tokenStore.put(tokenRecord.id, tokenRecord, {
       facilityId: facility.id,
@@ -172,7 +177,10 @@ export class CapacityRequestService {
     if (channel === 'email' && this.options.emailSender) {
       try {
         const subject = `Update ${facility.name} capacity status`;
-        const body = buildEmailBody(facility.name, link);
+        // Use custom template if provided, otherwise use default
+        const body = this.options.emailTemplate
+          ? this.options.emailTemplate(facility.name, link)
+          : buildEmailBody(facility.name, link);
         await this.options.emailSender.send(recipient, subject, body, stripHtml(body));
         recordCapacityRequest({ channel, success: true });
       } catch (error) {
