@@ -380,6 +380,115 @@ async function main() {
     server.close();
   });
 
+  // Test 4.5: Token NOT consumed when payload validation fails
+  await runTest('token is not consumed when capacity status validation fails', async () => {
+    const facilityStore = new InMemoryDocumentStore<FacilityProfile>('facility-profiles');
+    const tokenStore = new InMemoryDocumentStore<CapacityRequestToken>('capacity-tokens');
+    const facilityProfileService = new FacilityProfileService(facilityStore, {});
+    const emailSender = new CaptureEmailSender();
+
+    const capacityRequestService = new CapacityRequestService({
+      facilityProfileService,
+      tokenStore,
+      publicBaseUrl: 'http://localhost:0',
+      tokenTTLMinutes: 60,
+      emailSender,
+    });
+
+    const api = new DataProviderAPI({ facilityProfileService, capacityRequestService });
+    const server = await startServer(api.getApp());
+
+    const facility: FacilityProfile = {
+      id: 'facility-token-not-consumed',
+      name: 'Token Not Consumed Test',
+      email: 'tokentest@example.com',
+      source: 'file_price_list',
+      lastUpdated: new Date(),
+    };
+    await facilityStore.put(facility.id, facility);
+
+    // Generate token
+    process.env.PROVIDER_ADMIN_TOKEN = 'test-admin-token';
+    await fetch(`${server.baseUrl}/api/v1/capacity/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-admin-token',
+      },
+      body: JSON.stringify({ facilityId: facility.id, channel: 'email' }),
+    });
+
+    assert.ok(emailSender.lastToken, 'Token should be generated');
+    const token = emailSender.lastToken;
+
+    // Step 1: Submit with INVALID capacity status - should fail without consuming token
+    const invalidSubmit = await fetch(`${server.baseUrl}/api/v1/capacity/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        capacityStatus: 'invalid-status',
+        avgWaitMinutes: 30,
+      }),
+    });
+
+    assert.strictEqual(invalidSubmit.status, 400, 'Should reject invalid capacity status');
+    
+    // Verify facility was NOT updated
+    const facilityAfterInvalid = await facilityStore.get(facility.id);
+    assert.strictEqual(
+      facilityAfterInvalid!.capacityStatus,
+      undefined,
+      'Facility should not be updated after invalid submission'
+    );
+
+    // Step 2: Submit again with VALID capacity status - should succeed with same token
+    const validSubmit = await fetch(`${server.baseUrl}/api/v1/capacity/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token, // Same token as before
+        capacityStatus: 'busy',
+        avgWaitMinutes: 45,
+      }),
+    });
+
+    assert.strictEqual(validSubmit.status, 200, 'Should accept valid submission with same token');
+
+    // Verify facility WAS updated
+    const facilityAfterValid = await facilityStore.get(facility.id);
+    assert.strictEqual(
+      facilityAfterValid!.capacityStatus,
+      'busy',
+      'Facility should be updated after valid submission'
+    );
+    assert.strictEqual(
+      facilityAfterValid!.avgWaitMinutes,
+      45,
+      'Wait time should be updated'
+    );
+
+    // Step 3: Try to submit AGAIN with the same token - should fail because token is now consumed
+    const secondValidSubmit = await fetch(`${server.baseUrl}/api/v1/capacity/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        capacityStatus: 'available',
+        avgWaitMinutes: 10,
+      }),
+    });
+
+    assert.strictEqual(secondValidSubmit.status, 400, 'Should reject already-used token');
+    const responseText = await secondValidSubmit.text();
+    assert.ok(
+      responseText.includes('Token already used'),
+      'Error message should indicate token was already used'
+    );
+
+    server.close();
+  });
+
   // Test 5: Capacity Status Validation - Valid Values (Case Insensitive)
   await runTest('capacity status validation accepts valid values (case insensitive)', async () => {
     const facilityStore = new InMemoryDocumentStore<FacilityProfile>('facility-profiles');
