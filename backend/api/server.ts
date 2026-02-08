@@ -839,9 +839,10 @@ export class DataProviderAPI {
         return;
       }
 
+      // Step 1: Validate token WITHOUT consuming it
       let record;
       try {
-        record = await this.capacityRequestService.consumeToken(token);
+        record = await this.capacityRequestService.validateToken(token);
       } catch (error: any) {
         // Handle token errors with proper status codes
         if (error.message === 'Invalid token' || error.message === 'Token expired' || error.message === 'Token already used') {
@@ -859,7 +860,7 @@ export class DataProviderAPI {
         throw error; // Re-throw other errors
       }
       
-      // Validate capacity status
+      // Step 2: Validate all form inputs before consuming the token
       const capacityStatusRaw = req.body?.capacityStatus ? String(req.body.capacityStatus).toLowerCase().trim() : undefined;
       const validCapacityStatuses = ['available', 'busy', 'full', 'closed'];
       if (capacityStatusRaw && !validCapacityStatuses.includes(capacityStatusRaw)) {
@@ -888,6 +889,9 @@ export class DataProviderAPI {
       const wardName = req.body?.wardName 
         ? String(req.body.wardName).trim() 
         : record.wardName || undefined;
+
+      // Step 3: All validations passed - now consume the token
+      await this.capacityRequestService.consumeToken(token);
 
       await this.facilityProfileService.updateStatus(
         record.facilityId,

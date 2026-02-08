@@ -90,7 +90,7 @@ export class CapacityRequestService {
     }
   }
 
-  async consumeToken(rawToken: string): Promise<CapacityRequestToken> {
+  async validateToken(rawToken: string): Promise<CapacityRequestToken> {
     const tokenHash = hashToken(rawToken);
     const record = await this.options.tokenStore.get(tokenHash);
     if (!record) {
@@ -103,7 +103,14 @@ export class CapacityRequestService {
     if (new Date(record.expiresAt).getTime() < now.getTime()) {
       throw new Error('Token expired');
     }
+    return record;
+  }
 
+  async consumeToken(rawToken: string): Promise<CapacityRequestToken> {
+    const record = await this.validateToken(rawToken);
+    const tokenHash = hashToken(rawToken);
+    const now = new Date();
+    
     record.usedAt = now.toISOString();
     await this.options.tokenStore.put(tokenHash, record, { usedAt: record.usedAt });
     recordCapacityTokenConsumed(record.channel);
