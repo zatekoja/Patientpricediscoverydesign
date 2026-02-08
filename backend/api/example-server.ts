@@ -156,6 +156,17 @@ async function startServer() {
       ? new WhatsAppCloudSender(whatsappAccessToken, whatsappPhoneId, whatsappTemplate, whatsappLang)
       : undefined;
 
+  // Custom email template support
+  const customEmailTemplate = process.env.PROVIDER_CAPACITY_EMAIL_TEMPLATE;
+  const emailTemplate = customEmailTemplate
+    ? (facilityName: string, link: string) => {
+        // Replace placeholders in template
+        return customEmailTemplate
+          .replace(/\{facilityName\}/g, facilityName)
+          .replace(/\{link\}/g, link);
+      }
+    : undefined;
+
   const capacityRequestService = new CapacityRequestService({
     facilityProfileService,
     tokenStore: capacityTokenStore,
@@ -165,6 +176,7 @@ async function startServer() {
       : 120,
     emailSender,
     whatsappSender,
+    emailTemplate,
   });
 
   // 1. Create the API server

@@ -31,5 +31,6 @@ export interface FacilityProfile {
       model?: string;
       generatedAt?: Date;
     };
+    capacityTokenTTLMinutes?: number; // Per-facility token TTL override
   };
 }
