@@ -86,13 +86,22 @@ echo $CORE_API_PID > /tmp/core-api.pid
 
 # Wait for Core API to start
 echo "Waiting for Core API to start..."
+HEALTH_CHECK_PASSED=false
 for i in {1..30}; do
     if curl -s http://localhost:8080/health > /dev/null 2>&1; then
         echo -e "${GREEN}✅ Core API is running on http://localhost:8080${NC}"
+        HEALTH_CHECK_PASSED=true
         break
     fi
     sleep 1
 done
+
+# Exit if health check failed
+if [ "$HEALTH_CHECK_PASSED" = false ]; then
+    echo -e "${RED}❌ Core API failed to start within 30 seconds${NC}"
+    echo "Check /tmp/core-api.log for errors"
+    exit 1
+fi
 
 cd ..
 echo ""

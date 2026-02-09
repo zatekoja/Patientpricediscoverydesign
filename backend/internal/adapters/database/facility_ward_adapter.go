@@ -30,16 +30,44 @@ func NewFacilityWardAdapter(client *postgres.Client) repositories.FacilityWardRe
 
 // Create creates a new facility ward
 func (a *FacilityWardAdapter) Create(ctx context.Context, ward *entities.FacilityWard) error {
+	var wardTypeStr string
+	var wardTypeValid bool
+	if ward.WardType != nil {
+		wardTypeStr = *ward.WardType
+		wardTypeValid = *ward.WardType != ""
+	}
+
+	var capacityStatusStr string
+	var capacityStatusValid bool
+	if ward.CapacityStatus != nil {
+		capacityStatusStr = *ward.CapacityStatus
+		capacityStatusValid = *ward.CapacityStatus != ""
+	}
+
+	var avgWaitInt int64
+	var avgWaitValid bool
+	if ward.AvgWaitMinutes != nil {
+		avgWaitInt = int64(*ward.AvgWaitMinutes)
+		avgWaitValid = true
+	}
+
+	var urgentCareBool bool
+	var urgentCareValid bool
+	if ward.UrgentCareAvailable != nil {
+		urgentCareBool = *ward.UrgentCareAvailable
+		urgentCareValid = true
+	}
+
 	record := goqu.Record{
 		"id":                     ward.ID,
 		"facility_id":            ward.FacilityID,
 		"ward_name":              ward.WardName,
-		"ward_type":              sql.NullString{String: func() string { if ward.WardType != nil { return *ward.WardType } return "" }(), Valid: ward.WardType != nil && *ward.WardType != ""},
-		"capacity_status":        sql.NullString{String: func() string { if ward.CapacityStatus != nil { return *ward.CapacityStatus } return "" }(), Valid: ward.CapacityStatus != nil && *ward.CapacityStatus != ""},
-		"avg_wait_minutes":       sql.NullInt64{Int64: func() int64 { if ward.AvgWaitMinutes != nil { return int64(*ward.AvgWaitMinutes) } return 0 }(), Valid: ward.AvgWaitMinutes != nil},
-		"urgent_care_available":  sql.NullBool{Bool: func() bool { if ward.UrgentCareAvailable != nil { return *ward.UrgentCareAvailable } return false }(), Valid: ward.UrgentCareAvailable != nil},
+		"ward_type":              sql.NullString{String: wardTypeStr, Valid: wardTypeValid},
+		"capacity_status":        sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid},
+		"avg_wait_minutes":       sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid},
+		"urgent_care_available":  sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid},
 		"last_updated":           ward.LastUpdated,
-		"created_at":            ward.CreatedAt,
+		"created_at":             ward.CreatedAt,
 	}
 
 	query, args, err := a.db.Insert("facility_wards").Rows(record).ToSQL()
@@ -181,6 +209,79 @@ func (a *FacilityWardAdapter) GetByFacilityID(ctx context.Context, facilityID st
 	return wards, nil
 }
 
+// GetByFacilityIDs retrieves all wards for multiple facilities in a single query
+func (a *FacilityWardAdapter) GetByFacilityIDs(ctx context.Context, facilityIDs []string) (map[string][]*entities.FacilityWard, error) {
+	if len(facilityIDs) == 0 {
+		return make(map[string][]*entities.FacilityWard), nil
+	}
+
+	query, args, err := a.db.Select(
+		"id", "facility_id", "ward_name", "ward_type",
+		"capacity_status", "avg_wait_minutes", "urgent_care_available",
+		"last_updated", "created_at",
+	).From("facility_wards").
+		Where(goqu.Ex{"facility_id": facilityIDs}).
+		Order(goqu.I("facility_id").Asc(), goqu.I("ward_name").Asc()).
+		ToSQL()
+
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to build query", err)
+	}
+
+	rows, err := a.client.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to query facility wards", err)
+	}
+	defer rows.Close()
+
+	// Use map to group wards by facility ID
+	wardsByFacility := make(map[string][]*entities.FacilityWard)
+
+	for rows.Next() {
+		ward := &entities.FacilityWard{}
+		var wardType, capacityStatus sql.NullString
+		var avgWaitMinutes sql.NullInt64
+		var urgentCareAvailable sql.NullBool
+
+		err := rows.Scan(
+			&ward.ID,
+			&ward.FacilityID,
+			&ward.WardName,
+			&wardType,
+			&capacityStatus,
+			&avgWaitMinutes,
+			&urgentCareAvailable,
+			&ward.LastUpdated,
+			&ward.CreatedAt,
+		)
+		if err != nil {
+			return nil, apperrors.NewInternalError("failed to scan facility ward", err)
+		}
+
+		// Map nullable fields
+		if wardType.Valid {
+			value := wardType.String
+			ward.WardType = &value
+		}
+		if capacityStatus.Valid {
+			value := capacityStatus.String
+			ward.CapacityStatus = &value
+		}
+		if avgWaitMinutes.Valid {
+			value := int(avgWaitMinutes.Int64)
+			ward.AvgWaitMinutes = &value
+		}
+		if urgentCareAvailable.Valid {
+			value := urgentCareAvailable.Bool
+			ward.UrgentCareAvailable = &value
+		}
+
+		wardsByFacility[ward.FacilityID] = append(wardsByFacility[ward.FacilityID], ward)
+	}
+
+	return wardsByFacility, nil
+}
+
 // GetByFacilityAndWard retrieves a specific ward by facility ID and ward name
 func (a *FacilityWardAdapter) GetByFacilityAndWard(ctx context.Context, facilityID, wardName string) (*entities.FacilityWard, error) {
 	query, args, err := a.db.Select(
@@ -247,12 +348,40 @@ func (a *FacilityWardAdapter) GetByFacilityAndWard(ctx context.Context, facility
 func (a *FacilityWardAdapter) Update(ctx context.Context, ward *entities.FacilityWard) error {
 	ward.LastUpdated = time.Now()
 
+	var wardTypeStr string
+	var wardTypeValid bool
+	if ward.WardType != nil {
+		wardTypeStr = *ward.WardType
+		wardTypeValid = *ward.WardType != ""
+	}
+
+	var capacityStatusStr string
+	var capacityStatusValid bool
+	if ward.CapacityStatus != nil {
+		capacityStatusStr = *ward.CapacityStatus
+		capacityStatusValid = *ward.CapacityStatus != ""
+	}
+
+	var avgWaitInt int64
+	var avgWaitValid bool
+	if ward.AvgWaitMinutes != nil {
+		avgWaitInt = int64(*ward.AvgWaitMinutes)
+		avgWaitValid = true
+	}
+
+	var urgentCareBool bool
+	var urgentCareValid bool
+	if ward.UrgentCareAvailable != nil {
+		urgentCareBool = *ward.UrgentCareAvailable
+		urgentCareValid = true
+	}
+
 	record := goqu.Record{
 		"ward_name":              ward.WardName,
-		"ward_type":              sql.NullString{String: func() string { if ward.WardType != nil { return *ward.WardType } return "" }(), Valid: ward.WardType != nil && *ward.WardType != ""},
-		"capacity_status":        sql.NullString{String: func() string { if ward.CapacityStatus != nil { return *ward.CapacityStatus } return "" }(), Valid: ward.CapacityStatus != nil && *ward.CapacityStatus != ""},
-		"avg_wait_minutes":       sql.NullInt64{Int64: func() int64 { if ward.AvgWaitMinutes != nil { return int64(*ward.AvgWaitMinutes) } return 0 }(), Valid: ward.AvgWaitMinutes != nil},
-		"urgent_care_available":   sql.NullBool{Bool: func() bool { if ward.UrgentCareAvailable != nil { return *ward.UrgentCareAvailable } return false }(), Valid: ward.UrgentCareAvailable != nil},
+		"ward_type":              sql.NullString{String: wardTypeStr, Valid: wardTypeValid},
+		"capacity_status":        sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid},
+		"avg_wait_minutes":       sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid},
+		"urgent_care_available":  sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid},
 		"last_updated":           ward.LastUpdated,
 	}
 
@@ -284,31 +413,90 @@ func (a *FacilityWardAdapter) Update(ctx context.Context, ward *entities.Facilit
 
 // Upsert creates or updates a facility ward (inserts if not exists, updates if exists)
 func (a *FacilityWardAdapter) Upsert(ctx context.Context, ward *entities.FacilityWard) error {
-	// Try to get existing ward by facility_id and ward_name
-	existing, err := a.GetByFacilityAndWard(ctx, ward.FacilityID, ward.WardName)
-	if err != nil {
-		// If not found, create new
-		if apperrors.IsNotFound(err) {
-			// Generate ID if not provided
-			if ward.ID == "" {
-				ward.ID = fmt.Sprintf("%s-%s", ward.FacilityID, ward.WardName)
-			}
-			if ward.CreatedAt.IsZero() {
-				ward.CreatedAt = time.Now()
-			}
-			if ward.LastUpdated.IsZero() {
-				ward.LastUpdated = time.Now()
-			}
-			return a.Create(ctx, ward)
-		}
-		// Other error, return it
-		return err
+	// Ensure ID and timestamps are set for insert path
+	if ward.ID == "" {
+		ward.ID = fmt.Sprintf("%s-%s", ward.FacilityID, ward.WardName)
 	}
 
-	// Update existing ward
-	ward.ID = existing.ID
-	ward.CreatedAt = existing.CreatedAt
-	return a.Update(ctx, ward)
+	now := time.Now()
+	if ward.CreatedAt.IsZero() {
+		ward.CreatedAt = now
+	}
+	if ward.LastUpdated.IsZero() {
+		ward.LastUpdated = now
+	}
+
+	var wardTypeStr string
+	var wardTypeValid bool
+	if ward.WardType != nil {
+		wardTypeStr = *ward.WardType
+		wardTypeValid = *ward.WardType != ""
+	}
+
+	var capacityStatusStr string
+	var capacityStatusValid bool
+	if ward.CapacityStatus != nil {
+		capacityStatusStr = *ward.CapacityStatus
+		capacityStatusValid = *ward.CapacityStatus != ""
+	}
+
+	var avgWaitInt int64
+	var avgWaitValid bool
+	if ward.AvgWaitMinutes != nil {
+		avgWaitInt = int64(*ward.AvgWaitMinutes)
+		avgWaitValid = true
+	}
+
+	var urgentCareBool bool
+	var urgentCareValid bool
+	if ward.UrgentCareAvailable != nil {
+		urgentCareBool = *ward.UrgentCareAvailable
+		urgentCareValid = true
+	}
+
+	wardTypeNull := sql.NullString{String: wardTypeStr, Valid: wardTypeValid}
+	capacityStatusNull := sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid}
+	avgWaitNull := sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid}
+	urgentCareNull := sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid}
+
+	// Build the insert record
+	record := goqu.Record{
+		"id":                    ward.ID,
+		"facility_id":           ward.FacilityID,
+		"ward_name":             ward.WardName,
+		"ward_type":             wardTypeNull,
+		"capacity_status":       capacityStatusNull,
+		"avg_wait_minutes":      avgWaitNull,
+		"urgent_care_available": urgentCareNull,
+		"last_updated":          ward.LastUpdated,
+		"created_at":            ward.CreatedAt,
+	}
+
+	// Build update record (exclude id, facility_id, ward_name, and created_at)
+	updateRecord := goqu.Record{
+		"ward_type":             wardTypeNull,
+		"capacity_status":       capacityStatusNull,
+		"avg_wait_minutes":      avgWaitNull,
+		"urgent_care_available": urgentCareNull,
+		"last_updated":          ward.LastUpdated,
+	}
+
+	// Use INSERT ... ON CONFLICT for atomic upsert
+	query, args, err := a.db.Insert("facility_wards").
+		Rows(record).
+		OnConflict(goqu.DoUpdate("facility_id, ward_name", updateRecord)).
+		ToSQL()
+
+	if err != nil {
+		return apperrors.NewInternalError("failed to build upsert query", err)
+	}
+
+	_, err = a.client.DB().ExecContext(ctx, query, args...)
+	if err != nil {
+		return apperrors.NewInternalError("failed to execute upsert", err)
+	}
+
+	return nil
 }
 
 // Delete deletes a facility ward

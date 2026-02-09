@@ -341,6 +341,24 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 		return nil, 0, err
 	}
 
+	// Batch load wards for all facilities to avoid N+1 queries
+	var wardsByFacility map[string][]*entities.FacilityWard
+	if s.facilityWardRepo != nil && len(facilities) > 0 {
+		facilityIDs := make([]string, 0, len(facilities))
+		for _, facility := range facilities {
+			if facility != nil {
+				facilityIDs = append(facilityIDs, facility.ID)
+			}
+		}
+		if len(facilityIDs) > 0 {
+			wardsByFacility, err = s.facilityWardRepo.GetByFacilityIDs(ctx, facilityIDs)
+			if err != nil {
+				// Log error but don't fail the request
+				wardsByFacility = make(map[string][]*entities.FacilityWard)
+			}
+		}
+	}
+
 	results := make([]entities.FacilitySearchResult, 0, len(facilities))
 	for _, facility := range facilities {
 		if facility == nil {
@@ -388,9 +406,9 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 			result.UrgentCareAvailable = facility.UrgentCareAvailable
 		}
 
-		// Load ward capacity if repository is available
-		if s.facilityWardRepo != nil {
-			if wards, err := s.facilityWardRepo.GetByFacilityID(ctx, facility.ID); err == nil && len(wards) > 0 {
+		// Load ward capacity from the batched results
+		if wardsByFacility != nil {
+			if wards, ok := wardsByFacility[facility.ID]; ok && len(wards) > 0 {
 				result.Wards = make([]entities.WardCapacityResult, 0, len(wards))
 				for _, ward := range wards {
 					wardResult := entities.WardCapacityResult{

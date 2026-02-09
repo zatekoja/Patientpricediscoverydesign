@@ -17,6 +17,9 @@ type FacilityWardRepository interface {
 	// GetByFacilityID retrieves all wards for a facility
 	GetByFacilityID(ctx context.Context, facilityID string) ([]*entities.FacilityWard, error)
 
+	// GetByFacilityIDs retrieves all wards for multiple facilities in a single query
+	GetByFacilityIDs(ctx context.Context, facilityIDs []string) (map[string][]*entities.FacilityWard, error)
+
 	// GetByFacilityAndWard retrieves a specific ward by facility ID and ward name
 	GetByFacilityAndWard(ctx context.Context, facilityID, wardName string) (*entities.FacilityWard, error)
 
