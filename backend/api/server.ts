@@ -63,7 +63,6 @@ function buildCapacityForm(
   const escapedFacilityName = escapeHtml(facilityName);
   const escapedErrorMessage = errorMessage ? escapeHtml(errorMessage) : '';
   const escapedToken = escapeHtml(token);
-  const escapedPreselectedWard = preselectedWard ? escapeHtml(preselectedWard) : '';
   
   // Get available wards from facility metadata or use predefined list
   const wardOptions = availableWards && availableWards.length > 0
@@ -1021,7 +1020,10 @@ export class DataProviderAPI {
       }
       const channelRaw = (req.body?.channel || req.query?.channel || '').toString().trim().toLowerCase();
       const channel = channelRaw === 'email' || channelRaw === 'whatsapp' ? channelRaw : undefined;
-      const wardName = req.body?.wardName ? String(req.body.wardName).trim() : undefined;
+      const rawWardName = req.body?.wardName;
+      const wardNameTrimmed = rawWardName === undefined || rawWardName === null
+        ? '' : String(rawWardName).trim();
+      const wardName = wardNameTrimmed === '' ? undefined : wardNameTrimmed;
       await this.capacityRequestService.sendSingleRequest(facilityId, channel, wardName);
       res.json({ success: true });
     } catch (error) {

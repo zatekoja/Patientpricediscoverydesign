@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"hash/fnv"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -411,11 +413,30 @@ func (a *FacilityWardAdapter) Update(ctx context.Context, ward *entities.Facilit
 	return nil
 }
 
+// hashString generates a short hash for use in IDs (same implementation as provider_ingestion_service)
+func hashString(value string) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(value))
+	return fmt.Sprintf("%x", hasher.Sum32())
+}
+
 // Upsert creates or updates a facility ward (inserts if not exists, updates if exists)
 func (a *FacilityWardAdapter) Upsert(ctx context.Context, ward *entities.FacilityWard) error {
 	// Ensure ID and timestamps are set for insert path
 	if ward.ID == "" {
-		ward.ID = fmt.Sprintf("%s-%s", ward.FacilityID, ward.WardName)
+		// Generate ward ID using hash of full facilityID + normalized ward name
+		// This ensures uniqueness regardless of facility ID length and avoids collisions
+		normalizedWardName := strings.ToLower(strings.TrimSpace(ward.WardName))
+		combinedKey := fmt.Sprintf("%s:%s", ward.FacilityID, normalizedWardName)
+		fullHash := hashString(combinedKey)
+		
+		// Use a short readable prefix (first 20 chars) for debugging
+		facilityIDPrefix := ward.FacilityID
+		if len(ward.FacilityID) > 20 {
+			facilityIDPrefix = ward.FacilityID[:20]
+		}
+		
+		ward.ID = fmt.Sprintf("%s_%s", facilityIDPrefix, fullHash)
 	}
 
 	now := time.Now()
@@ -482,9 +503,10 @@ func (a *FacilityWardAdapter) Upsert(ctx context.Context, ward *entities.Facilit
 	}
 
 	// Use INSERT ... ON CONFLICT for atomic upsert
+	// For composite unique key (facility_id, ward_name), pass columns as a slice of identifiers
 	query, args, err := a.db.Insert("facility_wards").
 		Rows(record).
-		OnConflict(goqu.DoUpdate("facility_id, ward_name", updateRecord)).
+		OnConflict(goqu.DoUpdate([]interface{}{goqu.I("facility_id"), goqu.I("ward_name")}, updateRecord)).
 		ToSQL()
 
 	if err != nil {

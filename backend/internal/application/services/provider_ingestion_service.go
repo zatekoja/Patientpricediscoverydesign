@@ -978,20 +978,23 @@ func (s *ProviderIngestionService) syncWardCapacity(ctx context.Context, facilit
 	}
 
 	for _, ward := range wards {
-		// Generate ward ID using hash to ensure length doesn't exceed VARCHAR(255)
-		// Format: <facilityID_prefix>_<hash_of_normalized_ward_name>
+		// Generate ward ID using hash of full facilityID + normalized ward name
+		// This ensures uniqueness regardless of facility ID length and avoids collisions
+		// Format: <short_facilityID_prefix>_<hash_of_full_facilityID_and_ward_name>
 		normalizedWardName := strings.ToLower(strings.TrimSpace(ward.WardName))
-		wardNameHash := hashString(normalizedWardName)
 		
-		// Truncate facility ID if needed to ensure total length < 255
-		// Reserve 9 chars for hash (8 hex chars + underscore), leaving up to 245 for facility ID
-		maxFacilityIDLen := 245
+		// Hash the combination of full facilityID + normalized ward name for uniqueness
+		combinedKey := fmt.Sprintf("%s:%s", facilityID, normalizedWardName)
+		fullHash := hashString(combinedKey)
+		
+		// Use a short readable prefix (first 20 chars) for debugging, but ID is based on full hash
+		// This keeps IDs under 255 chars while ensuring uniqueness
 		facilityIDPrefix := facilityID
-		if len(facilityID) > maxFacilityIDLen {
-			facilityIDPrefix = facilityID[:maxFacilityIDLen]
+		if len(facilityID) > 20 {
+			facilityIDPrefix = facilityID[:20]
 		}
 		
-		wardID := fmt.Sprintf("%s_%s", facilityIDPrefix, wardNameHash)
+		wardID := fmt.Sprintf("%s_%s", facilityIDPrefix, fullHash)
 		
 		// Convert providerapi.WardCapacity to entities.FacilityWard
 		facilityWard := &entities.FacilityWard{

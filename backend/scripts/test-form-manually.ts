@@ -134,7 +134,7 @@ async function main() {
 
     // Try to open in browser using platform-specific command (no dependencies needed)
     const platform = process.platform;
-    let openCommand: string | null = null;
+    let openCommand: string;
     
     if (platform === 'darwin') {
       openCommand = 'open';
@@ -144,16 +144,14 @@ async function main() {
       openCommand = 'xdg-open';
     }
     
-    if (openCommand) {
-      try {
-        const { exec } = await import('child_process');
-        const { promisify } = await import('util');
-        const execAsync = promisify(exec);
-        console.log('🔗 Opening form in browser...');
-        await execAsync(`${openCommand} "${formUrl}"`);
-      } catch (error) {
-        // Browser open failed, just show URL (already shown above)
-      }
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      console.log('🔗 Opening form in browser...');
+      await execAsync(`${openCommand} "${formUrl}"`);
+    } catch (error) {
+      // Browser open failed, just show URL (already shown above)
     }
 
     // Keep server running
