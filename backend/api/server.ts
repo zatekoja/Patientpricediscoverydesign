@@ -791,25 +791,8 @@ export class DataProviderAPI {
     const token = req.params.token;
     
     try {
-      // Validate token and get facility info
-      const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
-      const tokenStore = this.capacityRequestService['options'].tokenStore;
-      const record = await tokenStore.get(tokenHash);
-      
-      if (!record) {
-        res.status(400).send('Invalid token');
-        return;
-      }
-      
-      if (record.usedAt) {
-        res.status(400).send('Token already used');
-        return;
-      }
-      
-      if (new Date(record.expiresAt) < new Date()) {
-        res.status(400).send('Token expired');
-        return;
-      }
+      // Validate token using the public method
+      const record = await this.capacityRequestService.validateToken(token);
 
       // Get facility profile to show name and available wards
       const facility = await this.facilityProfileService.getProfile(record.facilityId);
@@ -820,7 +803,12 @@ export class DataProviderAPI {
       res.setHeader('Content-Type', 'text/html');
       res.send(buildCapacityForm(token, facilityName, availableWards, preselectedWard));
     } catch (error: any) {
-      res.status(500).send(`Error loading form: ${error.message}`);
+      // Handle specific error messages from validateToken
+      if (error.message === 'Invalid token' || error.message === 'Token already used' || error.message === 'Token expired') {
+        res.status(400).send(error.message);
+      } else {
+        res.status(500).send(`Error loading form: ${error.message}`);
+      }
     }
   }
 

@@ -244,12 +244,18 @@ export class CapacityRequestService {
       { limit: 10, sortBy: 'createdAt', sortOrder: 'desc' }
     );
     const now = Date.now();
+    // Normalize the incoming ward name for comparison
+    const normalizedWardName = wardName ? wardName.trim().toLowerCase() : undefined;
+    
     for (const token of tokens) {
       if (token.usedAt) {
         continue;
       }
-      // Match ward name if specified (both must be undefined or both must match)
-      if (token.wardName !== wardName) {
+      // Normalize token ward name for comparison
+      const tokenNormalizedWardName = token.wardName ? token.wardName.trim().toLowerCase() : undefined;
+      
+      // Match ward name if specified (both must be undefined or both must match after normalization)
+      if (normalizedWardName !== tokenNormalizedWardName) {
         continue;
       }
       if (new Date(token.expiresAt).getTime() < now) {
