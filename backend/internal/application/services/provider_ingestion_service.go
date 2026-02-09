@@ -897,8 +897,20 @@ func (s *ProviderIngestionService) syncWardCapacity(ctx context.Context, facilit
 	}
 
 	for _, ward := range wards {
-		// Generate ward ID: facilityID-wardName (normalized)
-		wardID := fmt.Sprintf("%s-%s", facilityID, strings.ToLower(strings.ReplaceAll(ward.WardName, " ", "-")))
+		// Generate ward ID using hash to ensure length doesn't exceed VARCHAR(255)
+		// Format: <facilityID_prefix>_<hash_of_normalized_ward_name>
+		normalizedWardName := strings.ToLower(strings.TrimSpace(ward.WardName))
+		wardNameHash := hashString(normalizedWardName)
+		
+		// Truncate facility ID if needed to ensure total length < 255
+		// Reserve 9 chars for hash (8 hex chars + underscore), leaving up to 245 for facility ID
+		maxFacilityIDLen := 245
+		facilityIDPrefix := facilityID
+		if len(facilityID) > maxFacilityIDLen {
+			facilityIDPrefix = facilityID[:maxFacilityIDLen]
+		}
+		
+		wardID := fmt.Sprintf("%s_%s", facilityIDPrefix, wardNameHash)
 		
 		// Convert providerapi.WardCapacity to entities.FacilityWard
 		facilityWard := &entities.FacilityWard{

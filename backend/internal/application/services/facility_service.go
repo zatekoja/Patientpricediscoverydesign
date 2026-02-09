@@ -354,6 +354,7 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 			wardsByFacility, err = s.facilityWardRepo.GetByFacilityIDs(ctx, facilityIDs)
 			if err != nil {
 				// Log error but don't fail the request
+				log.Printf("Error loading wards for facilities %v: %v", facilityIDs, err)
 				wardsByFacility = make(map[string][]*entities.FacilityWard)
 			}
 		}

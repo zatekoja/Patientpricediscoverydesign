@@ -37,6 +37,19 @@ const PREDEFINED_WARD_TYPES = [
   { value: 'other', label: 'Other (Custom)' },
 ];
 
+/**
+ * Escape HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(unsafe: string): string {
+  if (!unsafe) return '';
+  return String(unsafe)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function buildCapacityForm(
   token: string,
   facilityName: string,
@@ -44,6 +57,12 @@ function buildCapacityForm(
   preselectedWard?: string,
   errorMessage?: string
 ): string {
+  // Escape all user-controlled values to prevent XSS
+  const escapedFacilityName = escapeHtml(facilityName);
+  const escapedErrorMessage = errorMessage ? escapeHtml(errorMessage) : '';
+  const escapedToken = escapeHtml(token);
+  const escapedPreselectedWard = preselectedWard ? escapeHtml(preselectedWard) : '';
+  
   // Get available wards from facility metadata or use predefined list
   const wardOptions = availableWards && availableWards.length > 0
     ? availableWards.map(ward => {
@@ -56,7 +75,12 @@ function buildCapacityForm(
     : PREDEFINED_WARD_TYPES;
 
   const wardSelectOptions = wardOptions
-    .map(w => `<option value="${w.value}" ${w.value === preselectedWard ? 'selected' : ''}>${w.label}</option>`)
+    .map(w => {
+      const escapedValue = escapeHtml(w.value);
+      const escapedLabel = escapeHtml(w.label);
+      const isSelected = w.value === preselectedWard ? 'selected' : '';
+      return `<option value="${escapedValue}" ${isSelected}>${escapedLabel}</option>`;
+    })
     .join('');
 
   return `
@@ -65,7 +89,7 @@ function buildCapacityForm(
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Update Capacity - ${facilityName}</title>
+        <title>Update Capacity - ${escapedFacilityName}</title>
         <style>
           * {
             margin: 0;
@@ -188,11 +212,11 @@ function buildCapacityForm(
       </head>
       <body>
         <div class="container">
-          <h1>Update Capacity - ${facilityName}</h1>
+          <h1>Update Capacity - ${escapedFacilityName}</h1>
           <p class="subtitle">Please update your current capacity and wait time information</p>
-          ${errorMessage ? `<div class="error-message">${errorMessage}</div>` : ''}
+          ${escapedErrorMessage ? `<div class="error-message">${escapedErrorMessage}</div>` : ''}
           <form method="POST" action="/api/v1/capacity/submit" id="capacityForm">
-            <input type="hidden" name="token" value="${token}" />
+            <input type="hidden" name="token" value="${escapedToken}" />
             <div class="form-group">
               <label for="wardName">Ward/Department</label>
               <select name="wardName" id="wardName">
@@ -835,7 +859,19 @@ export class DataProviderAPI {
       // Step 2: Validate all form inputs before consuming the token
       const capacityStatusRaw = req.body?.capacityStatus ? String(req.body.capacityStatus).toLowerCase().trim() : undefined;
       const validCapacityStatuses = ['available', 'busy', 'full', 'closed'];
-      if (capacityStatusRaw && !validCapacityStatuses.includes(capacityStatusRaw)) {
+      
+      if (!capacityStatusRaw) {
+        res.status(400).send(`
+          <html>
+            <body style="font-family: Arial, sans-serif; padding: 24px;">
+              <h2>Missing Capacity Status</h2>
+              <p>Capacity status is required and must be provided.</p>
+              <p><a href="/api/v1/capacity/form/${encodeURIComponent(token)}">Go back to form</a></p>
+            </body>
+          </html>
+        `);
+        return;
+      } else if (!validCapacityStatuses.includes(capacityStatusRaw)) {
         res.status(400).send(`
           <html>
             <body style="font-family: Arial, sans-serif; padding: 24px;">
@@ -858,9 +894,24 @@ export class DataProviderAPI {
           : req.body?.urgentCareAvailable === true;
 
       // Get ward name from form (or from token if specified)
-      const wardName = req.body?.wardName 
-        ? String(req.body.wardName).trim() 
-        : record.wardName || undefined;
+      // Distinguish between:
+      //  - field absent: fall back to record.wardName
+      //  - field present but empty: explicit facility-wide selection
+      let wardName: string | undefined;
+      const hasWardNameField =
+        req.body && Object.prototype.hasOwnProperty.call(req.body, 'wardName');
+
+      if (hasWardNameField) {
+        const rawWardName = req.body.wardName;
+        const trimmedWardName =
+          rawWardName === undefined || rawWardName === null
+            ? ''
+            : String(rawWardName).trim();
+        // Empty string means explicit facility-wide selection
+        wardName = trimmedWardName === '' ? undefined : trimmedWardName;
+      } else {
+        wardName = record.wardName || undefined;
+      }
 
       // Step 3: All validations passed - now consume the token
       await this.capacityRequestService.consumeToken(token);
