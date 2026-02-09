@@ -25,9 +25,14 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Check Docker Compose
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo -e "${RED}❌ Docker Compose is not installed${NC}"
+# Determine docker compose command (docker-compose or docker compose)
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    echo -e "${RED}❌ Docker Compose is not installed or not found in PATH.${NC}"
+    echo "Please install either 'docker-compose' or the 'docker compose' plugin."
     exit 1
 fi
 
@@ -48,14 +53,14 @@ echo ""
 
 # Step 1: Start Infrastructure Services
 echo -e "${YELLOW}Step 1: Starting infrastructure services (PostgreSQL, Redis, MongoDB, Typesense)...${NC}"
-docker-compose up -d postgres redis mongo typesense
+$DOCKER_COMPOSE_CMD up -d postgres redis mongo typesense
 
 echo "Waiting for services to be ready..."
 sleep 5
 
 # Check services
 echo -e "${BLUE}Checking service health...${NC}"
-docker-compose ps postgres redis mongo typesense
+$DOCKER_COMPOSE_CMD ps postgres redis mongo typesense
 
 echo -e "${GREEN}✅ Infrastructure services started${NC}"
 echo ""
