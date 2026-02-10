@@ -32,4 +32,10 @@ type FacilityProcedure struct {
 	IsAvailable       bool      `json:"is_available" db:"is_available"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+
+	// Enriched fields populated by JOIN queries (not stored in facility_procedures table)
+	ProcedureName        string `json:"name,omitempty" db:"-"`
+	ProcedureCode        string `json:"code,omitempty" db:"-"`
+	ProcedureCategory    string `json:"category,omitempty" db:"-"`
+	ProcedureDescription string `json:"description,omitempty" db:"-"`
 }

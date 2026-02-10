@@ -6,8 +6,8 @@ import (
 
 // GeolocationProvider defines the interface for geolocation services
 type GeolocationProvider interface {
-	// Geocode converts an address to coordinates
-	Geocode(ctx context.Context, address string) (*Coordinates, error)
+	// Geocode converts an address to a full geocoded address
+	Geocode(ctx context.Context, address string) (*GeocodedAddress, error)
 
 	// ReverseGeocode converts coordinates to an address
 	ReverseGeocode(ctx context.Context, lat, lon float64) (*GeocodedAddress, error)

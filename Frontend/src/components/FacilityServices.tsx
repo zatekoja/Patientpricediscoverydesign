@@ -136,7 +136,7 @@ export const FacilityServices: React.FC<FacilityServicesProps> = ({
         <h3 className="font-semibold text-lg text-gray-900">{service.name}</h3>
         <div className="text-right">
           <div className="text-xl font-bold text-blue-600">
-            {service.currency} {service.price.toLocaleString()}
+            {service.currency === "NGN" ? "₦" : service.currency === "USD" ? "$" : service.currency ? `${service.currency} ` : "₦"}{service.price.toLocaleString("en-NG")}
           </div>
           {!service.is_available && (
             <span className="text-sm text-red-500">Not Available</span>

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 )
 
@@ -223,90 +222,7 @@ func TestInferRegionFromTagsProblem(t *testing.T) {
 	}
 }
 
-// TestBuildFallbackGeocodedAddressProblem tests the fallback that incorrectly uses Lagos
-func TestBuildFallbackGeocodedAddressProblem(t *testing.T) {
-	tests := []struct {
-		name            string
-		facility        *entities.Facility
-		query           string
-		tags            []string
-		coords          providers.Coordinates
-		expectedCity    string
-		expectedNotCity string
-		bugDescription  string
-	}{
-		{
-			name: "Facility with actual city should NOT be overridden by tag inference",
-			facility: &entities.Facility{
-				Name: "Kano Hospital",
-				Address: entities.Address{
-					City:  "Kano",
-					State: "Kano",
-				},
-			},
-			query: "Kano Hospital, Kano, Nigeria",
-			tags:  []string{"hospital", "lagos"}, // Has "lagos" tag incorrectly
-			coords: providers.Coordinates{
-				Latitude:  12.0022,
-				Longitude: 8.5920,
-			},
-			expectedCity:    "Kano",
-			expectedNotCity: "Lagos",
-			bugDescription:  "BUG: buildFallbackGeocodedAddress uses inferRegionFromTags which returns Lagos due to tag",
-		},
-		{
-			name: "Facility without city should leave city empty (FIXED - no longer uses tag inference)",
-			facility: &entities.Facility{
-				Name:    "Unknown Location Hospital",
-				Address: entities.Address{
-					// No city
-				},
-			},
-			query: "Hospital, Nigeria",
-			tags:  []string{"hospital", "lagos"},
-			coords: providers.Coordinates{
-				Latitude:  9.0, // Not Lagos coordinates!
-				Longitude: 7.5,
-			},
-			expectedCity:    "", // FIXED: Now correctly leaves city empty instead of guessing from tags
-			expectedNotCity: "Lagos",
-			bugDescription:  "FIXED: No longer uses tag inference for missing city - relies on reverse geocoding upstream",
-		},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := buildFallbackGeocodedAddress(tt.facility, tt.query, tt.tags, tt.coords)
-
-			if result == nil {
-				t.Fatal("buildFallbackGeocodedAddress returned nil")
-			}
-
-			// Check coordinates preserved
-			if result.Coordinates.Latitude != tt.coords.Latitude {
-				t.Errorf("Coordinates latitude not preserved: expected %.4f, got %.4f",
-					tt.coords.Latitude, result.Coordinates.Latitude)
-			}
-
-			// Check city
-			if tt.expectedCity != "" && result.City != tt.expectedCity {
-				t.Errorf("Expected city '%s', got '%s'", tt.expectedCity, result.City)
-			}
-
-			if tt.expectedNotCity != "" && result.City == tt.expectedNotCity {
-				t.Errorf("❌ BUG CONFIRMED: %s\nCity incorrectly set to '%s' when facility has coordinates (%.4f, %.4f)",
-					tt.bugDescription, result.City, tt.coords.Latitude, tt.coords.Longitude)
-			}
-
-			t.Logf("Result: City='%s', State='%s', Coords=(%.4f, %.4f)",
-				result.City, result.State, result.Coordinates.Latitude, result.Coordinates.Longitude)
-
-			if tt.bugDescription != "" {
-				t.Logf("⚠️ %s", tt.bugDescription)
-			}
-		})
-	}
-}
 
 // TestGeocodeQueryBuildingAddingLagos tests if Lagos is being added to geocode queries incorrectly
 func TestGeocodeQueryBuildingAddingLagos(t *testing.T) {

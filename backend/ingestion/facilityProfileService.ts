@@ -30,6 +30,13 @@ export interface FacilityStatusUpdate {
   capacityStatus?: string | null;
   avgWaitMinutes?: number | null;
   urgentCareAvailable?: boolean | null;
+  wardUpdate?: {
+    wardId: string;
+    status: string;
+    count: number;
+    trend: string;
+    estimatedWaitMinutes?: number;
+  };
 }
 
 export class FacilityProfileService {
@@ -38,6 +45,7 @@ export class FacilityProfileService {
   constructor(
     private store: IDocumentStore<FacilityProfile>,
     private llmConfig?: FacilityLLMConfig,
+    private redisClient?: any
   ) {}
 
   getStore(): IDocumentStore<FacilityProfile> {
@@ -63,9 +71,64 @@ export class FacilityProfileService {
       throw new Error('Facility not found');
     }
     const now = new Date();
+    
+    let eventPayload: any = null;
+
     if (update.capacityStatus !== undefined) {
       profile.capacityStatus = update.capacityStatus ?? undefined;
     }
+    
+    if (update.wardUpdate) {
+      if (!profile.wardStatuses) {
+        profile.wardStatuses = {};
+      }
+      profile.wardStatuses[update.wardUpdate.wardId] = {
+        status: update.wardUpdate.status,
+        count: update.wardUpdate.count,
+        trend: update.wardUpdate.trend,
+        estimatedWaitMinutes: (update as any).wardUpdate.estimatedWaitMinutes,
+        lastUpdated: now
+      };
+      
+      // Update high-level status based on the most constrained ward
+      const wardInfos = Object.values(profile.wardStatuses);
+      const statuses = wardInfos.map(s => s.status);
+      
+      if (statuses.includes('full')) {
+        profile.capacityStatus = 'full';
+      } else if (statuses.includes('busy')) {
+        profile.capacityStatus = 'busy';
+      } else {
+        profile.capacityStatus = 'available';
+      }
+
+      // Update facility-level average wait (max of all wards)
+      const waits = wardInfos
+        .map(s => (s as any).estimatedWaitMinutes)
+        .filter(w => typeof w === 'number');
+      
+      if (waits.length > 0) {
+        profile.avgWaitMinutes = Math.max(...waits);
+      }
+
+      eventPayload = {
+        id: `ev_${Date.now()}`,
+        facility_id: id,
+        event_type: 'ward_capacity_update',
+        timestamp: now.toISOString(),
+        location: profile.location || { latitude: 0, longitude: 0 },
+        changed_fields: {
+          ward_id: update.wardUpdate.wardId,
+          status: update.wardUpdate.status,
+          count: update.wardUpdate.count,
+          trend: update.wardUpdate.trend,
+          estimated_wait_minutes: (update as any).wardUpdate.estimatedWaitMinutes,
+          capacity_status: profile.capacityStatus,
+          avg_wait_minutes: profile.avgWaitMinutes
+        }
+      };
+    }
+
     if (update.avgWaitMinutes !== undefined) {
       profile.avgWaitMinutes = update.avgWaitMinutes ?? undefined;
     }
@@ -77,6 +140,19 @@ export class FacilityProfileService {
       source: profile.source,
       updatedAt: now.toISOString(),
     });
+
+    // Publish to Redis for real-time SSE
+    if (this.redisClient && eventPayload) {
+      try {
+        const channel = `facility:${id}`;
+        const updatesChannel = 'facility:updates'; 
+        await this.redisClient.publish(channel, JSON.stringify(eventPayload));
+        await this.redisClient.publish(updatesChannel, JSON.stringify(eventPayload));
+      } catch (e) {
+        console.error('Failed to publish real-time update to Redis', e);
+      }
+    }
+
     recordCapacityUpdate({ source: options?.source || 'unknown', success: true });
     return profile;
   }

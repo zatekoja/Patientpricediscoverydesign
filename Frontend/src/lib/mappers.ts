@@ -36,6 +36,12 @@ export type UIFacility = {
   capacityStatus?: string | null;
   avgWaitMinutes?: number | null;
   urgentCareAvailable?: boolean | null;
+  wardStatuses?: Record<string, {
+    status: string;
+    count: number;
+    trend: string;
+    lastUpdated: string | Date;
+  }>;
 };
 
 const buildAddress = (facility: FacilitySearchResult): string => {
@@ -98,5 +104,6 @@ export const mapFacilitySearchResultToUI = (
     capacityStatus: facility.capacity_status ?? null,
     avgWaitMinutes: facility.avg_wait_minutes ?? null,
     urgentCareAvailable: facility.urgent_care_available ?? null,
+    wardStatuses: facility.ward_statuses as any ?? null,
   };
 };

@@ -148,6 +148,14 @@ const procedureProfileLLMTags = meter.createCounter('provider.procedure.profile.
   description: 'Number of tags returned by procedure profile LLM',
 });
 
+const transactionIngestionCount = meter.createCounter('transaction.ingestion.count', {
+  description: 'Number of transactions ingested via webhook',
+});
+
+const capacityEventCount = meter.createCounter('capacity.event.count', {
+  description: 'Number of capacity events recorded',
+});
+
 type ProviderSyncState = {
   lastSyncMs?: number;
 };
@@ -464,4 +472,20 @@ export function recordProcedureProfileLLM(params: {
   if (params.tags && params.tags > 0) {
     procedureProfileLLMTags.add(params.tags, { provider: params.provider });
   }
+}
+
+export function recordTransactionIngestion(params: {
+  wardId: string;
+  facilityId: string;
+  success: boolean;
+}): void {
+  transactionIngestionCount.add(1, { 
+    ward: params.wardId, 
+    facility: params.facilityId,
+    success: String(params.success)
+  });
+}
+
+export function recordCapacityEvent(wardId: string): void {
+  capacityEventCount.add(1, { ward: wardId });
 }

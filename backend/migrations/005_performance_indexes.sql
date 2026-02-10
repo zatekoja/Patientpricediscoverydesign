@@ -7,38 +7,38 @@
 
 -- Composite index for filtered queries (type + active status + rating)
 -- Covers common queries: "active facilities of type X ordered by rating"
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_type_active_rating
+CREATE INDEX IF NOT EXISTS idx_facilities_type_active_rating
   ON facilities(facility_type, is_active, rating DESC)
   WHERE is_active = true;
 
 -- Covering index for search results (includes commonly fetched columns)
 -- Reduces need to access table heap for these columns
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_search_covering
+CREATE INDEX IF NOT EXISTS idx_facilities_search_covering
   ON facilities(is_active, facility_type, rating DESC)
   INCLUDE (id, name, review_count, latitude, longitude);
 
 -- Partial index for active facilities only (smaller, faster)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_active_only
+CREATE INDEX IF NOT EXISTS idx_facilities_active_only
   ON facilities(id, created_at DESC)
   WHERE is_active = true;
 
 -- GiST index for geospatial queries (PostGIS-style)
 -- Requires PostGIS extension for ST_MakePoint, or use simpler approach
 -- If PostGIS not available, keep the existing btree index on (latitude, longitude)
--- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_location_gist
+-- CREATE INDEX IF NOT EXISTS idx_facilities_location_gist
 --   ON facilities USING GIST(ST_MakePoint(longitude, latitude));
 
 -- B-tree index for rating-based sorting with active filter
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_rating_desc
+CREATE INDEX IF NOT EXISTS idx_facilities_rating_desc
   ON facilities(rating DESC, review_count DESC)
   WHERE is_active = true;
 
 -- Index for name-based search (case-insensitive)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_name_lower
+CREATE INDEX IF NOT EXISTS idx_facilities_name_lower
   ON facilities(LOWER(name));
 
 -- Index for city-based filtering (common use case)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_city_active
+CREATE INDEX IF NOT EXISTS idx_facilities_city_active
   ON facilities(city, is_active, rating DESC)
   WHERE is_active = true;
 
@@ -48,16 +48,16 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facilities_city_active
 
 -- Composite index for price range queries
 -- Covers: "available procedures at facility X within price range"
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_procedures_price_range
+CREATE INDEX IF NOT EXISTS idx_facility_procedures_price_range
   ON facility_procedures(facility_id, is_available, price ASC);
 
 -- Covering index for procedure lookups
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_procedures_lookup
+CREATE INDEX IF NOT EXISTS idx_facility_procedures_lookup
   ON facility_procedures(procedure_id, is_available)
   INCLUDE (facility_id, price, currency, estimated_duration);
 
 -- Index for finding cheapest procedures
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_procedures_cheapest
+CREATE INDEX IF NOT EXISTS idx_facility_procedures_cheapest
   ON facility_procedures(procedure_id, price ASC)
   WHERE is_available = true;
 
@@ -66,11 +66,11 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_procedures_cheapest
 -- ============================================================================
 
 -- Composite index for category filtering
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_procedures_category_active
+CREATE INDEX IF NOT EXISTS idx_procedures_category_active
   ON procedures(category, is_active, name);
 
 -- Index for name-based search (case-insensitive)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_procedures_name_lower
+CREATE INDEX IF NOT EXISTS idx_procedures_name_lower
   ON procedures(LOWER(name))
   WHERE is_active = true;
 
@@ -79,12 +79,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_procedures_name_lower
 -- ============================================================================
 
 -- Composite index for accepted insurance queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_insurance_accepted
+CREATE INDEX IF NOT EXISTS idx_facility_insurance_accepted
   ON facility_insurance(insurance_provider_id, is_accepted, facility_id)
   WHERE is_accepted = true;
 
 -- Reverse index for facility lookup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_insurance_facility_lookup
+CREATE INDEX IF NOT EXISTS idx_facility_insurance_facility_lookup
   ON facility_insurance(facility_id, is_accepted)
   INCLUDE (insurance_provider_id);
 
@@ -93,7 +93,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facility_insurance_facility_lookup
 -- ============================================================================
 
 -- Index for active insurance providers with name search
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_insurance_active_name
+CREATE INDEX IF NOT EXISTS idx_insurance_active_name
   ON insurance_providers(is_active, name)
   WHERE is_active = true;
 
@@ -109,15 +109,15 @@ BEGIN
 
     -- Composite index for user's appointments
     CREATE INDEX IF NOT EXISTS idx_appointments_user_status
-      ON appointments(user_id, status, appointment_date DESC);
+      ON appointments(user_id, status, scheduled_at DESC);
 
     -- Index for facility's appointments
     CREATE INDEX IF NOT EXISTS idx_appointments_facility_date
-      ON appointments(facility_id, appointment_date, status);
+      ON appointments(facility_id, scheduled_at, status);
 
     -- Index for upcoming appointments
     CREATE INDEX IF NOT EXISTS idx_appointments_upcoming
-      ON appointments(appointment_date ASC)
+      ON appointments(scheduled_at ASC)
       WHERE status IN ('scheduled', 'confirmed');
   END IF;
 END
@@ -131,10 +131,6 @@ DO $$
 BEGIN
   IF EXISTS (SELECT FROM information_schema.tables
              WHERE table_name = 'feedback') THEN
-
-    -- Index for facility feedback with rating
-    CREATE INDEX IF NOT EXISTS idx_feedback_facility_rating
-      ON feedback(facility_id, rating DESC, created_at DESC);
 
     -- Index for recent feedback
     CREATE INDEX IF NOT EXISTS idx_feedback_recent

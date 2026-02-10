@@ -553,6 +553,66 @@ func matchTag(query string, tags []string) string {
 	return ""
 }
 
+// GetFacilityServiceFees handles GET /api/facilities/:id/service-fees
+// Returns administrative/service-fee items and their total for a facility.
+func (h *FacilityHandler) GetFacilityServiceFees(w http.ResponseWriter, r *http.Request) {
+	facilityID := r.PathValue("id")
+	if facilityID == "" {
+		respondWithError(w, http.StatusBadRequest, "facility ID is required")
+		return
+	}
+
+	if h.facilityProcedureService == nil {
+		respondWithError(w, http.StatusInternalServerError, "facility procedure service not configured")
+		return
+	}
+
+	filter := repositories.FacilityProcedureFilter{
+		Category: "administrative",
+		Limit:    100,
+		Offset:   0,
+		SortBy:   "name",
+		SortOrder: "asc",
+	}
+
+	services, _, err := h.facilityProcedureService.ListByFacilityWithCount(r.Context(), facilityID, filter)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to fetch service fees")
+		return
+	}
+
+	type serviceFeeItem struct {
+		ID       string  `json:"id"`
+		Name     string  `json:"name"`
+		Price    float64 `json:"price"`
+		Currency string  `json:"currency"`
+		Code     string  `json:"code"`
+	}
+
+	fees := make([]serviceFeeItem, 0, len(services))
+	var total float64
+	currency := "NGN"
+	for _, svc := range services {
+		fees = append(fees, serviceFeeItem{
+			ID:       svc.ID,
+			Name:     svc.ProcedureName,
+			Price:    svc.Price,
+			Currency: svc.Currency,
+			Code:     svc.ProcedureCode,
+		})
+		total += svc.Price
+		if svc.Currency != "" {
+			currency = svc.Currency
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"fees":     fees,
+		"total":    total,
+		"currency": currency,
+	})
+}
+
 // Helper functions
 func respondWithJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")

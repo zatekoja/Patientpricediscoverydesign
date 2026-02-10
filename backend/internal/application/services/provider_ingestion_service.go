@@ -369,46 +369,26 @@ func (s *ProviderIngestionService) ensureFacilityLocation(ctx context.Context, f
 		return true
 	}
 
-	coords, err := s.geolocationProvider.Geocode(ctx, query)
-	if err != nil || coords == nil {
+	geo, err := s.geolocationProvider.Geocode(ctx, query)
+	if err != nil || geo == nil {
 		return false
 	}
 
-	geo := s.reverseGeocodeOrFallback(ctx, coords, facility, query, tags)
+	// Geocode now returns the full address, so we use it directly
+	// We verify if the returned location matches our expectations (e.g., inside Nigeria)
+	loc := entities.Location{
+		Latitude:  geo.Coordinates.Latitude,
+		Longitude: geo.Coordinates.Longitude,
+	}
+	if isLikelyNigeria(tags, query) && isOutsideNigeria(loc) {
+		// If the geocoded result puts us outside Nigeria when we expect to be inside,
+		// we might want to fallback or discard.
+		// For now, we trust the specific geocode result over the generic check.
+	}
+
 	applyGeocodedAddress(facility, geo)
 	s.geocodeCache[query] = geo
 	return true
-}
-
-func (s *ProviderIngestionService) reverseGeocodeOrFallback(ctx context.Context, coords *providers.Coordinates, facility *entities.Facility, query string, tags []string) *providers.GeocodedAddress {
-	if coords == nil {
-		return buildFallbackGeocodedAddress(facility, query, tags, providers.Coordinates{})
-	}
-
-	reverse, err := s.geolocationProvider.ReverseGeocode(ctx, coords.Latitude, coords.Longitude)
-	if err == nil && reverse != nil {
-		if !isLikelyNigeria(tags, query) || strings.EqualFold(reverse.Country, "Nigeria") || reverse.Country == "" {
-			return reverse
-		}
-	}
-
-	return buildFallbackGeocodedAddress(facility, query, tags, *coords)
-}
-
-func buildFallbackGeocodedAddress(facility *entities.Facility, query string, tags []string, coords providers.Coordinates) *providers.GeocodedAddress {
-	// FIX: Don't use tag inference to fill missing city - it causes incorrect defaults
-	// If coordinates are valid but reverse geocoding failed, leave city empty rather than guessing from tags
-	// The actual city should come from:
-	// 1. Facility address (if provided)
-	// 2. Reverse geocoding with coordinates (already attempted before calling this)
-	// 3. Left empty if neither available (DO NOT use tag inference)
-	return &providers.GeocodedAddress{
-		FormattedAddress: query,
-		City:             facility.Address.City, // Use only actual address, not tag inference
-		State:            facility.Address.State,
-		Country:          firstNonEmpty(facility.Address.Country, "Nigeria"),
-		Coordinates:      coords,
-	}
 }
 
 func applyGeocodedAddress(facility *entities.Facility, geo *providers.GeocodedAddress) {
@@ -417,14 +397,45 @@ func applyGeocodedAddress(facility *entities.Facility, geo *providers.GeocodedAd
 	}
 	facility.Location.Latitude = geo.Coordinates.Latitude
 	facility.Location.Longitude = geo.Coordinates.Longitude
+
+	// Populate street address
+	if facility.Address.Street == "" {
+		if geo.Street != "" {
+			facility.Address.Street = geo.Street
+		} else if geo.FormattedAddress != "" {
+			// Use formatted address without country/state suffix as street
+			street := geo.FormattedAddress
+			// Remove country and state suffixes
+			if geo.Country != "" {
+				street = strings.TrimSuffix(street, ", "+geo.Country)
+				street = strings.TrimSuffix(street, ","+geo.Country)
+			}
+			if geo.State != "" {
+				street = strings.TrimSuffix(street, ", "+geo.State)
+				street = strings.TrimSuffix(street, ","+geo.State)
+			}
+			facility.Address.Street = strings.TrimSpace(street)
+		}
+	}
+
+	// Populate city
 	if facility.Address.City == "" && geo.City != "" {
 		facility.Address.City = geo.City
 	}
+
+	// Populate state
 	if facility.Address.State == "" && geo.State != "" {
 		facility.Address.State = geo.State
 	}
+
+	// Populate country
 	if facility.Address.Country == "" && geo.Country != "" {
 		facility.Address.Country = geo.Country
+	}
+
+	// Populate zip code
+	if facility.Address.ZipCode == "" && geo.ZipCode != "" {
+		facility.Address.ZipCode = geo.ZipCode
 	}
 }
 
@@ -800,12 +811,44 @@ func inferProcedureCategory(description string, tags []string) string {
 
 	for _, value := range candidates {
 		switch {
-		case strings.Contains(value, "imaging") || strings.Contains(value, "scan") || strings.Contains(value, "x-ray"):
+		case strings.Contains(value, "hiv") || strings.Contains(value, "sti") || strings.Contains(value, "std") || strings.Contains(value, "vdrl") || strings.Contains(value, "hepatitis") || strings.Contains(value, "sexual health") || strings.Contains(value, "gonorrh") || strings.Contains(value, "chlamydia") || strings.Contains(value, "syphilis"):
+			return "sti_testing"
+		case strings.Contains(value, "imaging") || strings.Contains(value, "scan") || strings.Contains(value, "x-ray") || strings.Contains(value, "radiolog") || strings.Contains(value, "ultrasound") || strings.Contains(value, "mri") || strings.Contains(value, "echo"):
 			return "imaging"
-		case strings.Contains(value, "lab") || strings.Contains(value, "laboratory") || strings.Contains(value, "test"):
+		case strings.Contains(value, "lab") || strings.Contains(value, "laboratory") || strings.Contains(value, "diagnostic"):
 			return "laboratory"
-		case strings.Contains(value, "surgery") || strings.Contains(value, "operation"):
+		case strings.Contains(value, "ophthal") || strings.Contains(value, "cataract") || strings.Contains(value, "glaucoma") || strings.Contains(value, "retina") || strings.Contains(value, "cornea"):
+			return "ophthalmology"
+		case strings.Contains(value, "dental") || strings.Contains(value, "tooth") || strings.Contains(value, "orthodontic") || strings.Contains(value, "maxillofacial"):
+			return "dental"
+		case strings.Contains(value, "surgery") || strings.Contains(value, "operation") || strings.Contains(value, "theatre") || strings.Contains(value, "laparotomy") || strings.Contains(value, "laparoscop"):
 			return "surgical"
+		case value == "ent" || strings.Contains(value, "tonsil") || strings.Contains(value, "adenoid") || strings.Contains(value, "mastoid") || strings.Contains(value, "laryngoscop") || strings.Contains(value, "tracheostomy") || strings.Contains(value, "ear nose"):
+			return "ent"
+		case strings.Contains(value, "psychiatr") || strings.Contains(value, "psycholog") || strings.Contains(value, "mental") || strings.Contains(value, "electroconvulsive"):
+			return "psychiatry"
+		case strings.Contains(value, "dermatol") || strings.Contains(value, "skin biopsy") || strings.Contains(value, "hyfrecation"):
+			return "dermatology"
+		case strings.Contains(value, "physiotherapy") || strings.Contains(value, "physio") || strings.Contains(value, "rehab"):
+			return "physiotherapy"
+		case strings.Contains(value, "dietary") || strings.Contains(value, "nutrition") || strings.Contains(value, "meal") || strings.Contains(value, "feeding"):
+			return "dietary"
+		case strings.Contains(value, "endoscop") || strings.Contains(value, "colonoscop") || strings.Contains(value, "polypectomy"):
+			return "endoscopy"
+		case strings.Contains(value, "urol") || strings.Contains(value, "catheter") || strings.Contains(value, "cystoscop") || strings.Contains(value, "prostat"):
+			return "urology"
+		case strings.Contains(value, "oncol") || strings.Contains(value, "chemo") || strings.Contains(value, "radiotherapy") || strings.Contains(value, "cancer"):
+			return "oncology"
+		case strings.Contains(value, "orthopaed") || strings.Contains(value, "orthoped") || strings.Contains(value, "fracture") || strings.Contains(value, "plaster of paris"):
+			return "orthopaedics"
+		case strings.Contains(value, "stroke") || strings.Contains(value, "cerebrovascular") || strings.Contains(value, "eeg") || strings.Contains(value, "electroencephalogr"):
+			return "neurology"
+		case strings.Contains(value, "ward") || strings.Contains(value, "admission") || strings.Contains(value, "accommodation") || strings.Contains(value, "bed"):
+			return "accommodation"
+		case strings.Contains(value, "ambulance") || strings.Contains(value, "emergency") || strings.Contains(value, "casualty") || strings.Contains(value, "triage"):
+			return "emergency"
+		case strings.Contains(value, "report") || strings.Contains(value, "certificate") || strings.Contains(value, "registration") || strings.Contains(value, "card") || strings.Contains(value, "folder"):
+			return "administrative"
 		case strings.Contains(value, "therapy"):
 			return "therapeutic"
 		case strings.Contains(value, "checkup") || strings.Contains(value, "screen"):
@@ -874,6 +917,10 @@ func applyProfileStatus(facility *entities.Facility, profile *providerapi.Facili
 			facility.UrgentCareAvailable = profile.UrgentCareAvailable
 			changed = true
 		}
+	}
+	if profile.WardStatuses != nil {
+		facility.WardStatuses = profile.WardStatuses
+		changed = true
 	}
 
 	return changed

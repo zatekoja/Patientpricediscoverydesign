@@ -50,14 +50,32 @@ interface FacilityModalProps {
     nextAvailableAt?: string | null;
   };
   onClose: () => void;
+  preSelectedServiceName?: string;
 }
 
-export function FacilityModal({ facility, onClose }: FacilityModalProps) {
+export function FacilityModal({ facility, onClose, preSelectedServiceName }: FacilityModalProps) {
   const [slots, setSlots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [booking, setBooking] = useState(false);
-  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
+  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(
+    preSelectedServiceName ? preSelectedServiceName : null
+  );
+
+  // Primary booker details
+  const [patientName, setPatientName] = useState("");
+  const [patientEmail, setPatientEmail] = useState("");
+  const [patientPhone, setPatientPhone] = useState("");
+  const [patientNIN, setPatientNIN] = useState("");
+  const [whatsappOptIn, setWhatsappOptIn] = useState(true);
+  
+  // Booking on behalf toggle
+  const [bookingOnBehalf, setBookingOnBehalf] = useState(false);
+  const [beneficiaryName, setBeneficiaryName] = useState("");
+  const [beneficiaryNIN, setBeneficiaryNIN] = useState("");
+  
+  // Special needs/accommodations
+  const [specialNeeds, setSpecialNeeds] = useState("");
   
   // State for "All Services" modal
   const [showAllServices, setShowAllServices] = useState(false);
@@ -66,16 +84,12 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
   const [serviceEnrichments, setServiceEnrichments] = useState<Record<string, ProcedureEnrichment>>({});
   const [serviceEnrichmentLoading, setServiceEnrichmentLoading] = useState<Record<string, boolean>>({});
 
-  // Provider health state
-  const [providerHealth, setProviderHealth] = useState<ProviderHealthResponse | null>(null);
-  const [providerHealthLoading, setProviderHealthLoading] = useState(false);
-
   // SSE for real-time updates
   const { data: sseData, isConnected: sseConnected } = useSSEFacility(facility.id);
 
   const formatCurrency = (value: number, currency?: string | null) => {
     const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
-    return `${symbol}${Math.round(value).toLocaleString()}`;
+    return `${symbol}${value.toLocaleString("en-NG")}`;
   };
 
   const loadEnrichment = async (procedureId: string) => {
@@ -112,45 +126,57 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
     fetchSlots();
   }, [facility.id]);
 
-  // Fetch provider health
+  // Auto-scroll to pre-selected service
   useEffect(() => {
-    const fetchProviderHealth = async () => {
-      setProviderHealthLoading(true);
-      try {
-        // Fetch health for megalek provider (hardcoded ID or make it dynamic)
-        const health = await api.getProviderHealth("megalek");
-        setProviderHealth(health);
-      } catch (err) {
-        console.error("Failed to fetch provider health:", err);
-      } finally {
-        setProviderHealthLoading(false);
-      }
-    };
-    fetchProviderHealth();
-  }, []);
+    if (preSelectedServiceName) {
+      setTimeout(() => {
+        const element = document.getElementById(`service-${preSelectedServiceName}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 100);
+    }
+  }, [preSelectedServiceName]);
 
   // Update from SSE events
   useEffect(() => {
-    if (sseData && sseData.event_type === 'service_health_update') {
-      // Update provider health from SSE
-      setProviderHealth(prev => ({
-        ...prev,
-        healthy: sseData.changed_fields?.healthy ?? prev?.healthy ?? false,
-        lastSync: sseData.timestamp,
-        message: sseData.changed_fields?.message ?? prev?.message,
-      }));
-    }
+    // Could add SSE-based facility updates here if needed
   }, [sseData]);
 
   const handleBook = async () => {
     if (!selectedSlot) return;
+
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patientEmail.trim());
+    const phoneValid = !whatsappOptIn || /^\+?[1-9]\d{7,14}$/.test(patientPhone.trim());
+    const ninValid = patientNIN.trim().length === 11 && /^\d{11}$/.test(patientNIN.trim());
+    
+    // Validate booking on behalf fields
+    if (bookingOnBehalf) {
+      const beneficiaryNINValid = beneficiaryNIN.trim().length === 11 && /^\d{11}$/.test(beneficiaryNIN.trim());
+      if (!beneficiaryName.trim() || !beneficiaryNINValid) {
+        alert("Please provide valid beneficiary name and 11-digit NIN.");
+        return;
+      }
+    }
+
+    if (!patientName.trim() || !emailValid || !phoneValid || !ninValid) {
+      alert("Please provide valid name, email, phone number, and 11-digit NIN.");
+      return;
+    }
+
     setBooking(true);
     try {
       await api.bookAppointment({
         facility_id: facility.id,
         scheduled_at: selectedSlot.start_time,
-        patient_name: "Demo User", // Should come from auth/form
-        patient_email: "demo@example.com",
+        patient_name: patientName.trim(),
+        patient_email: patientEmail.trim(),
+        patient_phone: whatsappOptIn ? patientPhone.trim() : "",
+        patient_nin: patientNIN.trim(),
+        booking_on_behalf: bookingOnBehalf,
+        beneficiary_name: bookingOnBehalf ? beneficiaryName.trim() : undefined,
+        beneficiary_nin: bookingOnBehalf ? beneficiaryNIN.trim() : undefined,
+        special_needs: specialNeeds.trim() || undefined,
       });
       alert("Appointment booked successfully!");
       onClose();
@@ -178,6 +204,12 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
   const nextAvailableDisplay = facility.nextAvailableAt 
     ? new Date(facility.nextAvailableAt).toLocaleString('en-NG', { weekday: 'long', hour: '2-digit', minute: '2-digit' })
     : "Next available";
+
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patientEmail.trim());
+  const phoneValid = !whatsappOptIn || /^\+?[1-9]\d{7,14}$/.test(patientPhone.trim());
+  const ninValid = patientNIN.trim().length === 11 && /^\d{11}$/.test(patientNIN.trim());
+  const beneficiaryNINValid = !bookingOnBehalf || (beneficiaryNIN.trim().length === 11 && /^\d{11}$/.test(beneficiaryNIN.trim()));
+  const canBook = !!selectedSlot && !booking && !!patientName.trim() && emailValid && phoneValid && ninValid && beneficiaryNINValid && (!bookingOnBehalf || !!beneficiaryName.trim());
 
   // Filter services for the "All Services" modal
   const filteredServices = facility.servicePrices.filter(s => 
@@ -282,7 +314,56 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
 
              <hr className="border-gray-100" />
 
-            {/* Available Services */}
+            {/* Ward Capacity Status */}
+            {facility.wardStatuses && Object.keys(facility.wardStatuses).length > 0 && (
+              <section>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-2">
+                  <Activity className="w-3.5 h-3.5" />
+                  Real-time Ward Capacity
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {Object.entries(facility.wardStatuses).map(([wardId, data]) => (
+                    <div key={wardId} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-tight">{wardId.replace(/_/g, ' ')}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-sm font-bold ${
+                            data.status === 'full' ? 'text-red-600' : 
+                            data.status === 'busy' ? 'text-orange-600' : 
+                            'text-green-600'
+                          }`}>
+                            {data.status.toUpperCase()}
+                          </span>
+                          {data.trend === 'increasing' && (
+                            <span className="flex items-center text-[10px] text-red-500 font-bold bg-red-50 px-1.5 py-0.5 rounded">
+                              <ChevronUp className="w-3 h-3" />
+                              Spiking
+                            </span>
+                          )}
+                          {data.trend === 'decreasing' && (
+                            <span className="flex items-center text-[10px] text-blue-500 font-bold bg-blue-50 px-1.5 py-0.5 rounded">
+                              <ChevronDown className="w-3 h-3" />
+                              Calming
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div classname="text-right">
+                        <p className="text-lg font-bold text-gray-900">{data.count}</p>
+                        <p className="text-[10px] text-gray-400">Transactions / 4h</p>
+                        {data.estimatedWaitMinutes && (
+                          <p className="text-[10px] font-medium text-blue-600 mt-1">
+                            ~{data.estimatedWaitMinutes} min wait
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+             <hr className="border-gray-100" />
              <section>
                  <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Available Services</h3>
@@ -301,7 +382,7 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
                        const enrichment = service.procedureId ? serviceEnrichments[service.procedureId] : undefined;
                        
                        return (
-                         <div key={serviceKey} className="bg-white">
+                         <div key={serviceKey} id={`service-${service.name}`} className="bg-white scroll-mt-4">
                             <button 
                                 onClick={() => {
                                     const nextId = isExpanded ? null : serviceKey;
@@ -347,69 +428,6 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
 
              <hr className="border-gray-100" />
 
-            {/* Provider Health Status */}
-            <section>
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-2">
-                  <Activity className="w-4 h-4" />
-                  Provider Health Status
-                </h3>
-                {providerHealthLoading ? (
-                  <div className="text-sm text-gray-500">Loading provider status...</div>
-                ) : providerHealth ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        {providerHealth.healthy ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-600" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-red-600" />
-                        )}
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {providerHealth.healthy ? "Megalek Provider Active" : "Megalek Provider Issue"}
-                          </p>
-                          {providerHealth.message && (
-                            <p className="text-xs text-gray-500 mt-0.5">{providerHealth.message}</p>
-                          )}
-                        </div>
-                      </div>
-                      {sseConnected && (
-                        <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                          <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse"></div>
-                          Live
-                        </div>
-                      )}
-                    </div>
-                    {providerHealth.lastSync && (
-                      <p className="text-xs text-gray-500">
-                        Last synced: {new Date(providerHealth.lastSync).toLocaleString()}
-                      </p>
-                    )}
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="p-3 bg-blue-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">Capacity Status</p>
-                        <p className="font-semibold text-blue-900">
-                          {facility.capacityStatus || "Normal"}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-purple-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">Avg Wait Time</p>
-                        <p className="font-semibold text-purple-900">
-                          {facility.avgWaitMinutes ? `${facility.avgWaitMinutes} mins` : "N/A"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500 italic">
-                      Provider health powers real-time capacity and wait time updates via SSE
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">Provider health unavailable</p>
-                )}
-            </section>
-
-             <hr className="border-gray-100" />
-
             {/* Available Time Slots */}
             <section>
                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4">Available Time Slots</h3>
@@ -442,6 +460,159 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
                      <p className="text-sm text-gray-500">No time slots available currently.</p>
                  )}
             </section>
+
+            <hr className="border-gray-100" />
+
+            {/* Booking Details */}
+            <section>
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4">Booking details</h3>
+              
+              {/* Primary Booker Information */}
+              <div className="space-y-4 mb-6 pb-6 border-b border-gray-100">
+                <h4 className="text-sm font-semibold text-gray-900">Your Information</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Full name *</label>
+                    <input
+                      type="text"
+                      value={patientName}
+                      onChange={(e) => setPatientName(e.target.value)}
+                      placeholder="e.g., Ada Okafor"
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Email *</label>
+                    <input
+                      type="email"
+                      value={patientEmail}
+                      onChange={(e) => setPatientEmail(e.target.value)}
+                      placeholder="e.g., ada@example.com"
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        patientEmail && !emailValid ? "border-red-300" : "border-gray-200"
+                      }`}
+                    />
+                    {patientEmail && !emailValid && (
+                      <p className="mt-1 text-xs text-red-500">Enter a valid email address.</p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Phone (with country code) *</label>
+                    <input
+                      type="tel"
+                      value={patientPhone}
+                      onChange={(e) => setPatientPhone(e.target.value)}
+                      placeholder="e.g., +2348012345678"
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        patientPhone && !phoneValid ? "border-red-300" : "border-gray-200"
+                      }`}
+                    />
+                    {patientPhone && !phoneValid && (
+                      <p className="mt-1 text-xs text-red-500">Use E.164 format (e.g., +2348012345678).</p>
+                    )}
+                  </div>
+                  
+                  <div className="md:col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">National Identification Number (NIN) - 11 digits *</label>
+                    <input
+                      type="text"
+                      value={patientNIN}
+                      onChange={(e) => setPatientNIN(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                      placeholder="e.g., 12345678901"
+                      maxLength={11}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        patientNIN && !ninValid ? "border-red-300" : "border-gray-200"
+                      }`}
+                    />
+                    {patientNIN && !ninValid && (
+                      <p className="mt-1 text-xs text-red-500">NIN must be exactly 11 digits.</p>
+                    )}
+                    <p className="mt-1 text-xs text-gray-400">Your unique National Identification Number from NIMC</p>
+                  </div>
+                  
+                  <div className="md:col-span-2 flex items-start gap-2">
+                    <input
+                      id="whatsapp-opt-in"
+                      type="checkbox"
+                      checked={whatsappOptIn}
+                      onChange={(e) => setWhatsappOptIn(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <label htmlFor="whatsapp-opt-in" className="text-xs text-gray-600">
+                      I agree to receive appointment updates via WhatsApp.
+                    </label>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Booking on Behalf Section */}
+              <div className="space-y-4 mb-6 pb-6 border-b border-gray-100">
+                <div className="flex items-start gap-2">
+                  <input
+                    id="booking-behalf"
+                    type="checkbox"
+                    checked={bookingOnBehalf}
+                    onChange={(e) => setBookingOnBehalf(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="booking-behalf" className="text-sm font-semibold text-gray-900">
+                    I'm booking this appointment on behalf of someone else
+                  </label>
+                </div>
+                
+                {bookingOnBehalf && (
+                  <div className="ml-6 pt-2 space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                    <h4 className="text-sm font-semibold text-gray-900">Beneficiary Information</h4>
+                    
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Beneficiary's full name *</label>
+                      <input
+                        type="text"
+                        value={beneficiaryName}
+                        onChange={(e) => setBeneficiaryName(e.target.value)}
+                        placeholder="e.g., Chidi Nwankwo"
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Beneficiary's NIN - 11 digits *</label>
+                      <input
+                        type="text"
+                        value={beneficiaryNIN}
+                        onChange={(e) => setBeneficiaryNIN(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                        placeholder="e.g., 98765432109"
+                        maxLength={11}
+                        className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          beneficiaryNIN && !beneficiaryNINValid ? "border-red-300" : "border-gray-200"
+                        }`}
+                      />
+                      {beneficiaryNIN && !beneficiaryNINValid && (
+                        <p className="mt-1 text-xs text-red-500">NIN must be exactly 11 digits.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Special Needs/Accommodations */}
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Special needs or accommodation requests</label>
+                  <textarea
+                    value={specialNeeds}
+                    onChange={(e) => setSpecialNeeds(e.target.value)}
+                    placeholder="e.g., Wheelchair accessibility, Sign language interpreter, Physical therapy, etc. (Optional)"
+                    rows={3}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">Let us know about any special accommodations you may need during your visit.</p>
+                </div>
+              </div>
+            </section>
         </div>
 
         {/* Footer Actions */}
@@ -452,9 +623,9 @@ export function FacilityModal({ facility, onClose }: FacilityModalProps) {
                 </button>
                 <button 
                     onClick={handleBook}
-                    disabled={!selectedSlot || booking}
+                  disabled={!canBook}
                     className={`px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors shadow-sm ${
-                        !selectedSlot || booking 
+                    !canBook 
                         ? "bg-gray-300 cursor-not-allowed" 
                         : "bg-blue-600 hover:bg-blue-700"
                     }`}

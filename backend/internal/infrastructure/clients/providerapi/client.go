@@ -76,6 +76,7 @@ type FacilityProfile struct {
 	CapacityStatus      *string  `json:"capacityStatus"`
 	AvgWaitMinutes      *int     `json:"avgWaitMinutes"`
 	UrgentCareAvailable *bool    `json:"urgentCareAvailable"`
+	WardStatuses        json.RawMessage `json:"wardStatuses"`
 	Address             struct {
 		Street  string `json:"street"`
 		City    string `json:"city"`

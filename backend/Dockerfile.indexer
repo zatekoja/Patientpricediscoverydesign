@@ -10,8 +10,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Ensure dependencies are tidy
-RUN go mod tidy
+# Ensure dependencies are downloaded
+RUN go mod download
 
 # Build the indexer
 RUN CGO_ENABLED=0 GOOS=linux go build -o ppd-indexer ./cmd/indexer/main.go

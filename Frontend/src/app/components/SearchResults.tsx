@@ -1,4 +1,5 @@
 import { MapPin, Calendar, Star, CheckCircle2, Activity, ShieldCheck, Clock, FileText, Phone, Mail, Globe, MessageCircle } from "lucide-react";
+import { useState } from "react";
 import type { UIFacility } from "../../lib/mappers";
 import {
   Pagination,
@@ -23,6 +24,8 @@ interface SearchResultsProps {
   onSelectFacility: (facility: UIFacility) => void;
 }
 
+type FacilityCategory = "all" | "hospitals" | "laboratories" | "pharmacies" | "sti_testing";
+
 export function SearchResults({
   facilities,
   loading,
@@ -35,6 +38,40 @@ export function SearchResults({
   onPageChange,
   onSelectFacility,
 }: SearchResultsProps) {
+  const [activeCategory, setActiveCategory] = useState<FacilityCategory>("all");
+
+  const categories = [
+    { id: "all" as FacilityCategory, label: "All Facilities" },
+    { id: "hospitals" as FacilityCategory, label: "Hospitals & Clinics" },
+    { id: "laboratories" as FacilityCategory, label: "Laboratories" },
+    { id: "pharmacies" as FacilityCategory, label: "Pharmacies" },
+    { id: "sti_testing" as FacilityCategory, label: "STI Testing" },
+  ];
+
+  const filterFacilitiesByCategory = (facilities: UIFacility[], category: FacilityCategory): UIFacility[] => {
+    if (category === "all") return facilities;
+    
+    return facilities.filter(facility => {
+      const type = facility.type?.toLowerCase() || "";
+      const services = facility.services.map(s => s.toLowerCase());
+      
+      switch (category) {
+        case "hospitals":
+          return type.includes("hospital") || type.includes("clinic") || type.includes("center");
+        case "laboratories":
+          return type.includes("lab") || type.includes("diagnostic") || 
+                 services.some(s => s.includes("lab") || s.includes("blood test") || s.includes("x-ray"));
+        case "pharmacies":
+          return type.includes("pharmacy") || services.some(s => s.includes("pharmacy") || s.includes("medication"));
+        case "sti_testing":
+          return services.some(s => s.includes("sti") || s.includes("std") || s.includes("hiv") || s.includes("sexual health"));
+        default:
+          return true;
+      }
+    });
+  };
+
+  const filteredFacilities = filterFacilitiesByCategory(facilities, activeCategory);
 
   const formatCurrency = (value: number, currency?: string | null) => {
     const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
@@ -77,17 +114,9 @@ export function SearchResults({
     );
   }
 
-  if (facilities.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-500 text-lg">No facilities found matching your criteria.</p>
-      </div>
-    );
-  }
-
   const resolvedTotal = totalCount != null
-    ? Math.max(totalCount, facilities.length)
-    : facilities.length;
+    ? Math.max(totalCount, filteredFacilities.length)
+    : filteredFacilities.length;
   const totalPages = Math.max(1, Math.ceil(resolvedTotal / pageSize));
   
   const buildPaginationItems = (page: number, total: number) => {
@@ -114,171 +143,146 @@ export function SearchResults({
 
   return (
     <div>
+      {/* Category Tabs */}
+      <div className="mb-6 border-b border-gray-200">
+        <div className="flex gap-1 overflow-x-auto">
+          {categories.map((category) => (
+            <button
+              key={category.id}
+              onClick={() => setActiveCategory(category.id)}
+              className={`px-6 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                activeCategory === category.id
+                  ? "text-blue-600 border-blue-600"
+                  : "text-gray-600 border-transparent hover:text-gray-900 hover:border-gray-300"
+              }`}
+            >
+              {category.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* No results message */}
+      {filteredFacilities.length === 0 && !loading && (
+        <div className="text-center py-12">
+          <p className="text-gray-500 text-lg">No facilities found matching your criteria.</p>
+        </div>
+      )}
+
       <div className="space-y-4">
-        {facilities.map((facility) => {
+        {filteredFacilities.map((facility) => {
           const capacity = resolveCapacity(facility.capacityStatus);
           const priceDisplay = facility.priceMin 
-            ? `${formatCurrency(facility.priceMin, facility.currency)}${facility.priceMax && facility.priceMax !== facility.priceMin ? ` - ${formatCurrency(facility.priceMax, facility.currency)}` : ''}`
+            ? `N${facility.priceMin.toLocaleString()}${facility.priceMax && facility.priceMax !== facility.priceMin ? ` - N${facility.priceMax.toLocaleString()}` : ''}`
             : "Price Varies";
 
           return (
             <div
               key={facility.id}
-              className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow cursor-pointer"
+              className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow cursor-pointer"
               onClick={() => onSelectFacility(facility)}
             >
               {/* Header Row */}
-              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 mb-2">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h3 className="text-lg font-semibold text-gray-900">{facility.name}</h3>
-                  
-                  {/* Urgent Care Badge */}
-                  {facility.urgentCareAvailable && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                      Urgent care available
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 flex-wrap mb-2">
+                    <h3 className="text-xl font-semibold text-gray-900">{facility.name}</h3>
+                    
+                    {/* Urgent Care Badge */}
+                    {facility.urgentCareAvailable && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
+                        Urgent care available
+                      </span>
+                    )}
+                    
+                    {/* Availability Badge */}
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium ${
+                      capacity.label === "Available" ? "bg-green-50 text-green-700" :
+                      capacity.label === "Limited capacity" ? "bg-yellow-50 text-yellow-700" :
+                      "bg-gray-50 text-gray-700"
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${capacity.dot}`} />
+                      {capacity.label}
                     </span>
-                  )}
+                  </div>
                   
-                  {/* Availability Badge */}
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${capacity.badge} border border-transparent`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${capacity.dot}`} />
-                    {capacity.label}
-                  </span>
+                  {/* Type & Rating */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{facility.type}</span>
+                    <div className="flex items-center gap-1">
+                      <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                      <span className="text-sm font-semibold text-gray-900">{facility.rating}</span>
+                    </div>
+                  </div>
                 </div>
                 
                 {/* Price Range */}
-                <div className="text-right">
-                  <span className="block font-semibold text-gray-900">{priceDisplay}</span>
+                <div className="text-right ml-4">
+                  <span className="text-xl font-bold text-gray-900">{priceDisplay}</span>
                 </div>
               </div>
 
-              {/* Sub-header: Type & Rating */}
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{facility.type}</span>
-                <div className="flex items-center gap-1">
-                  <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-                  <span className="text-sm font-medium text-gray-900">{facility.rating}</span>
-                </div>
-              </div>
-
-              {/* Details Row 1 */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-3 border-t border-gray-100 border-dashed">
+              {/* Details Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-4 border-y border-gray-100">
                 <div className="flex items-start gap-3">
-                   <div className="p-1.5 rounded-full bg-gray-50">
-                     <MapPin className="w-4 h-4 text-gray-500" />
+                   <div className="p-2 rounded-lg bg-gray-50">
+                     <MapPin className="w-5 h-5 text-gray-600" />
                    </div>
-                   <div>
-                     <p className="text-sm text-gray-900 font-medium">{facility.address}</p>
-                     <p className="text-xs text-gray-500">{facility.distanceKm.toFixed(1)} miles away</p>
+                   <div className="flex-1 min-w-0">
+                     <p className="text-sm text-gray-900 font-medium truncate">{facility.address}</p>
+                     <p className="text-xs text-gray-500 mt-0.5">{facility.distanceKm.toFixed(1)} miles away</p>
                    </div>
                 </div>
                 
                 <div className="flex items-start gap-3">
-                   <div className="p-1.5 rounded-full bg-gray-50">
-                     <Calendar className="w-4 h-4 text-gray-500" />
+                   <div className="p-2 rounded-lg bg-gray-50">
+                     <Calendar className="w-5 h-5 text-gray-600" />
                    </div>
-                   <div>
+                   <div className="flex-1 min-w-0">
                      <p className="text-sm text-gray-900 font-medium">{formatNextAvailable(facility.nextAvailableAt)}</p>
-                     <p className="text-xs text-gray-500">Next available</p>
+                     <p className="text-xs text-gray-500 mt-0.5">Next available</p>
                    </div>
                 </div>
 
                 <div className="flex items-start gap-3">
-                   <div className="p-1.5 rounded-full bg-gray-50">
-                     <Clock className="w-4 h-4 text-gray-500" />
+                   <div className="p-2 rounded-lg bg-gray-50">
+                     <Clock className="w-5 h-5 text-gray-600" />
                    </div>
-                   <div>
-                     <p className="text-sm text-gray-900 font-medium">{facility.avgWaitMinutes || '--'} min</p>
-                     <p className="text-xs text-gray-500">Avg. wait time</p>
+                   <div className="flex-1 min-w-0">
+                     <p className="text-sm text-gray-900 font-medium">{facility.avgWaitMinutes || '20'} min</p>
+                     <p className="text-xs text-gray-500 mt-0.5">Avg. wait time</p>
                    </div>
                 </div>
               </div>
 
-              {/* Details Row 2 */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+              {/* Services and Insurance */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                  <div className="flex items-start gap-3">
                     <div className="mt-0.5">
-                      <FileText className="w-4 h-4 text-gray-400" />
+                      <FileText className="w-5 h-5 text-gray-500" />
                     </div>
-                    <div className="text-sm text-gray-600">
-                      <span className="text-gray-500 mr-1">Services:</span>
-                      {facility.services.slice(0, 3).join(", ")}
-                      {facility.services.length > 3 && ", ..."}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-gray-700">Services: </span>
+                      <span className="text-sm text-gray-900">
+                        {facility.services.slice(0, 3).join(", ")}
+                        {facility.services.length > 3 && ", ..."}
+                      </span>
                     </div>
                  </div>
 
                  <div className="flex items-start gap-3">
                     <div className="mt-0.5">
-                      <ShieldCheck className="w-4 h-4 text-gray-400" />
+                      <ShieldCheck className="w-5 h-5 text-gray-500" />
                     </div>
-                    <div className="text-sm text-gray-600">
-                      <span className="text-gray-500 mr-1">Insurances:</span>
-                       {facility.insurance.slice(0, 2).join(", ")}
-                       {facility.insurance.length > 2 && ", ..."}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-gray-700">Insurances: </span>
+                      <span className="text-sm text-gray-900">
+                        {facility.insurance.slice(0, 2).join(", ")}
+                        {facility.insurance.length > 2 && ", ..."}
+                      </span>
                     </div>
                  </div>
               </div>
-
-              {/* Contact Details Row */}
-              {(facility.phoneNumber || facility.whatsAppNumber || facility.email || facility.website) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-3 border-t border-gray-100">
-                  {facility.phoneNumber && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="w-4 h-4 text-gray-400" />
-                      <a 
-                        href={`tel:${facility.phoneNumber}`}
-                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {facility.phoneNumber}
-                      </a>
-                    </div>
-                  )}
-                  
-                  {(facility.whatsAppNumber || facility.phoneNumber) && (
-                    <div className="flex items-center gap-2">
-                      <MessageCircle className="w-4 h-4 text-green-500" />
-                      <a 
-                        href={`https://wa.me/${(facility.whatsAppNumber || facility.phoneNumber)?.replace(/[^0-9]/g, '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-green-600 hover:text-green-800 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        WhatsApp
-                      </a>
-                    </div>
-                  )}
-                  
-                  {facility.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-gray-400" />
-                      <a 
-                        href={`mailto:${facility.email}`}
-                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline truncate"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {facility.email}
-                      </a>
-                    </div>
-                  )}
-                  
-                  {facility.website && (
-                    <div className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-gray-400" />
-                      <a 
-                        href={facility.website.startsWith('http') ? facility.website : `https://${facility.website}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline truncate"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Visit Website
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
 
             </div>
           );

@@ -444,7 +444,7 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 
 	// Step 1: Build base query with JOIN to procedures table for search capability
 	baseQuery := a.db.From(
-		a.db.Select("fp.*", "p.name as procedure_name", "p.category", "p.description").
+		a.db.Select("fp.*", "p.name as procedure_name", "p.code as procedure_code", "p.category", "p.description").
 			From(goqu.T("facility_procedures").As("fp")).
 			Join(goqu.T("procedures").As("p"), goqu.On(goqu.I("fp.procedure_id").Eq(goqu.I("p.id")))).
 			Where(goqu.I("fp.facility_id").Eq(facilityID)).
@@ -501,6 +501,7 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 	sortedQuery := filteredQuery.Select(
 		"id", "facility_id", "procedure_id", "price", "currency",
 		"estimated_duration", "is_available", "created_at", "updated_at",
+		"procedure_name", "procedure_code", "category", "description",
 	)
 
 	if filter.SortBy != "" {
@@ -561,13 +562,19 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 	var procedures []*entities.FacilityProcedure
 	for rows.Next() {
 		fp := &entities.FacilityProcedure{}
+		var procName, procCode, procCategory, procDescription sql.NullString
 		err := rows.Scan(
 			&fp.ID, &fp.FacilityID, &fp.ProcedureID, &fp.Price, &fp.Currency,
 			&fp.EstimatedDuration, &fp.IsAvailable, &fp.CreatedAt, &fp.UpdatedAt,
+			&procName, &procCode, &procCategory, &procDescription,
 		)
 		if err != nil {
 			return nil, 0, apperrors.NewInternalError("failed to scan facility procedure", err)
 		}
+		fp.ProcedureName = procName.String
+		fp.ProcedureCode = procCode.String
+		fp.ProcedureCategory = procCategory.String
+		fp.ProcedureDescription = procDescription.String
 		procedures = append(procedures, fp)
 	}
 

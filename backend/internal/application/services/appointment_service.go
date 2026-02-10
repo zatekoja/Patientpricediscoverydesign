@@ -17,22 +17,28 @@ import (
 type AppointmentService struct {
 	repo                   repositories.AppointmentRepository
 	facilityRepo           repositories.FacilityRepository
+	procedureRepo          repositories.ProcedureRepository
 	provider               providers.AppointmentProvider
 	allowMissingExternalID bool
+	notificationService    *NotificationService
 }
 
 // NewAppointmentService creates a new appointment service
 func NewAppointmentService(
 	repo repositories.AppointmentRepository,
 	facilityRepo repositories.FacilityRepository,
+	procedureRepo repositories.ProcedureRepository,
 	provider providers.AppointmentProvider,
 	allowMissingExternalID bool,
+	notificationService *NotificationService,
 ) *AppointmentService {
 	return &AppointmentService{
 		repo:                   repo,
 		facilityRepo:           facilityRepo,
+		procedureRepo:          procedureRepo,
 		provider:               provider,
 		allowMissingExternalID: allowMissingExternalID,
+		notificationService:    notificationService,
 	}
 }
 
@@ -69,6 +75,22 @@ func (s *AppointmentService) BookAppointment(ctx context.Context, appointment *e
 		// Rollback external booking if DB fails? (Advanced: Saga pattern)
 		// For now, return error
 		return fmt.Errorf("failed to save appointment: %w", err)
+	}
+
+	// 5. Send booking confirmation (async, non-blocking)
+	if s.notificationService != nil && s.facilityRepo != nil && s.procedureRepo != nil {
+		facility, err := s.facilityRepo.GetByID(ctx, appointment.FacilityID)
+		if err == nil && facility != nil {
+			procedure, procErr := s.procedureRepo.GetByID(ctx, appointment.ProcedureID)
+			if procErr == nil && procedure != nil {
+				appointmentCopy := *appointment
+				go func() {
+					if err := s.notificationService.SendBookingConfirmation(context.Background(), &appointmentCopy, facility, procedure); err != nil {
+						fmt.Printf("Failed to send booking confirmation: %v\n", err)
+					}
+				}()
+			}
+		}
 	}
 
 	return nil

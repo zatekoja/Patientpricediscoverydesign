@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	redislib "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/cache"
@@ -259,12 +260,36 @@ func main() {
 		}
 	}
 
-	appointmentService := services.NewAppointmentService(appointmentAdapter, facilityAdapter, appointmentProvider, allowMockScheduling)
 	feedbackService := services.NewFeedbackService(feedbackAdapter)
 	procedureEnrichmentService := services.NewProcedureEnrichmentService(
 		procedureEnrichmentAdapter,
 		procedureAdapter,
 		enrichmentProvider,
+	)
+
+	// Initialize notification service
+	var notificationService *services.NotificationService
+	if os.Getenv("WHATSAPP_ACCESS_TOKEN") != "" && os.Getenv("WHATSAPP_PHONE_NUMBER_ID") != "" {
+		var err error
+		// Wrap sql.DB with sqlx for extended functionality
+		sqlxDB := sqlx.NewDb(pgClient.DB(), "postgres")
+		notificationService, err = services.NewNotificationService(sqlxDB)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to initialize notification service")
+		} else {
+			log.Info().Msg("Notification service initialized successfully")
+		}
+	} else {
+		log.Warn().Msg("WhatsApp credentials not configured; notification service disabled")
+	}
+
+	appointmentService := services.NewAppointmentService(
+		appointmentAdapter,
+		facilityAdapter,
+		procedureAdapter,
+		appointmentProvider,
+		allowMockScheduling,
+		notificationService,
 	)
 
 	// Start cache warming service for improved read performance
@@ -279,7 +304,7 @@ func main() {
 
 	// Initialize handlers
 
-	facilityHandler := handlers.NewFacilityHandler(facilityService)
+	facilityHandler := handlers.NewFacilityHandlerWithServices(facilityService, facilityProcedureAdapter)
 
 	appointmentHandler := handlers.NewAppointmentHandler(appointmentService)
 
@@ -293,6 +318,20 @@ func main() {
 	feedbackHandler := handlers.NewFeedbackHandler(feedbackService, cacheProvider)
 
 	providerPriceHandler := handlers.NewProviderPriceHandler(providerClient)
+
+	// Initialize fee waiver handler
+	feeWaiverAdapter := database.NewFeeWaiverAdapter(pgClient)
+	feeWaiverHandler := handlers.NewFeeWaiverHandler(feeWaiverAdapter)
+
+	// Initialize Calendly webhook handler
+	var calendlyWebhookHandler *handlers.CalendlyWebhookHandler
+	if notificationService != nil {
+		// Wrap sql.DB with sqlx for extended functionality
+		sqlxDB := sqlx.NewDb(pgClient.DB(), "postgres")
+		calendlyWebhookHandler = handlers.NewCalendlyWebhookHandler(sqlxDB, notificationService)
+		log.Info().Msg("Calendly webhook handler initialized successfully")
+	}
+
 	pageSize := 0
 	if value := strings.TrimSpace(os.Getenv("PROVIDER_INGEST_PAGE_SIZE")); value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil {
@@ -343,6 +382,8 @@ func main() {
 		cacheMiddleware,
 		providerPriceHandler,
 		providerIngestionHandler,
+		calendlyWebhookHandler,
+		feeWaiverHandler,
 		metrics,
 	)
 

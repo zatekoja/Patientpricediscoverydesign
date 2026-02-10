@@ -24,6 +24,7 @@ import { API_BASE_URL } from '../api';
 // Event types
 export type FacilityEventType =
   | 'capacity_update'
+  | 'ward_capacity_update'
   | 'wait_time_update'
   | 'urgent_care_update'
   | 'service_health_update'
@@ -82,7 +83,7 @@ export function useSSEFacility(facilityId: string | null): UseSSEReturn {
     if (!facilityId) return;
 
     try {
-      const url = buildSseUrl(`/api/stream/facilities/${facilityId}`);
+      const url = buildSseUrl(`/stream/facilities/${facilityId}`);
       const eventSource = new EventSource(url);
 
       eventSource.onopen = () => {
@@ -96,28 +97,12 @@ export function useSSEFacility(facilityId: string | null): UseSSEReturn {
         console.error('[SSE] Connection error:', e);
         setIsConnected(false);
         eventSource.close();
-
-        // Exponential backoff reconnection
-        reconnectAttemptsRef.current += 1;
-        if (reconnectAttemptsRef.current <= MAX_RECONNECT_ATTEMPTS) {
-          const delay = Math.min(
-            BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttemptsRef.current - 1),
-            MAX_RECONNECT_DELAY
-          );
-          console.log(
-            `[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`
-          );
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, delay);
-        } else {
-          setError(new Error('Max reconnection attempts reached'));
-        }
       };
 
       // Listen for specific event types
       const eventTypes: FacilityEventType[] = [
         'capacity_update',
+        'ward_capacity_update',
         'wait_time_update',
         'urgent_care_update',
         'service_health_update',
@@ -211,7 +196,7 @@ export function useSSERegional(params: {
 
     try {
       const { lat, lon, radius = 50 } = params;
-      const url = buildSseUrl(`/api/stream/facilities/region?lat=${lat}&lon=${lon}&radius=${radius}`);
+      const url = buildSseUrl(`/stream/facilities/region?lat=${lat}&lon=${lon}&radius=${radius}`);
       const eventSource = new EventSource(url);
 
       eventSource.onopen = () => {
@@ -246,6 +231,7 @@ export function useSSERegional(params: {
       // Listen for specific event types
       const eventTypes: FacilityEventType[] = [
         'capacity_update',
+        'ward_capacity_update',
         'wait_time_update',
         'urgent_care_update',
         'service_health_update',

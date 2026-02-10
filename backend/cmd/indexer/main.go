@@ -170,6 +170,25 @@ func indexOnce(ctx context.Context, reset bool) error {
 			tagsBuilder.add(provider.Name, provider.Code)
 		}
 
+		// Collect procedure names for dedicated search field
+		procedureNames := []string{}
+		// We iterate facilityProcedures again or can do it in previous loop if refactored
+		// Since we already iterated above to find minPrice, let's refactor or just iterate again or collect in first loop
+		// Let's refactor the loop above to collect names.
+		// Actually, let's keep it simple and iterate again or use a map
+		uniqueProcNames := map[string]struct{}{}
+		for _, fp := range facilityProcedures {
+			if fp == nil {
+				continue
+			}
+			if procedure, ok := procedureByID[fp.ProcedureID]; ok && procedure != nil {
+				uniqueProcNames[procedure.Name] = struct{}{}
+			}
+		}
+		for name := range uniqueProcNames {
+			procedureNames = append(procedureNames, name)
+		}
+
 		doc := map[string]interface{}{
 			"id":            f.ID,
 			"name":          f.Name,
@@ -187,6 +206,10 @@ func indexOnce(ctx context.Context, reset bool) error {
 
 		if len(insuranceNames) > 0 {
 			doc["insurance"] = insuranceNames
+		}
+
+		if len(procedureNames) > 0 {
+			doc["procedures"] = procedureNames
 		}
 
 		if tags := tagsBuilder.tags(); len(tags) > 0 {
@@ -242,4 +265,4 @@ func normalizeTag(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-const maxFacilityTags = 20
+const maxFacilityTags = 100

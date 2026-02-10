@@ -233,10 +233,22 @@ go test -race ./...
 - `GET /api/provider/sync/status` - Provider sync status
 - `POST /api/provider/ingest` - Ingest provider data into core backend tables
 
+#### Appointment Booking
+- `POST /api/appointments` - Book appointment
+  - Request: `{ facility_id, procedure_id?, scheduled_at, patient_name, patient_email, patient_phone? }`
+  - Response: Appointment object with confirmation status
+  - Triggers WhatsApp notification (if configured)
+
+#### Webhooks
+- `POST /webhooks/calendly` - Calendly appointment webhook
+  - Headers: `Calendly-Webhook-Signature` (HMAC-SHA256)
+  - Payload: Calendly event (invitee.created, invitee.canceled, etc.)
+  - Auto-confirms appointments and sends WhatsApp updates
+  - Environment variables: `CALENDLY_WEBHOOK_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`
+
 #### Future Endpoints (Phase 2+)
 - `GET /api/procedures` - List procedures
 - `GET /api/facilities/:id/availability` - Get facility availability
-- `POST /api/appointments` - Book appointment
 - `GET /api/facilities/:id/reviews` - Get facility reviews
 
 ### GraphQL + Provider API
@@ -321,6 +333,88 @@ Use mockery to generate mocks from interfaces:
 ```bash
 mockery
 ```
+
+### Webhook Integration
+
+#### Calendly Webhooks
+
+The API provides webhook endpoints for real-time appointment updates from Calendly.
+
+**Endpoint:** `POST /webhooks/calendly`
+
+**Authentication:** HMAC-SHA256 signature verification
+
+**Headers:**
+```
+Calendly-Webhook-Signature: <hex-encoded-hmac-sha256>
+```
+
+**Example Payload:**
+```json
+{
+  "event": "invitee.created",
+  "time": "2026-02-09T14:30:00Z",
+  "payload": {
+    "uri": "https://calendly.com/events/abc123/invitees/xyz789",
+    "invitee": {
+      "email": "patient@example.com",
+      "name": "Ada Okafor",
+      "phone": "+2348012345678",
+      "timezone": "Africa/Lagos"
+    },
+    "event": {
+      "start_time": "2026-02-10T14:00:00Z",
+      "duration_minutes": 30,
+      "location": {
+        "type": "google_meet",
+        "join_url": "https://meet.google.com/abc-def-ghi"
+      }
+    }
+  }
+}
+```
+
+**Supported Events:**
+- `invitee.created` - New appointment scheduled (sends confirmation via WhatsApp)
+- `invitee.canceled` - Appointment canceled (sends cancellation notice)
+
+**Response:**
+```json
+{
+  "status": "received",
+  "id": "webhook_event_123"
+}
+```
+
+**Setup Instructions:**
+
+1. Set environment variables:
+```bash
+CALENDLY_WEBHOOK_SECRET=your_secret_from_calendly_settings
+WHATSAPP_ACCESS_TOKEN=your_meta_business_token
+WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
+```
+
+2. Configure webhook in Calendly:
+   - Go to Settings → Integrations → Webhooks
+   - Add new webhook: `https://your-domain.com/webhooks/calendly`
+   - Set signing key to match `CALENDLY_WEBHOOK_SECRET`
+   - Subscribe to events: `invitee.created`, `invitee.canceled`
+
+3. Test webhook:
+```bash
+# Generate signature
+BODY='{"event":"invitee.created","payload":{}}'
+SIGNATURE=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "your_secret" -hex | cut -d' ' -f2)
+
+# Test request
+curl -X POST http://localhost:8080/webhooks/calendly \
+  -H "Content-Type: application/json" \
+  -H "Calendly-Webhook-Signature: $SIGNATURE" \
+  -d "$BODY"
+```
+
+
 
 ### Contributing
 

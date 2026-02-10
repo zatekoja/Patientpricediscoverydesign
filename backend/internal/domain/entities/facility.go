@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type Facility struct {
 	Rating               float64   `json:"rating" db:"rating"`
 	ReviewCount          int       `json:"review_count" db:"review_count"`
 	CapacityStatus       *string   `json:"capacity_status,omitempty" db:"capacity_status"`
+	WardStatuses         json.RawMessage `json:"ward_statuses,omitempty" db:"ward_statuses"`
 	AvgWaitMinutes       *int      `json:"avg_wait_minutes,omitempty" db:"avg_wait_minutes"`
 	UrgentCareAvailable  *bool     `json:"urgent_care_available,omitempty" db:"urgent_care_available"`
 	IsActive             bool      `json:"is_active" db:"is_active"`

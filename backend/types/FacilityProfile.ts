@@ -4,7 +4,14 @@ export interface FacilityProfile {
   facilityType?: string;
   description?: string;
   tags?: string[];
-  capacityStatus?: string;
+  capacityStatus?: string; // Legacy/High-level status
+  wardStatuses?: Record<string, {
+    status: string;
+    count: number;
+    trend: string;
+    estimatedWaitMinutes?: number;
+    lastUpdated: Date;
+  }>;
   avgWaitMinutes?: number;
   urgentCareAvailable?: boolean;
   address?: {

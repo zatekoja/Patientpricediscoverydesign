@@ -55,6 +55,12 @@ func (a *FacilityAdapter) Create(ctx context.Context, facility *entities.Facilit
 			}(),
 			Valid: facility.CapacityStatus != nil && *facility.CapacityStatus != "",
 		},
+		"ward_statuses": func() interface{} {
+			if len(facility.WardStatuses) > 0 {
+				return string(facility.WardStatuses)
+			}
+			return nil
+		}(),
 		"avg_wait_minutes": sql.NullInt64{
 			Int64: func() int64 {
 				if facility.AvgWaitMinutes != nil {
@@ -98,7 +104,7 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 	query, args, err := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "scheduling_external_id", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
+		"description", "facility_type", "scheduling_external_id", "capacity_status", "ward_statuses", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 	).From("facilities").
 		Where(goqu.Ex{"id": id, "is_active": true}).
@@ -113,6 +119,7 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 	var phoneNumber, email, website, description, facilityType sql.NullString
 	var schedulingExternalID sql.NullString
 	var capacityStatus sql.NullString
+	var wardStatuses []byte
 	var avgWaitMinutes sql.NullInt64
 	var urgentCareAvailable sql.NullBool
 
@@ -133,6 +140,7 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 		&facilityType,
 		&schedulingExternalID,
 		&capacityStatus,
+		&wardStatuses,
 		&avgWaitMinutes,
 		&urgentCareAvailable,
 		&facility.Rating,
@@ -165,6 +173,9 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 		value := capacityStatus.String
 		facility.CapacityStatus = &value
 	}
+	if len(wardStatuses) > 0 {
+		facility.WardStatuses = wardStatuses
+	}
 	if avgWaitMinutes.Valid {
 		value := int(avgWaitMinutes.Int64)
 		facility.AvgWaitMinutes = &value
@@ -196,7 +207,40 @@ func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facilit
 		"description":            sql.NullString{String: facility.Description, Valid: facility.Description != ""},
 		"facility_type":          sql.NullString{String: facility.FacilityType, Valid: facility.FacilityType != ""},
 		"scheduling_external_id": sql.NullString{String: facility.SchedulingExternalID, Valid: facility.SchedulingExternalID != ""},
-		"rating":                 facility.Rating,
+		"capacity_status": sql.NullString{
+			String: func() string {
+				if facility.CapacityStatus != nil {
+					return *facility.CapacityStatus
+				}
+				return ""
+			}(),
+			Valid: facility.CapacityStatus != nil && *facility.CapacityStatus != "",
+		},
+		"ward_statuses": func() interface{} {
+			if len(facility.WardStatuses) > 0 {
+				return string(facility.WardStatuses)
+			}
+			return nil
+		}(),
+		"avg_wait_minutes": sql.NullInt64{
+			Int64: func() int64 {
+				if facility.AvgWaitMinutes != nil {
+					return int64(*facility.AvgWaitMinutes)
+				}
+				return 0
+			}(),
+			Valid: facility.AvgWaitMinutes != nil,
+		},
+		"urgent_care_available": sql.NullBool{
+			Bool: func() bool {
+				if facility.UrgentCareAvailable != nil {
+					return *facility.UrgentCareAvailable
+				}
+				return false
+			}(),
+			Valid: facility.UrgentCareAvailable != nil,
+		},
+		"rating":       facility.Rating,
 		"review_count":           facility.ReviewCount,
 		"is_active":              facility.IsActive,
 		"updated_at":             facility.UpdatedAt,
@@ -237,7 +281,7 @@ func (a *FacilityAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entiti
 	query, args, err := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "scheduling_external_id", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
+		"description", "facility_type", "scheduling_external_id", "capacity_status", "ward_statuses", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 	).From("facilities").
 		Where(goqu.Ex{"id": ids, "is_active": true}).
@@ -260,6 +304,7 @@ func (a *FacilityAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entiti
 		var phoneNumber, email, website, description, facilityType sql.NullString
 		var schedulingExternalID sql.NullString
 		var capacityStatus sql.NullString
+		var wardStatuses []byte
 		var avgWaitMinutes sql.NullInt64
 		var urgentCareAvailable sql.NullBool
 
@@ -280,6 +325,7 @@ func (a *FacilityAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entiti
 			&facilityType,
 			&schedulingExternalID,
 			&capacityStatus,
+			&wardStatuses,
 			&avgWaitMinutes,
 			&urgentCareAvailable,
 			&facility.Rating,
@@ -307,6 +353,9 @@ func (a *FacilityAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entiti
 		if capacityStatus.Valid {
 			value := capacityStatus.String
 			facility.CapacityStatus = &value
+		}
+		if len(wardStatuses) > 0 {
+			facility.WardStatuses = wardStatuses
 		}
 		if avgWaitMinutes.Valid {
 			value := int(avgWaitMinutes.Int64)
@@ -356,7 +405,7 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 	ds := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "scheduling_external_id", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
+		"description", "facility_type", "scheduling_external_id", "capacity_status", "ward_statuses", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 	).From("facilities")
 
@@ -396,6 +445,7 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 		var phoneNumber, email, website, description, facilityType sql.NullString
 		var schedulingExternalID sql.NullString
 		var capacityStatus sql.NullString
+		var wardStatuses []byte
 		var avgWaitMinutes sql.NullInt64
 		var urgentCareAvailable sql.NullBool
 
@@ -416,6 +466,7 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 			&facilityType,
 			&schedulingExternalID,
 			&capacityStatus,
+			&wardStatuses,
 			&avgWaitMinutes,
 			&urgentCareAvailable,
 			&facility.Rating,
@@ -443,6 +494,9 @@ func (a *FacilityAdapter) List(ctx context.Context, filter repositories.Facility
 		if capacityStatus.Valid {
 			value := capacityStatus.String
 			facility.CapacityStatus = &value
+		}
+		if len(wardStatuses) > 0 {
+			facility.WardStatuses = wardStatuses
 		}
 		if avgWaitMinutes.Valid {
 			value := int(avgWaitMinutes.Int64)
@@ -495,7 +549,7 @@ func (a *FacilityAdapter) SearchWithCount(ctx context.Context, params repositori
 	ds := a.db.Select(
 		"id", "name", "street", "city", "state", "zip_code", "country",
 		"latitude", "longitude", "phone_number", "email", "website",
-		"description", "facility_type", "scheduling_external_id", "capacity_status", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
+		"description", "facility_type", "scheduling_external_id", "capacity_status", "ward_statuses", "avg_wait_minutes", "urgent_care_available", "rating", "review_count",
 		"is_active", "created_at", "updated_at",
 		distanceExpr.As("distance"),
 	).From("facilities").
@@ -529,6 +583,7 @@ func (a *FacilityAdapter) SearchWithCount(ctx context.Context, params repositori
 		var phoneNumber, email, website, description, facilityType sql.NullString
 		var schedulingExternalID sql.NullString
 		var capacityStatus sql.NullString
+		var wardStatuses []byte
 		var avgWaitMinutes sql.NullInt64
 		var urgentCareAvailable sql.NullBool
 		var distance float64
@@ -550,6 +605,7 @@ func (a *FacilityAdapter) SearchWithCount(ctx context.Context, params repositori
 			&facilityType,
 			&schedulingExternalID,
 			&capacityStatus,
+			&wardStatuses,
 			&avgWaitMinutes,
 			&urgentCareAvailable,
 			&facility.Rating,
@@ -578,6 +634,9 @@ func (a *FacilityAdapter) SearchWithCount(ctx context.Context, params repositori
 		if capacityStatus.Valid {
 			value := capacityStatus.String
 			facility.CapacityStatus = &value
+		}
+		if len(wardStatuses) > 0 {
+			facility.WardStatuses = wardStatuses
 		}
 		if avgWaitMinutes.Valid {
 			value := int(avgWaitMinutes.Int64)

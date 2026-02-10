@@ -17,7 +17,7 @@ func NewMockGeolocationProvider() providers.GeolocationProvider {
 }
 
 // Geocode converts an address to coordinates (mock implementation)
-func (m *MockGeolocationProvider) Geocode(ctx context.Context, address string) (*providers.Coordinates, error) {
+func (m *MockGeolocationProvider) Geocode(ctx context.Context, address string) (*providers.GeocodedAddress, error) {
 	// Return mock coordinates based on common US cities
 	mockCoordinates := map[string]providers.Coordinates{
 		"New York":    {Latitude: 40.7128, Longitude: -74.0060},
@@ -32,17 +32,33 @@ func (m *MockGeolocationProvider) Geocode(ctx context.Context, address string) (
 	// Simple address matching (in production, use a real geocoding service)
 	for city, coords := range mockCoordinates {
 		if contains(address, city) {
-			return &coords, nil
+			return &providers.GeocodedAddress{
+				FormattedAddress: fmt.Sprintf("%s, Mock Country", city),
+				City:             city,
+				Country:          "Mock Country",
+				Coordinates:      coords,
+			}, nil
 		}
 	}
 
 	if contains(address, "Nigeria") {
 		coords := mockCoordinates["Lagos"]
-		return &coords, nil
+		return &providers.GeocodedAddress{
+			FormattedAddress: "Lagos, Nigeria",
+			City:             "Lagos",
+			Country:          "Nigeria",
+			Coordinates:      coords,
+		}, nil
 	}
 
 	// Return a default coordinate
-	return &providers.Coordinates{Latitude: 37.7749, Longitude: -122.4194}, nil
+	return &providers.GeocodedAddress{
+		FormattedAddress: "Mock Address, San Francisco, CA",
+		City:             "San Francisco",
+		State:            "CA",
+		Country:          "USA",
+		Coordinates:      providers.Coordinates{Latitude: 37.7749, Longitude: -122.4194},
+	}, nil
 }
 
 // ReverseGeocode converts coordinates to an address (mock implementation)

@@ -4,6 +4,8 @@ import { recordApiRequest, incrementActiveRequests, decrementActiveRequests } fr
 import { FacilityProfileService } from '../ingestion/facilityProfileService';
 import { CapacityRequestService } from '../ingestion/capacityRequestService';
 import { recordCapacityWebhook } from '../observability/metrics';
+import { TransactionIngestionService, IngestionEvent } from '../ingestion/TransactionIngestionService';
+import { FlutterwaveService } from '../services/FlutterwaveService';
 
 /**
  * API Router for External Data Provider
@@ -62,6 +64,8 @@ function buildCapacityForm(token: string): string {
 export interface DataProviderAPIOptions {
   facilityProfileService?: FacilityProfileService;
   capacityRequestService?: CapacityRequestService;
+  transactionIngestionService?: TransactionIngestionService;
+  flutterwaveService?: FlutterwaveService;
 }
 
 export class DataProviderAPI {
@@ -70,12 +74,16 @@ export class DataProviderAPI {
   private defaultProviderId?: string;
   private facilityProfileService?: FacilityProfileService;
   private capacityRequestService?: CapacityRequestService;
+  private transactionIngestionService?: TransactionIngestionService;
+  private flutterwaveService?: FlutterwaveService;
   private adminToken?: string;
 
   constructor(options?: DataProviderAPIOptions) {
     this.app = express();
     this.facilityProfileService = options?.facilityProfileService;
     this.capacityRequestService = options?.capacityRequestService;
+    this.transactionIngestionService = options?.transactionIngestionService;
+    this.flutterwaveService = options?.flutterwaveService;
     this.adminToken = process.env.PROVIDER_ADMIN_TOKEN;
     this.setupMiddleware();
     this.setupRoutes();
@@ -228,6 +236,9 @@ export class DataProviderAPI {
     router.get('/capacity/form/:token', this.handleCapacityForm.bind(this));
     router.post('/capacity/submit', this.handleCapacitySubmit.bind(this));
     router.post('/capacity/request', this.requireAdmin.bind(this), this.handleCapacityRequest.bind(this));
+
+    // Webhooks
+    router.post('/webhooks/transaction', this.handleTransactionWebhook.bind(this));
 
     // Sync endpoints
     router.post('/sync/trigger', this.handleTriggerSync.bind(this));
@@ -633,6 +644,77 @@ export class DataProviderAPI {
       const channel = channelRaw === 'email' || channelRaw === 'whatsapp' ? channelRaw : undefined;
       await this.capacityRequestService.sendSingleRequest(facilityId, channel);
       res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  private async handleTransactionWebhook(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.transactionIngestionService) {
+        res.status(503).json({ error: 'Transaction ingestion not configured' });
+        return;
+      }
+
+      const payload = req.body;
+      const signature = req.headers['verif-hash'] as string;
+
+      // 1. Verify Signature if Flutterwave Service is available
+      if (this.flutterwaveService) {
+        const isValid = this.flutterwaveService.verifySignature(payload, signature);
+        if (!isValid) {
+          console.warn('Unauthorized Flutterwave webhook attempt');
+          res.status(401).json({ error: 'Invalid signature' });
+          return;
+        }
+      }
+
+      // 2. Map Payload to IngestionEvent
+      // Check if it's a Flutterwave payload (usually has "event" or "data")
+      let event: IngestionEvent;
+      
+      if (payload.event && (payload.event === 'charge.completed' || payload.event.includes('transaction'))) {
+        // Flutterwave style
+        const flwData = payload.data || payload;
+        
+        // Optional: Perform server-side verification to prevent spoofing
+        let verifiedData = flwData;
+        if (this.flutterwaveService && flwData.id) {
+          try {
+            verifiedData = await this.flutterwaveService.verifyTransaction(flwData.id);
+          } catch (e) {
+            console.error('Flutterwave server-side verification failed:', e);
+            res.status(400).json({ error: 'Verification failed' });
+            return;
+          }
+        }
+
+        event = {
+          wardId: verifiedData.meta?.ward_id || verifiedData.meta?.wardId || 'unknown_ward',
+          facilityId: verifiedData.meta?.facility_id || verifiedData.meta?.facilityId || 'unknown_facility',
+          transactionAmount: verifiedData.amount,
+          currency: verifiedData.currency || 'NGN',
+          reference: verifiedData.tx_ref,
+          description: verifiedData.narration || `Flutterwave: ${verifiedData.tx_ref}`,
+          timestamp: new Date(verifiedData.created_at || Date.now()),
+          // sourceAccount: Map from config
+          // destinationAccount: Map from config
+        };
+      } else {
+        // Generic/POS style
+        event = {
+          wardId: payload.ward_id || payload.meta?.ward_id || 'unknown_ward',
+          facilityId: payload.facility_id || payload.meta?.facility_id || 'unknown_facility',
+          transactionAmount: payload.amount || 0,
+          currency: payload.currency || 'NGN',
+          reference: payload.tx_ref || payload.reference || `REF-${Date.now()}`,
+          description: payload.description || payload.narration,
+          timestamp: new Date(),
+        };
+      }
+
+      const result = await this.transactionIngestionService.ingestEvent(event);
+      res.json({ success: true, ...result });
     } catch (error) {
       next(error);
     }

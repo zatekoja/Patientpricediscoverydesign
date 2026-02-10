@@ -119,6 +119,12 @@ export interface FacilitySearchResult {
   next_available_at?: string;
   avg_wait_minutes?: number;
   capacity_status?: string;
+  ward_statuses?: Record<string, {
+    status: string;
+    count: number;
+    trend: string;
+    last_updated: string;
+  }>;
   urgent_care_available?: boolean;
   updated_at: string;
 }

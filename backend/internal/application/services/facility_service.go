@@ -374,6 +374,9 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 		if facility.CapacityStatus != nil {
 			result.CapacityStatus = *facility.CapacityStatus
 		}
+		if facility.WardStatuses != nil {
+			result.WardStatuses = facility.WardStatuses
+		}
 		if facility.AvgWaitMinutes != nil {
 			result.AvgWaitMinutes = facility.AvgWaitMinutes
 		}

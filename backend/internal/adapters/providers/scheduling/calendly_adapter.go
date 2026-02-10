@@ -36,22 +36,22 @@ func NewCalendlyAdapter(apiKey string, opts ...CalendlyOption) providers.Appoint
 		client:  &http.Client{Timeout: 10 * time.Second},
 		baseURL: "https://api.calendly.com",
 	}
-	
+
 	for _, opt := range opts {
 		opt(adapter)
 	}
-	
+
 	return adapter
 }
 
 // GetAvailableSlots returns available slots
 func (a *CalendlyAdapter) GetAvailableSlots(ctx context.Context, externalID string, from, to time.Time) ([]entities.AvailabilitySlot, error) {
 	// Note: externalID here refers to Calendly Event Type UUID
-	
-	url := fmt.Sprintf("%s/event_type_available_times?event_type=%s&start_time=%s&end_time=%s", 
-		a.baseURL, 
-		externalID, 
-		from.UTC().Format(time.RFC3339), 
+
+	url := fmt.Sprintf("%s/event_type_available_times?event_type=%s&start_time=%s&end_time=%s",
+		a.baseURL,
+		externalID,
+		from.UTC().Format(time.RFC3339),
 		to.UTC().Format(time.RFC3339))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -72,9 +72,9 @@ func (a *CalendlyAdapter) GetAvailableSlots(ctx context.Context, externalID stri
 
 	var result struct {
 		Collection []struct {
-			Status    string    `json:"status"`
-			StartTime time.Time `json:"start_time"`
-			SchedulingURL string `json:"scheduling_url"`
+			Status        string    `json:"status"`
+			StartTime     time.Time `json:"start_time"`
+			SchedulingURL string    `json:"scheduling_url"`
 		} `json:"collection"`
 	}
 
@@ -96,32 +96,35 @@ func (a *CalendlyAdapter) GetAvailableSlots(ctx context.Context, externalID stri
 	return slots, nil
 }
 
-// CreateAppointment creates an appointment (Headless via Scheduling Link or direct API if supported)
-// Note: Calendly "Create Event" usually requires generating a One-Off link or using the Embedding.
-// For true headless booking, we might need to use their "Scheduling Link" flow or v2 API "scheduled_events" (which is restricted).
-// For this adapter, we will simulate the "Booking" by returning the Scheduling URL if real booking is not exposed to PAT.
-// However, search results indicated "Create Event Invitee endpoint" allows creating invitees.
+// CreateAppointment creates an appointment via Calendly Scheduling Link
+// This implementation generates a one-time scheduling link for the patient
+// Returns (scheduling_link, event_type_id, error)
 func (a *CalendlyAdapter) CreateAppointment(ctx context.Context, appointment *entities.Appointment) (string, string, error) {
-	// In a real implementation, we would POST to /scheduled_events/{uuid}/invitees
-	// But that requires an existing event UUID.
-	// For "Headless" flow, typically we:
-	// 1. Get the slot UUID from Availability.
-	// 2. POST to book it.
-	
-	// Since we don't have the specific UUID in the input (only time), this is complex with Calendly.
-	// We will implement a simplified version that returns a booking link for now, 
-	// OR if we assume we have the event URI, we try to book it.
-	
-	// Mock implementation for Phase 1 as we don't have a real Calendly Enterprise account to test Headless fully.
-	// We will assume "externalID" in appointment (FacilityID map) is the Event Type.
-	
-	return "mock-calendly-id", fmt.Sprintf("https://calendly.com/booking/%s", appointment.FacilityID), nil
+	// For Calendly Standard tier: Generate a scheduling link
+	// The patient will use this link to complete the booking
+	// We will receive confirmation via webhook (invitee.created)
+
+	// Get the event type for this facility/procedure
+	// In production, this would be mapped in configuration
+	eventTypeUUID := a.getEventTypeForFacility(appointment.FacilityID)
+
+	// Build scheduling link with pre-filled data
+	schedulingLink := fmt.Sprintf("%s/%s?name=%s&email=%s",
+		"https://calendly.com/your-org", // Replace with actual org URL
+		eventTypeUUID,
+		appointment.PatientName,
+		appointment.PatientEmail,
+	)
+
+	// Return the scheduling link that the frontend can redirect to
+	// The webhook will receive the actual event ID when booking completes
+	return schedulingLink, eventTypeUUID, nil
 }
 
 // CancelAppointment cancels an appointment
 func (a *CalendlyAdapter) CancelAppointment(ctx context.Context, externalID string, reason string) error {
 	url := fmt.Sprintf("%s/scheduled_events/%s/cancellation", a.baseURL, externalID)
-	
+
 	payload := map[string]string{
 		"reason": reason,
 	}
@@ -138,13 +141,21 @@ func (a *CalendlyAdapter) CancelAppointment(ctx context.Context, externalID stri
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		// handle errors
 		return fmt.Errorf("failed to cancel: %d", resp.StatusCode)
 	}
 
 	return nil
+}
+
+// getEventTypeForFacility maps facility ID to Calendly event type UUID
+// In production, this would be stored in database configuration
+func (a *CalendlyAdapter) getEventTypeForFacility(facilityID string) string {
+	// TODO: Implement database lookup
+	// For now, return a placeholder that should be configured per facility
+	return "event-type-uuid-for-" + facilityID
 }
 
 func (a *CalendlyAdapter) addHeaders(req *http.Request) {

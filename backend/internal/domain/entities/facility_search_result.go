@@ -24,6 +24,7 @@ type FacilitySearchResult struct {
 	NextAvailableAt     *time.Time          `json:"next_available_at,omitempty"`
 	AvgWaitMinutes      *int                `json:"avg_wait_minutes,omitempty"`
 	CapacityStatus      string              `json:"capacity_status,omitempty"`
+	WardStatuses        interface{}         `json:"ward_statuses,omitempty"`
 	UrgentCareAvailable *bool               `json:"urgent_care_available,omitempty"`
 	UpdatedAt           time.Time           `json:"updated_at"`
 }
