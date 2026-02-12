@@ -25,7 +25,7 @@ runs:
       run: |
         echo "🔧 Generating GraphQL code..."
         if [ -f "gqlgen.yml" ]; then
-          go run github.com/99designs/gqlgen@latest generate
+          go run github.com/99designs/gqlgen@v0.17.86 generate
           echo "✅ GraphQL code generated"
         else
           echo "ℹ️ No gqlgen.yml found, skipping GraphQL generation"
@@ -45,11 +45,3 @@ runs:
           echo "ℹ️ No mockery config found, skipping mock generation"
         fi
 
-    - name: Finalize Go dependencies
-      working-directory: ${{ inputs.working-directory }}
-      shell: bash
-      run: |
-        echo "🔧 Finalizing Go dependencies after code generation..."
-        go mod download
-        go mod tidy
-        echo "✅ Go dependencies finalized"

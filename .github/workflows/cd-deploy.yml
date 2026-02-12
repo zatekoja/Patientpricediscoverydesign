@@ -299,11 +299,12 @@ jobs:
       - name: Setup Node.js and build frontend
         uses: ./.github/actions/setup-service-typescript
         with:
-          working-directory: Frontend
+          working-directory: .
           node-version: ${{ env.NODE_VERSION }}
+          cache-dependency-path: package-lock.json
 
       - name: Build frontend for production
-        working-directory: Frontend
+        working-directory: .
         run: |
           echo "🔨 Building frontend for ${{ needs.plan-deployment.outputs.environment }}..."
           
@@ -331,7 +332,7 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Deploy to Cloud Storage and CDN
-        working-directory: Frontend
+        working-directory: .
         run: |
           echo "☁️ Deploying frontend to Cloud Storage..."
           ENV="${{ needs.plan-deployment.outputs.environment }}"
