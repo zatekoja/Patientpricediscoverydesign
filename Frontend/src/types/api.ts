@@ -43,12 +43,14 @@ export interface FacilityPriceRange {
 export interface ServicePrice {
   procedure_id: string;
   name: string;
+  display_name?: string;
   price: number;
   currency: string;
   description?: string;
   category?: string;
   code?: string;
   estimated_duration?: number;
+  normalized_tags?: string[];
 }
 
 // TDD-driven service search types
@@ -69,12 +71,14 @@ export interface FacilityService {
   facility_id: string;
   procedure_id: string;
   name: string;
+  display_name?: string;
   category: string;
   price: number;
   currency: string;
   description?: string;
   code?: string;
   estimated_duration: number;
+  normalized_tags?: string[];
   is_available: boolean;
   created_at: string;
   updated_at: string;
@@ -206,4 +210,25 @@ export interface ProviderInfo {
 
 export interface ProviderListResponse {
   providers: ProviderInfo[];
+}
+
+export interface ServiceFeeItem {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  code: string;
+}
+
+export interface ServiceFeeSummary {
+  fees: ServiceFeeItem[];
+  total: number;
+  currency: string;
+}
+
+export interface FeeWaiverInfo {
+  has_waiver: boolean;
+  sponsor_name?: string;
+  waiver_type?: string;
+  waiver_amount?: number;
 }

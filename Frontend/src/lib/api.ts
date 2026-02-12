@@ -5,8 +5,10 @@ import {
   FacilitySuggestionResponse,
   FeedbackRequest,
   FeedbackResponse,
+  FeeWaiverInfo,
   ProcedureEnrichment,
   SearchParams,
+  ServiceFeeSummary,
   ServiceSearchParams,
   ServiceSearchResponse,
   ProviderHealthResponse,
@@ -206,6 +208,14 @@ class ApiClient {
 
   async listProviders(): Promise<ProviderListResponse> {
     return this.request('/provider/list');
+  }
+
+  async getFacilityServiceFees(facilityId: string): Promise<ServiceFeeSummary> {
+    return this.request<ServiceFeeSummary>(`/facilities/${facilityId}/service-fees`);
+  }
+
+  async getFacilityFeeWaiver(facilityId: string): Promise<FeeWaiverInfo> {
+    return this.request<FeeWaiverInfo>(`/facilities/${facilityId}/fee-waiver`);
   }
 }
 

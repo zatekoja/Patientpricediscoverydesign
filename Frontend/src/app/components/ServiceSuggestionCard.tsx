@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { MapPin, ArrowRight } from "lucide-react";
 import type { FacilitySuggestion } from "../../types/api";
+import { api } from "../../lib/api";
 
 // Haversine distance in km
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -18,6 +20,7 @@ interface ServiceSuggestionCardProps {
   service: {
     name: string;
     description?: string;
+    displayName?: string;
     procedureId?: string;
     code?: string;
     category?: string;
@@ -40,8 +43,40 @@ export function ServiceSuggestionCard({
     return null;
   }
 
+  const [enrichedDescription, setEnrichedDescription] = useState<string | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+
   const closestFacility = facilities[0];
   const servicePrice = closestFacility.matched_service_price;
+  const description = enrichedDescription || service.description || servicePrice?.description;
+
+  // Try to use the same enrichment description shown in the facility modal.
+  // This keeps suggestions helpful even when `procedure.description` is sparse (e.g. "DRESSING").
+  useEffect(() => {
+    const procedureId = service.procedureId;
+    if (!procedureId) return;
+
+    const controller = new AbortController();
+    setEnrichmentLoading(true);
+
+    (async () => {
+      try {
+        const enrichment = await api.getProcedureEnrichment(procedureId);
+        if (enrichment?.description) {
+          setEnrichedDescription(enrichment.description);
+        }
+      } catch (err: any) {
+        // Ignore aborts; suggestions are transient.
+        if (err?.name !== "AbortError") {
+          // Keep silent (noisy console in suggestions UX).
+        }
+      } finally {
+        setEnrichmentLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [service.procedureId]);
   const distance =
     userLat != null && userLon != null && closestFacility.location
       ? haversineKm(
@@ -67,7 +102,7 @@ export function ServiceSuggestionCard({
       {/* Header: Service name and Book Now button */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
-          <h3 className="text-base font-semibold text-gray-900">{service.name}</h3>
+          <h3 className="text-base font-semibold text-gray-900">{service.displayName || service.name}</h3>
         </div>
         <button
           onClick={() => onBookNow(closestFacility, service)}
@@ -94,10 +129,14 @@ export function ServiceSuggestionCard({
       </div>
 
       {/* Description (1-liner) */}
-      {service.description && (
+      {description && (
         <p className="text-xs text-gray-600 leading-relaxed line-clamp-2 mb-3">
-          {service.description}
+          {description}
         </p>
+      )}
+
+      {!description && enrichmentLoading && (
+        <p className="text-xs text-gray-400 leading-relaxed mb-3">Loading description…</p>
       )}
 
       {/* Additional facilities offering same service */}
@@ -116,10 +155,9 @@ export function ServiceSuggestionCard({
                   : "Price on request";
 
                 return (
-                  <button
+                  <div
                     key={idx}
-                    onClick={() => onBookNow(facility, service)}
-                    className="w-full text-left p-2 hover:bg-gray-50 rounded transition-colors"
+                    className="w-full text-left p-2 hover:bg-gray-50 rounded transition-colors cursor-default"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-sm font-medium text-gray-900 truncate">
@@ -135,7 +173,7 @@ export function ServiceSuggestionCard({
                         {facility.address?.city || "Location"}
                       </span>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

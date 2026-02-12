@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   X,
   MapPin,
@@ -12,10 +12,9 @@ import {
   Search,
   CheckCircle2,
   Activity,
-  AlertCircle,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import type { ProcedureEnrichment, ProviderHealthResponse } from "../../types/api";
+import type { ProcedureEnrichment, ServiceFeeSummary, FeeWaiverInfo, ServiceSearchResponse } from "../../types/api";
 import { useSSEFacility } from "../../lib/hooks/useSSE";
 
 interface FacilityModalProps {
@@ -36,22 +35,27 @@ interface FacilityModalProps {
     servicePrices: {
       procedureId?: string;
       name: string;
+      displayName?: string;
       price: number;
       currency: string;
       description?: string;
       category?: string;
       code?: string;
       estimatedDuration?: number;
+      normalizedTags?: string[];
     }[];
     insurance: string[];
     capacityStatus?: string | null;
     avgWaitMinutes?: number | null;
     urgentCareAvailable?: boolean | null;
     nextAvailableAt?: string | null;
+    wardStatuses?: any;
   };
   onClose: () => void;
   preSelectedServiceName?: string;
 }
+
+type ModalServiceItem = FacilityModalProps["facility"]["servicePrices"][number];
 
 export function FacilityModal({ facility, onClose, preSelectedServiceName }: FacilityModalProps) {
   const [slots, setSlots] = useState<any[]>([]);
@@ -61,6 +65,12 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
   const [expandedServiceId, setExpandedServiceId] = useState<string | null>(
     preSelectedServiceName ? preSelectedServiceName : null
   );
+
+  // Selected services for cost breakdown (separate from expand/collapse).
+  // Keyed by procedureId/code/name for stability.
+  const [selectedServices, setSelectedServices] = useState<
+    Record<string, { name: string; price: number; currency: string }>
+  >({});
 
   // Primary booker details
   const [patientName, setPatientName] = useState("");
@@ -80,12 +90,74 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
   // State for "All Services" modal
   const [showAllServices, setShowAllServices] = useState(false);
   const [serviceSearchQuery, setServiceSearchQuery] = useState("");
+  
+  // Infinite scroll state
+  const [allServices, setAllServices] = useState<ServiceSearchResponse["services"]>([]);
+  const [totalServicesCount, setTotalServicesCount] = useState(0);
+  const [allServicesPage, setAllServicesPage] = useState(1);
+  const [hasMoreServices, setHasMoreServices] = useState(true);
+  const [allServicesLoading, setAllServicesLoading] = useState(false);
+  const PAGE_SIZE = 20;
+  
+  // Ref for intersection observer
+  const observer = useRef<IntersectionObserver | null>(null);
+  const lastServiceElementRef = useCallback((node: HTMLDivElement | null) => {
+    if (allServicesLoading) return;
+    if (observer.current) observer.current.disconnect();
+    
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMoreServices) {
+        setAllServicesPage(prevPage => prevPage + 1);
+      }
+    });
+    
+    if (node) observer.current.observe(node);
+  }, [allServicesLoading, hasMoreServices]);
 
   const [serviceEnrichments, setServiceEnrichments] = useState<Record<string, ProcedureEnrichment>>({});
   const [serviceEnrichmentLoading, setServiceEnrichmentLoading] = useState<Record<string, boolean>>({});
 
+  // Service category tabs
+  // NOTE: these should be data-driven. We build tabs from categories present in the facility payload.
+  type ServiceCategory = string;
+  const SERVICE_FEES_TAB_ID = "service_fees";
+
+  const normalizeCategoryId = (value?: string) => (value || "").toLowerCase().trim();
+  const formatCategoryLabel = (value: string) => {
+    const cleaned = value.replace(/_/g, " ").trim();
+    if (!cleaned) return "General";
+    return cleaned.replace(/\b\w/g, (m) => m.toUpperCase());
+  };
+
+  const facilityCategoryIds = Array.from(
+    new Set(
+      (facility.servicePrices || [])
+        .map((s) => normalizeCategoryId(s.category))
+        .filter((c) => c && c !== "general")
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const serviceCategoryTabs: { id: ServiceCategory; label: string }[] = [
+    { id: "all", label: "All" },
+    ...facilityCategoryIds.map((id) => ({ id, label: formatCategoryLabel(id) })),
+    { id: SERVICE_FEES_TAB_ID, label: "Service Fees" },
+  ];
+
+  const [activeServiceCategory, setActiveServiceCategory] = useState<ServiceCategory>("all");
+
+  // Reset tab selection when switching facilities (prevents confusing carry-over).
+  useEffect(() => {
+    setActiveServiceCategory("all");
+    setExpandedServiceId(null);
+    setSelectedServices({});
+  }, [facility.id]);
+
+  // Service fees and fee waiver state
+  const [serviceFees, setServiceFees] = useState<ServiceFeeSummary | null>(null);
+  const [feeWaiver, setFeeWaiver] = useState<FeeWaiverInfo | null>(null);
+
   // SSE for real-time updates
-  const { data: sseData, isConnected: sseConnected } = useSSEFacility(facility.id);
+  const { data: sseData } = useSSEFacility(facility.id);
 
   const formatCurrency = (value: number, currency?: string | null) => {
     const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "₦";
@@ -138,10 +210,81 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
     }
   }, [preSelectedServiceName]);
 
+  // Fetch paginated services for "All Services" modal
+  useEffect(() => {
+    if (!showAllServices) return;
+
+    const controller = new AbortController();
+    setAllServicesLoading(true);
+
+    const fetchServices = async () => {
+      try {
+        const res = await api.getFacilityServices(facility.id, {
+          limit: PAGE_SIZE,
+          offset: (allServicesPage - 1) * PAGE_SIZE,
+          search: serviceSearchQuery || undefined,
+          sort: 'name',
+          order: 'asc',
+        }, controller.signal);
+        
+        const services = res.services || [];
+        if (allServicesPage === 1) {
+          setAllServices(services);
+        } else {
+          setAllServices((prev) => [...prev, ...services]);
+        }
+        
+        setTotalServicesCount(res.total_count);
+        setHasMoreServices(res.has_next);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error("Failed to fetch all services:", err);
+        }
+      } finally {
+        setAllServicesLoading(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(fetchServices, serviceSearchQuery ? 300 : 0);
+    return () => {
+      clearTimeout(debounceTimer);
+      controller.abort();
+    };
+  }, [showAllServices, serviceSearchQuery, allServicesPage, facility.id]);
+
+  // Fetch service fees and waiver info
+  useEffect(() => {
+    const fetchFeeData = async () => {
+      try {
+        const [feesRes, waiverRes] = await Promise.all([
+          api.getFacilityServiceFees(facility.id),
+          api.getFacilityFeeWaiver(facility.id),
+        ]);
+        setServiceFees(feesRes);
+        setFeeWaiver(waiverRes);
+      } catch (err) {
+        console.error("Failed to fetch fee/waiver data:", err);
+      }
+    };
+    fetchFeeData();
+  }, [facility.id]);
+
   // Update from SSE events
   useEffect(() => {
     // Could add SSE-based facility updates here if needed
   }, [sseData]);
+
+  // Disable background scrolling when modal is open
+  useEffect(() => {
+    if (showAllServices) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [showAllServices]);
 
   const handleBook = async () => {
     if (!selectedSlot) return;
@@ -211,10 +354,73 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
   const beneficiaryNINValid = !bookingOnBehalf || (beneficiaryNIN.trim().length === 11 && /^\d{11}$/.test(beneficiaryNIN.trim()));
   const canBook = !!selectedSlot && !booking && !!patientName.trim() && emailValid && phoneValid && ninValid && beneficiaryNINValid && (!bookingOnBehalf || !!beneficiaryName.trim());
 
-  // Filter services for the "All Services" modal
-  const filteredServices = facility.servicePrices.filter(s => 
-    s.name.toLowerCase().includes(serviceSearchQuery.toLowerCase())
-  );
+  const getServiceKey = (service: ModalServiceItem, index: number) =>
+    service.procedureId || service.code || service.name || String(index);
+
+  const toggleSelectedService = (key: string, service: { name: string; price: number; currency: string }) => {
+    setSelectedServices((prev) => {
+      const next = { ...prev };
+      if (next[key]) {
+        delete next[key];
+      } else {
+        next[key] = service;
+      }
+      return next;
+    });
+  };
+
+  const serviceMatchesTab = (service: ModalServiceItem, tab: ServiceCategory) => {
+    if (tab === "all") return true;
+
+    const category = normalizeCategoryId(service.category);
+    const name = (service.name || "").toLowerCase();
+
+    // Special "Service Fees" view. We keep this as a convenience tab, but it is still data-driven.
+    // In the current dataset, fee-like items are typically category=administrative (or sometimes registration).
+    if (tab === SERVICE_FEES_TAB_ID) {
+      return (
+        category === "administrative" ||
+        category === "registration" ||
+        /(card|folder|registration|appointment|chart|consultation fee|treatment card)/i.test(name)
+      );
+    }
+
+    // Normal category tab.
+    return category === normalizeCategoryId(tab);
+  };
+
+  // Filter services by active category tab (UI-level grouping).
+  const categoryFilteredServices = facility.servicePrices.filter((s) => serviceMatchesTab(s, activeServiceCategory));
+
+  // Handlers for "All Services" modal
+  const handleAllServicesSearch = (query: string) => {
+    setServiceSearchQuery(query);
+    setAllServicesPage(1);
+    setAllServices([]); // Clear current list on new search
+  };
+
+  const closeAllServices = () => {
+    setShowAllServices(false);
+    setServiceSearchQuery("");
+    setAllServicesPage(1);
+    setAllServices([]);
+  };
+
+  // Compute booking fee breakdown
+  const serviceFeeTotal = serviceFees?.total ?? 0;
+  const isWaived = feeWaiver?.has_waiver === true;
+  const effectiveServiceFee = isWaived && feeWaiver?.waiver_type === "full"
+    ? 0
+    : isWaived && feeWaiver?.waiver_type === "partial" && feeWaiver?.waiver_amount
+      ? Math.max(0, serviceFeeTotal - feeWaiver.waiver_amount)
+      : serviceFeeTotal;
+
+  const selectedItems = Object.values(selectedServices);
+  const selectedCount = selectedItems.length;
+  const selectedSubtotal = selectedItems.reduce((sum, item) => sum + (item.price || 0), 0);
+  const selectedCurrency = selectedItems[0]?.currency;
+  const hasMixedCurrencies = selectedItems.some((item) => item.currency !== selectedCurrency);
+  const totalDue = selectedCount > 0 && !hasMixedCurrencies ? selectedSubtotal + effectiveServiceFee : null;
 
   return (
     <div 
@@ -250,11 +456,11 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                       )}
                    </div>
                 </div>
-                <div className="text-right">
-                    <p className="text-xl font-bold text-gray-900">{priceRangeDisplay}</p>
+                <div className="text-right relative">
+                    <p className="text-xl font-bold text-gray-900 mr-8">{priceRangeDisplay}</p>
                      <button
                         onClick={onClose}
-                        className="text-gray-400 hover:text-gray-600 p-1 absolute top-4 right-4"
+                        className="text-gray-400 hover:text-gray-600 p-1 absolute top-0 right-0"
                     >
                         <X className="w-6 h-6" />
                     </button>
@@ -298,7 +504,7 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                         <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                         <div>
                             <p className="text-xs text-gray-500 mb-0.5">Avg. wait time</p>
-                            <p className="text-sm font-medium text-gray-900">{facility.avgWaitMinutes ? `${facility.avgWaitMinutes} min` : "N/A"}</p>
+                            <p className="text-sm font-medium text-gray-900">{(facility.avgWaitMinutes || 20)} min</p>
                         </div>
                     </div>
                      {/* Website */}
@@ -322,7 +528,7 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                   Real-time Ward Capacity
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {Object.entries(facility.wardStatuses).map(([wardId, data]) => (
+                  {Object.entries(facility.wardStatuses).map(([wardId, data]: [string, any]) => (
                     <div key={wardId} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <div>
                         <p className="text-xs font-semibold text-gray-500 uppercase tracking-tight">{wardId.replace(/_/g, ' ')}</p>
@@ -348,7 +554,7 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                           )}
                         </div>
                       </div>
-                      <div classname="text-right">
+                      <div className="text-right">
                         <p className="text-lg font-bold text-gray-900">{data.count}</p>
                         <p className="text-[10px] text-gray-400">Transactions / 4h</p>
                         {data.estimatedWaitMinutes && (
@@ -367,22 +573,44 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
              <section>
                  <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Available Services</h3>
-                    <button 
+                    <button
                       onClick={() => setShowAllServices(true)}
                       className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                     >
                       See all
                     </button>
                  </div>
-                 
+
+                 {/* Service Category Tabs */}
+                 <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+                   {serviceCategoryTabs.map((tab) => (
+                     <button
+                       key={tab.id}
+                       onClick={() => setActiveServiceCategory(tab.id)}
+                       className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                         activeServiceCategory === tab.id
+                           ? "bg-blue-600 text-white"
+                           : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                       }`}
+                     >
+                       {tab.label}
+                     </button>
+                   ))}
+                 </div>
+
                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200">
-                    {facility.servicePrices.slice(0, 5).map((service, index) => { // Limit to 5 for prototype
-                       const serviceKey = service.procedureId || service.name || String(index);
+                    {categoryFilteredServices.slice(0, 8).map((service, index) => {
+                       const serviceKey = getServiceKey(service, index);
                        const isExpanded = expandedServiceId === serviceKey;
+                       const isSelected = !!selectedServices[serviceKey];
                        const enrichment = service.procedureId ? serviceEnrichments[service.procedureId] : undefined;
                        
                        return (
-                         <div key={serviceKey} id={`service-${service.name}`} className="bg-white scroll-mt-4">
+                         <div
+                           key={serviceKey}
+                           id={`service-${service.name}`}
+                           className={`bg-white scroll-mt-4 ${isSelected ? "ring-2 ring-blue-200" : ""}`}
+                         >
                             <button 
                                 onClick={() => {
                                     const nextId = isExpanded ? null : serviceKey;
@@ -393,7 +621,23 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                                 }}
                                 className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors text-left"
                             >
-                                <span className="text-sm font-medium text-gray-900">{service.name}</span>
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() =>
+                                      toggleSelectedService(serviceKey, {
+                                        name: service.displayName || service.name,
+                                        price: service.price,
+                                        currency: service.currency,
+                                      })
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    aria-label={`Select ${service.name}`}
+                                  />
+                                  <span className="text-sm font-medium text-gray-900">{service.displayName || service.name}</span>
+                                </div>
                                 <div className="flex items-center gap-4">
                                     <span className="text-sm font-medium text-gray-900">{formatCurrency(service.price, service.currency)}</span>
                                     {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
@@ -420,8 +664,10 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                          </div>
                        );
                     })}
-                     {facility.servicePrices.length === 0 && (
-                         <div className="p-4 text-sm text-gray-500 text-center">No specific services listed.</div>
+                     {categoryFilteredServices.length === 0 && (
+                         <div className="p-4 text-sm text-gray-500 text-center">
+                           {activeServiceCategory === "all" ? "No specific services listed." : `No ${activeServiceCategory} services found.`}
+                         </div>
                      )}
                  </div>
              </section>
@@ -617,16 +863,75 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
 
         {/* Footer Actions */}
         <div className="p-6 border-t border-gray-100 bg-white">
+            {/* Price Breakdown */}
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm">
+              {selectedCount > 0 ? (
+                <>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-gray-600">Selected services</span>
+                    <span className="font-medium text-gray-900">{selectedCount}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className="font-medium text-gray-900">
+                      {hasMixedCurrencies
+                        ? "Mixed currencies"
+                        : formatCurrency(selectedSubtotal, selectedCurrency)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-gray-600">Service fee</span>
+                    <div className="flex items-center gap-2">
+                      {isWaived && (
+                        <span className="px-2 py-0.5 bg-green-50 text-green-700 text-[10px] font-bold rounded border border-green-200 uppercase tracking-wide">
+                          {feeWaiver?.waiver_type === "full" ? "Waived" : "Partially waived"}
+                          {feeWaiver?.sponsor_name && ` — ${feeWaiver.sponsor_name}`}
+                        </span>
+                      )}
+                      <span className={`font-medium ${isWaived ? "line-through text-gray-400" : "text-gray-900"}`}>
+                        {formatCurrency(serviceFeeTotal)}
+                      </span>
+                      {isWaived && effectiveServiceFee > 0 && (
+                        <span className="font-medium text-gray-900">{formatCurrency(effectiveServiceFee)}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-gray-200 my-2" />
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-900 font-semibold">Total</span>
+                    <span className="text-gray-900 font-bold">
+                      {totalDue != null ? formatCurrency(totalDue, selectedCurrency) : "—"}
+                    </span>
+                  </div>
+
+                  {isWaived && effectiveServiceFee === 0 && (
+                    <p className="text-xs text-green-600 mt-1">
+                      Service fee fully covered{feeWaiver?.sponsor_name ? ` by ${feeWaiver.sponsor_name}` : ""}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Select services to see total</span>
+                  <span className="text-gray-900 font-medium">{serviceFeeTotal > 0 ? `Fee: ${formatCurrency(serviceFeeTotal)}` : ""}</span>
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-4 justify-end">
                 <button className="px-6 py-2.5 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
                     Call business
                 </button>
-                <button 
+                <button
                     onClick={handleBook}
-                  disabled={!canBook}
+                    disabled={!canBook}
                     className={`px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors shadow-sm ${
-                    !canBook 
-                        ? "bg-gray-300 cursor-not-allowed" 
+                    !canBook
+                        ? "bg-gray-300 cursor-not-allowed"
                         : "bg-blue-600 hover:bg-blue-700"
                     }`}
                 >
@@ -639,19 +944,26 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
 
       {/* All Services Modal - Overlay */}
       {showAllServices && (
-        <div 
+        <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={() => setShowAllServices(false)}
+          onClick={closeAllServices}
         >
-          <div 
-            className="bg-white rounded-2xl shadow-xl w-full max-w-[500px] h-[600px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-[500px] h-[80vh] max-h-[800px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 pb-2">
-              <h2 className="text-xl font-semibold text-gray-900">All services</h2>
+            <div className="flex items-center justify-between p-6 pb-2 shrink-0">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">All services</h2>
+                {totalServicesCount > 0 && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {totalServicesCount} service{totalServicesCount !== 1 ? "s" : ""} found
+                  </p>
+                )}
+              </div>
               <button
-                onClick={() => setShowAllServices(false)}
+                onClick={closeAllServices}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <X className="w-6 h-6" />
@@ -659,72 +971,103 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
             </div>
 
             {/* Search Bar */}
-            <div className="px-6 py-4">
+            <div className="px-6 py-4 shrink-0">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
                   placeholder="Search for services"
                   value={serviceSearchQuery}
-                  onChange={(e) => setServiceSearchQuery(e.target.value)}
+                  onChange={(e) => handleAllServicesSearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
                 />
               </div>
             </div>
 
             {/* Divider */}
-            <div className="h-px bg-gray-100 mx-6 mb-2"></div>
+            <div className="h-px bg-gray-100 mx-6 mb-2 shrink-0"></div>
 
             {/* Services List */}
-            <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-3">
-              {filteredServices.length > 0 ? (
-                filteredServices.map((service, index) => {
-                  const serviceKey = service.procedureId || service.name || String(index);
-                  const isExpanded = expandedServiceId === serviceKey;
-                  const enrichment = service.procedureId ? serviceEnrichments[service.procedureId] : undefined;
-                  
-                  return (
-                    <div 
-                      key={serviceKey} 
-                      className="border border-gray-200 rounded-xl overflow-hidden hover:border-blue-200 transition-colors"
-                    >
-                      <button
-                        onClick={() => {
-                           const nextId = isExpanded ? null : serviceKey;
-                           setExpandedServiceId(nextId);
-                           if (!isExpanded && service.procedureId) {
-                              loadEnrichment(service.procedureId);
-                           }
-                        }}
-                        className="w-full flex items-center justify-between p-4 bg-white text-left"
+            <div className="flex-1 overflow-y-auto px-6 pb-4 space-y-3 min-h-0">
+              {allServices.length > 0 ? (
+                <>
+                  {allServices.map((service, index) => {
+                    const serviceKey = service.procedure_id || service.id || `svc-${index}`;
+                    const isExpanded = expandedServiceId === serviceKey;
+                    const isSelected = !!selectedServices[serviceKey];
+                    const enrichment = service.procedure_id ? serviceEnrichments[service.procedure_id] : undefined;
+                    
+                    // Attach ref to the last element for infinite scroll
+                    const isLastElement = index === allServices.length - 1;
+
+                    return (
+                      <div
+                        key={serviceKey}
+                        ref={isLastElement ? lastServiceElementRef : null}
+                        className="border border-gray-200 rounded-xl overflow-hidden hover:border-blue-200 transition-colors"
                       >
-                        <div className="flex items-center gap-3">
-                          <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
-                          <span className="text-sm font-medium text-gray-900">{service.name}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                           <span className="text-sm font-semibold text-gray-900">{formatCurrency(service.price, service.currency)}</span>
-                           {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-                        </div>
-                      </button>
-                      
-                      {/* Expanded Details in Modal */}
-                      {isExpanded && (
-                         <div className="bg-gray-50 border-t border-gray-100 p-4 text-sm text-gray-600">
-                             <p className="mb-2">{enrichment?.description || service.description || "No description available."}</p>
-                             <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-500">
-                                {service.category && <span>Category: <strong className="text-gray-700">{service.category}</strong></span>}
-                                {service.code && <span>Code: <strong className="text-gray-700">{service.code}</strong></span>}
-                                {service.estimatedDuration && <span>Duration: <strong className="text-gray-700">{service.estimatedDuration} min</strong></span>}
-                             </div>
-                         </div>
-                      )}
+                        <button
+                          onClick={() => {
+                             const nextId = isExpanded ? null : serviceKey;
+                             setExpandedServiceId(nextId);
+                             if (!isExpanded && service.procedure_id) {
+                                loadEnrichment(service.procedure_id);
+                             }
+                          }}
+                          className="w-full flex items-center justify-between p-4 bg-white text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() =>
+                                toggleSelectedService(serviceKey, {
+                                  name: service.display_name || service.name,
+                                  price: service.price,
+                                  currency: service.currency,
+                                })
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              aria-label={`Select ${service.name}`}
+                            />
+                            <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
+                            <span className="text-sm font-medium text-gray-900">{service.display_name || service.name}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                             <span className="text-sm font-semibold text-gray-900">{formatCurrency(service.price, service.currency)}</span>
+                             {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                          </div>
+                        </button>
+
+                        {/* Expanded Details in Modal */}
+                        {isExpanded && (
+                           <div className="bg-gray-50 border-t border-gray-100 p-4 text-sm text-gray-600">
+                               <p className="mb-2">{enrichment?.description || service.description || "No description available."}</p>
+                               <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-500">
+                                  {service.category && <span>Category: <strong className="text-gray-700">{service.category}</strong></span>}
+                                  {service.code && <span>Code: <strong className="text-gray-700">{service.code}</strong></span>}
+                                  {service.estimated_duration > 0 && <span>Duration: <strong className="text-gray-700">{service.estimated_duration} min</strong></span>}
+                               </div>
+                           </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {allServicesLoading && (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                     </div>
-                  );
-                })
+                  )}
+                </>
+              ) : allServicesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                  <span className="ml-3 text-sm text-gray-500">Loading services...</span>
+                </div>
               ) : (
                 <div className="text-center py-12 text-gray-500">
-                  <p>No services found matching "{serviceSearchQuery}"</p>
+                  <p>{serviceSearchQuery ? `No services found matching "${serviceSearchQuery}"` : "No services available."}</p>
                 </div>
               )}
             </div>

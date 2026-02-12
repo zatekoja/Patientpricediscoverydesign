@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -23,6 +25,7 @@ type FacilityService interface {
 	Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error)
 	Update(ctx context.Context, facility *entities.Facility) error
 	UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error)
+	ExpandQuery(query string) []string
 }
 
 // FacilityProcedureService defines the facility procedure operations
@@ -165,13 +168,20 @@ func (h *FacilityHandler) GetFacilityServices(w http.ResponseWriter, r *http.Req
 
 	// Parse query parameters for filtering and pagination
 	query := r.URL.Query()
+	searchQuery := strings.TrimSpace(query.Get("search"))
+
 	filter := repositories.FacilityProcedureFilter{
-		SearchQuery: strings.TrimSpace(query.Get("search")),
+		SearchQuery: searchQuery,
 		Category:    strings.TrimSpace(query.Get("category")),
 		SortBy:      query.Get("sort"),
 		SortOrder:   query.Get("order"),
 		Limit:       parseIntDefault(query.Get("limit"), 20),
 		Offset:      parseIntDefault(query.Get("offset"), 0),
+	}
+
+	// Expand search query if present
+	if searchQuery != "" {
+		filter.SearchTerms = h.service.ExpandQuery(searchQuery)
 	}
 
 	// Parse availability filter
@@ -206,6 +216,7 @@ func (h *FacilityHandler) GetFacilityServices(w http.ResponseWriter, r *http.Req
 	// Call service with enhanced filter - this searches ALL data first, then paginates
 	services, totalCount, err := h.facilityProcedureService.ListByFacilityWithCount(r.Context(), facilityID, filter)
 	if err != nil {
+		log.Printf("ERROR: ListByFacilityWithCount failed for facility %s: %v", facilityID, err)
 		respondWithError(w, http.StatusInternalServerError, "failed to fetch facility services")
 		return
 	}
@@ -371,6 +382,10 @@ func (h *FacilityHandler) SearchFacilities(w http.ResponseWriter, r *http.Reques
 		Offset:    offset,
 	}
 
+	if params.Query != "" {
+		params.ExpandedTerms = h.service.ExpandQuery(params.Query)
+	}
+
 	if insuranceProvider := strings.TrimSpace(query.Get("insurance_provider")); insuranceProvider != "" {
 		params.InsuranceProvider = insuranceProvider
 	}
@@ -531,7 +546,7 @@ func matchServicePrice(query string, items []entities.ServicePrice) *entities.Se
 	}
 
 	for _, item := range items {
-		if strings.Contains(strings.ToLower(item.Name), trimmed) {
+		if strings.Contains(strings.ToLower(item.Name), trimmed) || strings.Contains(strings.ToLower(item.DisplayName), trimmed) {
 			matched := item
 			return &matched
 		}
@@ -567,19 +582,102 @@ func (h *FacilityHandler) GetFacilityServiceFees(w http.ResponseWriter, r *http.
 		return
 	}
 
-	filter := repositories.FacilityProcedureFilter{
-		Category: "administrative",
-		Limit:    100,
-		Offset:   0,
-		SortBy:   "name",
-		SortOrder: "asc",
+	// Service fees should reflect *registration-type* fees (e.g., folder/card/appointment),
+	// not documentation/report items (certificates, police report, medical report, etc.).
+	//
+	// Some datasets historically stored these under category=administrative.
+	// Newer ingestions/migrations may split into category=registration.
+	// To stay backward-compatible, we fetch both categories and then apply a conservative filter.
+	getByCategory := func(category string) ([]*entities.FacilityProcedure, error) {
+		filter := repositories.FacilityProcedureFilter{
+			Category:  category,
+			Limit:     500,
+			Offset:    0,
+			SortBy:    "name",
+			SortOrder: "asc",
+		}
+		items, _, err := h.facilityProcedureService.ListByFacilityWithCount(r.Context(), facilityID, filter)
+		return items, err
 	}
 
-	services, _, err := h.facilityProcedureService.ListByFacilityWithCount(r.Context(), facilityID, filter)
+	var services []*entities.FacilityProcedure
+	reg, err := getByCategory("registration")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "failed to fetch service fees")
 		return
 	}
+	services = append(services, reg...)
+
+	admin, err := getByCategory("administrative")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to fetch service fees")
+		return
+	}
+	services = append(services, admin...)
+
+	// De-duplicate by facility_procedure id.
+	seenIDs := make(map[string]struct{}, len(services))
+	dedup := make([]*entities.FacilityProcedure, 0, len(services))
+	for _, svc := range services {
+		if svc == nil || svc.ID == "" {
+			continue
+		}
+		if _, ok := seenIDs[svc.ID]; ok {
+			continue
+		}
+		seenIDs[svc.ID] = struct{}{}
+		dedup = append(dedup, svc)
+	}
+	services = dedup
+
+	includeRe := regexp.MustCompile(`(?i)\b(folder|appointment\s*card|registration|chart)\b`)
+	treatmentCardRe := regexp.MustCompile(`(?i)\btreatment\s*card\b`)
+	appointmentCardRe := regexp.MustCompile(`(?i)\bappointment\s*card\b`)
+	// Exclude documentation/report items that inflate totals.
+	excludeRe := regexp.MustCompile(`(?i)\b(certificate|report|police|assault|adoption|notification\s+of\s+birth|sick\s+leave|maternity\s+leave|suppliers?|contractors?|leaving\s+the\s+country)\b`)
+
+	// First pass: keep only registration-style items and drop documentation/report items.
+	filtered := make([]*entities.FacilityProcedure, 0, len(services))
+	appointmentCardPresent := false
+	for _, svc := range services {
+		name := strings.TrimSpace(svc.ProcedureName)
+		lower := strings.ToLower(name)
+		if lower == "" {
+			continue
+		}
+		if excludeRe.MatchString(lower) {
+			continue
+		}
+		// Keep explicit registration-style terms.
+		if includeRe.MatchString(lower) {
+			if appointmentCardRe.MatchString(lower) {
+				appointmentCardPresent = true
+			}
+			filtered = append(filtered, svc)
+			continue
+		}
+		// Optionally include treatment card only when appointment card is NOT present.
+		if treatmentCardRe.MatchString(lower) {
+			filtered = append(filtered, svc)
+			continue
+		}
+		_ = name
+	}
+
+	if appointmentCardPresent {
+		// If an appointment card exists, exclude treatment card to avoid double-counting.
+		final := make([]*entities.FacilityProcedure, 0, len(filtered))
+		for _, svc := range filtered {
+			lower := strings.ToLower(strings.TrimSpace(svc.ProcedureName))
+			if treatmentCardRe.MatchString(lower) {
+				continue
+			}
+			final = append(final, svc)
+		}
+		filtered = final
+	}
+
+	services = filtered
 
 	type serviceFeeItem struct {
 		ID       string  `json:"id"`

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -20,6 +22,8 @@ type FacilityAdapter struct {
 	db     *goqu.Database
 }
 
+var nonSlugChars = regexp.MustCompile(`[^a-z0-9]+`)
+
 // NewFacilityAdapter creates a new facility adapter
 func NewFacilityAdapter(client *postgres.Client) repositories.FacilityRepository {
 	return &FacilityAdapter{
@@ -30,6 +34,8 @@ func NewFacilityAdapter(client *postgres.Client) repositories.FacilityRepository
 
 // Create creates a new facility
 func (a *FacilityAdapter) Create(ctx context.Context, facility *entities.Facility) error {
+	facility.SchedulingExternalID = ensureSchedulingSlug(facility)
+
 	record := goqu.Record{
 		"id":                     facility.ID,
 		"name":                   facility.Name,
@@ -191,6 +197,7 @@ func (a *FacilityAdapter) GetByID(ctx context.Context, id string) (*entities.Fac
 // Update updates a facility
 func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facility) error {
 	facility.UpdatedAt = time.Now()
+	facility.SchedulingExternalID = ensureSchedulingSlug(facility)
 
 	record := goqu.Record{
 		"name":                   facility.Name,
@@ -270,6 +277,31 @@ func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facilit
 	}
 
 	return nil
+}
+
+func ensureSchedulingSlug(facility *entities.Facility) string {
+	if facility == nil {
+		return ""
+	}
+
+	slug := strings.TrimSpace(facility.SchedulingExternalID)
+	if slug == "" {
+		slug = strings.TrimSpace(facility.ID)
+	}
+	if slug == "" {
+		slug = strings.TrimSpace(facility.Name)
+	}
+
+	slug = strings.ToLower(slug)
+	slug = strings.ReplaceAll(slug, "_", "-")
+	slug = nonSlugChars.ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
+
+	if slug == "" {
+		slug = fmt.Sprintf("facility-%d", time.Now().Unix())
+	}
+
+	return slug
 }
 
 // GetByIDs retrieves multiple facilities by their IDs
@@ -532,9 +564,23 @@ func (a *FacilityAdapter) SearchWithCount(ctx context.Context, params repositori
 		params.Latitude, params.Longitude, params.Latitude,
 	)
 
+	var searchFilter goqu.Expression
+	if params.Query != "" {
+		searchPattern := fmt.Sprintf("%%%s%%", params.Query)
+		searchFilter = goqu.Or(
+			goqu.I("name").ILike(searchPattern),
+			goqu.I("facility_type").ILike(searchPattern),
+			goqu.I("description").ILike(searchPattern),
+		)
+	}
+
 	countDs := a.db.Select(goqu.COUNT("*")).From("facilities").
 		Where(goqu.Ex{"is_active": true}).
 		Where(distanceExpr.Lte(params.RadiusKm))
+
+	if searchFilter != nil {
+		countDs = countDs.Where(searchFilter)
+	}
 
 	countQuery, countArgs, err := countDs.ToSQL()
 	if err != nil {
@@ -556,6 +602,10 @@ func (a *FacilityAdapter) SearchWithCount(ctx context.Context, params repositori
 		Where(goqu.Ex{"is_active": true}).
 		Where(distanceExpr.Lte(params.RadiusKm)).
 		Order(goqu.I("distance").Asc())
+
+	if searchFilter != nil {
+		ds = ds.Where(searchFilter)
+	}
 
 	if params.Limit > 0 {
 		ds = ds.Limit(uint(params.Limit))

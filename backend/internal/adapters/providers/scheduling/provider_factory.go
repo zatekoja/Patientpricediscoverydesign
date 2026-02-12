@@ -3,6 +3,7 @@ package scheduling
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -22,12 +23,14 @@ type AppointmentProviderConfig struct {
 // NewAppointmentProvider creates a resilient provider with optional mock fallback.
 func NewAppointmentProvider(cfg AppointmentProviderConfig) providers.AppointmentProvider {
 	if cfg.CalendlyAPIKey == "" {
-		// No real provider configured; use mock provider for dev.
-		return NewMockAdapter()
+		return &UnavailableProvider{reason: "CALENDLY_API_KEY is not configured"}
 	}
 
 	primary := NewCalendlyAdapter(cfg.CalendlyAPIKey)
-	fallback := NewMockAdapter()
+	var fallback providers.AppointmentProvider
+	if cfg.AllowMockFallback {
+		fallback = NewMockAdapter()
+	}
 
 	return &FallbackProvider{
 		primary:                primary,
@@ -35,6 +38,23 @@ func NewAppointmentProvider(cfg AppointmentProviderConfig) providers.Appointment
 		allowFallback:          cfg.AllowMockFallback,
 		allowMissingExternalID: cfg.AllowMissingExternalID,
 	}
+}
+
+// UnavailableProvider fails fast when scheduling is not configured.
+type UnavailableProvider struct {
+	reason string
+}
+
+func (p *UnavailableProvider) GetAvailableSlots(ctx context.Context, externalID string, from, to time.Time) ([]entities.AvailabilitySlot, error) {
+	return nil, fmt.Errorf("scheduling provider unavailable: %s", p.reason)
+}
+
+func (p *UnavailableProvider) CreateAppointment(ctx context.Context, appointment *entities.Appointment) (string, string, error) {
+	return "", "", fmt.Errorf("scheduling provider unavailable: %s", p.reason)
+}
+
+func (p *UnavailableProvider) CancelAppointment(ctx context.Context, externalID string, reason string) error {
+	return fmt.Errorf("scheduling provider unavailable: %s", p.reason)
 }
 
 // FallbackProvider wraps a primary provider with optional mock fallback.

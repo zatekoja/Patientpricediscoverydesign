@@ -37,8 +37,13 @@ func (a *ProcedureEnrichmentAdapter) GetByProcedureID(ctx context.Context, proce
 		"prep_steps",
 		"risks",
 		"recovery",
+		"search_concepts",
 		"provider",
 		"model",
+		"enrichment_status",
+		"enrichment_version",
+		"retry_count",
+		"last_error",
 		"created_at",
 		"updated_at",
 	).
@@ -50,8 +55,9 @@ func (a *ProcedureEnrichmentAdapter) GetByProcedureID(ctx context.Context, proce
 		return nil, apperrors.NewInternalError("failed to build enrichment query", err)
 	}
 
-	var prepRaw, risksRaw, recoveryRaw []byte
-	var description, provider, model sql.NullString
+	var prepRaw, risksRaw, recoveryRaw, conceptsRaw []byte
+	var description, provider, model, enrichmentStatus, lastError sql.NullString
+	var enrichmentVersion, retryCount sql.NullInt32
 	enrichment := &entities.ProcedureEnrichment{}
 
 	err = a.client.DB().QueryRowContext(ctx, query, args...).Scan(
@@ -61,8 +67,13 @@ func (a *ProcedureEnrichmentAdapter) GetByProcedureID(ctx context.Context, proce
 		&prepRaw,
 		&risksRaw,
 		&recoveryRaw,
+		&conceptsRaw,
 		&provider,
 		&model,
+		&enrichmentStatus,
+		&enrichmentVersion,
+		&retryCount,
+		&lastError,
 		&enrichment.CreatedAt,
 		&enrichment.UpdatedAt,
 	)
@@ -77,6 +88,10 @@ func (a *ProcedureEnrichmentAdapter) GetByProcedureID(ctx context.Context, proce
 	enrichment.Description = description.String
 	enrichment.Provider = provider.String
 	enrichment.Model = model.String
+	enrichment.EnrichmentStatus = enrichmentStatus.String
+	enrichment.EnrichmentVersion = int(enrichmentVersion.Int32)
+	enrichment.RetryCount = int(retryCount.Int32)
+	enrichment.LastError = lastError.String
 
 	if len(prepRaw) > 0 {
 		_ = json.Unmarshal(prepRaw, &enrichment.PrepSteps)
@@ -86,6 +101,12 @@ func (a *ProcedureEnrichmentAdapter) GetByProcedureID(ctx context.Context, proce
 	}
 	if len(recoveryRaw) > 0 {
 		_ = json.Unmarshal(recoveryRaw, &enrichment.Recovery)
+	}
+	if len(conceptsRaw) > 0 && string(conceptsRaw) != "{}" {
+		var sc entities.SearchConcepts
+		if json.Unmarshal(conceptsRaw, &sc) == nil {
+			enrichment.SearchConcepts = &sc
+		}
 	}
 
 	return enrichment, nil
@@ -104,19 +125,36 @@ func (a *ProcedureEnrichmentAdapter) Upsert(ctx context.Context, enrichment *ent
 	risksBytes, _ := json.Marshal(enrichment.Risks)
 	recoveryBytes, _ := json.Marshal(enrichment.Recovery)
 
+	conceptsBytes := []byte("{}")
+	if enrichment.SearchConcepts != nil {
+		if b, err := json.Marshal(enrichment.SearchConcepts); err == nil {
+			conceptsBytes = b
+		}
+	}
+
+	enrichmentStatus := enrichment.EnrichmentStatus
+	if enrichmentStatus == "" {
+		enrichmentStatus = "pending"
+	}
+
 	query := `
 		INSERT INTO procedure_enrichments
-			(id, procedure_id, description, prep_steps, risks, recovery, provider, model, created_at, updated_at)
+			(id, procedure_id, description, prep_steps, risks, recovery, search_concepts, provider, model, enrichment_status, enrichment_version, retry_count, last_error, created_at, updated_at)
 		VALUES
-			($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10)
+			($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (procedure_id)
 		DO UPDATE SET
 			description = EXCLUDED.description,
 			prep_steps = EXCLUDED.prep_steps,
 			risks = EXCLUDED.risks,
 			recovery = EXCLUDED.recovery,
+			search_concepts = EXCLUDED.search_concepts,
 			provider = EXCLUDED.provider,
 			model = EXCLUDED.model,
+			enrichment_status = EXCLUDED.enrichment_status,
+			enrichment_version = EXCLUDED.enrichment_version,
+			retry_count = EXCLUDED.retry_count,
+			last_error = EXCLUDED.last_error,
 			updated_at = EXCLUDED.updated_at
 	`
 
@@ -129,8 +167,13 @@ func (a *ProcedureEnrichmentAdapter) Upsert(ctx context.Context, enrichment *ent
 		string(prepBytes),
 		string(risksBytes),
 		string(recoveryBytes),
+		string(conceptsBytes),
 		enrichment.Provider,
 		enrichment.Model,
+		enrichmentStatus,
+		enrichment.EnrichmentVersion,
+		enrichment.RetryCount,
+		enrichment.LastError,
 		enrichment.CreatedAt,
 		enrichment.UpdatedAt,
 	)
@@ -139,4 +182,143 @@ func (a *ProcedureEnrichmentAdapter) Upsert(ctx context.Context, enrichment *ent
 	}
 
 	return nil
+}
+
+// ListByStatus returns enrichments filtered by enrichment_status.
+func (a *ProcedureEnrichmentAdapter) ListByStatus(ctx context.Context, status string, limit int) ([]*entities.ProcedureEnrichment, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, procedure_id, description, prep_steps, risks, recovery, search_concepts,
+		       provider, model, enrichment_status, enrichment_version, retry_count, last_error,
+		       created_at, updated_at
+		FROM procedure_enrichments
+		WHERE enrichment_status = $1
+		ORDER BY created_at ASC
+		LIMIT $2
+	`
+
+	rows, err := a.client.DB().QueryContext(ctx, query, status, limit)
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to list enrichments by status", err)
+	}
+	defer rows.Close()
+
+	return scanEnrichmentRows(rows)
+}
+
+// UpdateStatus updates enrichment_status, last_error, and increments retry_count.
+func (a *ProcedureEnrichmentAdapter) UpdateStatus(ctx context.Context, id string, status string, errMsg string) error {
+	query := `
+		UPDATE procedure_enrichments
+		SET enrichment_status = $1,
+		    last_error = $2,
+		    retry_count = retry_count + 1,
+		    updated_at = NOW()
+		WHERE id = $3
+	`
+	_, err := a.client.DB().ExecContext(ctx, query, status, errMsg, id)
+	if err != nil {
+		return apperrors.NewInternalError("failed to update enrichment status", err)
+	}
+	return nil
+}
+
+// ListProcedureIDsNeedingEnrichment returns procedure IDs that either lack an enrichment record
+// or have enrichment_version < the target version.
+func (a *ProcedureEnrichmentAdapter) ListProcedureIDsNeedingEnrichment(ctx context.Context, version int, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT p.id
+		FROM procedures p
+		LEFT JOIN procedure_enrichments pe ON pe.procedure_id = p.id
+		WHERE p.is_active = true
+		  AND (pe.id IS NULL
+		       OR pe.enrichment_version < $1
+		       OR pe.enrichment_status = 'failed')
+		ORDER BY p.created_at ASC
+		LIMIT $2
+	`
+
+	rows, err := a.client.DB().QueryContext(ctx, query, version, limit)
+	if err != nil {
+		return nil, apperrors.NewInternalError("failed to list procedure IDs needing enrichment", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, apperrors.NewInternalError("failed to scan procedure ID", err)
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
+func scanEnrichmentRows(rows *sql.Rows) ([]*entities.ProcedureEnrichment, error) {
+	var results []*entities.ProcedureEnrichment
+
+	for rows.Next() {
+		var prepRaw, risksRaw, recoveryRaw, conceptsRaw []byte
+		var description, provider, model, enrichmentStatus, lastError sql.NullString
+		var enrichmentVersion, retryCount sql.NullInt32
+		enrichment := &entities.ProcedureEnrichment{}
+
+		err := rows.Scan(
+			&enrichment.ID,
+			&enrichment.ProcedureID,
+			&description,
+			&prepRaw,
+			&risksRaw,
+			&recoveryRaw,
+			&conceptsRaw,
+			&provider,
+			&model,
+			&enrichmentStatus,
+			&enrichmentVersion,
+			&retryCount,
+			&lastError,
+			&enrichment.CreatedAt,
+			&enrichment.UpdatedAt,
+		)
+		if err != nil {
+			return nil, apperrors.NewInternalError("failed to scan enrichment row", err)
+		}
+
+		enrichment.Description = description.String
+		enrichment.Provider = provider.String
+		enrichment.Model = model.String
+		enrichment.EnrichmentStatus = enrichmentStatus.String
+		enrichment.EnrichmentVersion = int(enrichmentVersion.Int32)
+		enrichment.RetryCount = int(retryCount.Int32)
+		enrichment.LastError = lastError.String
+
+		if len(prepRaw) > 0 {
+			_ = json.Unmarshal(prepRaw, &enrichment.PrepSteps)
+		}
+		if len(risksRaw) > 0 {
+			_ = json.Unmarshal(risksRaw, &enrichment.Risks)
+		}
+		if len(recoveryRaw) > 0 {
+			_ = json.Unmarshal(recoveryRaw, &enrichment.Recovery)
+		}
+		if len(conceptsRaw) > 0 && string(conceptsRaw) != "{}" {
+			var sc entities.SearchConcepts
+			if json.Unmarshal(conceptsRaw, &sc) == nil {
+				enrichment.SearchConcepts = &sc
+			}
+		}
+
+		results = append(results, enrichment)
+	}
+
+	return results, rows.Err()
 }

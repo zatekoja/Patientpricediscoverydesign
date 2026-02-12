@@ -43,6 +43,11 @@ func (a *AppointmentAdapter) Create(ctx context.Context, appointment *entities.A
 		"insurance_provider":      appointment.InsuranceProvider,
 		"insurance_policy_number": appointment.InsurancePolicyNumber,
 		"notes":                   appointment.Notes,
+		"calendly_event_id":       appointment.CalendlyEventID,
+		"calendly_event_uri":      appointment.CalendlyEventURI,
+		"calendly_invitee_uri":    appointment.CalendlyInviteeURI,
+		"meeting_link":            appointment.MeetingLink,
+		"booking_method":          appointment.BookingMethod,
 		"created_at":              appointment.CreatedAt,
 		"updated_at":              appointment.UpdatedAt,
 	}

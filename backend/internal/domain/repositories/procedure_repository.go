@@ -73,6 +73,7 @@ type FacilityProcedureFilter struct {
 	MaxPrice    *float64 // Maximum price filter
 	IsAvailable *bool    // Availability filter
 	SearchQuery string   // Text search in procedure name/description (searches ALL data first)
+	SearchTerms []string // Expanded search terms (including synonyms) to match against tags
 
 	// Sorting (applied to filtered data before pagination)
 	SortBy    string // "price", "name", "category", "updated_at"

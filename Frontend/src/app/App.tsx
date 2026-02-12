@@ -48,7 +48,7 @@ export default function App() {
   const sseClientRef = useRef<ReturnType<typeof createRegionalSSEClient> | null>(null);
 
   // Filter states
-  const [maxDistance, setMaxDistance] = useState("50");
+  const [maxDistance, setMaxDistance] = useState("60");
   const [maxPrice, setMaxPrice] = useState(""); // Optional filter; leave empty to include all
     const [minPrice, setMinPrice] = useState(""); // Minimum price filter
   const [selectedInsurance, setSelectedInsurance] = useState("");
@@ -450,20 +450,27 @@ export default function App() {
 
     suggestions.forEach((suggestion) => {
       if (suggestion.matched_service_price) {
-        const serviceName = suggestion.matched_service_price.name;
+        const matched = suggestion.matched_service_price;
+        const serviceName = matched.display_name || matched.name;
         if (!grouped[serviceName]) {
           grouped[serviceName] = {
             service: {
               name: serviceName,
-              description: suggestion.matched_service_price.description,
-              procedureId: suggestion.matched_service_price.procedure_id,
-              code: suggestion.matched_service_price.code,
-              category: suggestion.matched_service_price.category,
-              estimatedDuration: suggestion.matched_service_price.estimated_duration,
+              description: matched.description,
+              procedureId: matched.procedure_id,
+              code: matched.code,
+              category: matched.category,
+              estimatedDuration: matched.estimated_duration,
             },
             facilities: [],
           };
         }
+
+        // Prefer first non-empty description we see.
+        if (!grouped[serviceName].service.description && matched.description) {
+          grouped[serviceName].service.description = matched.description;
+        }
+
         grouped[serviceName].facilities.push(suggestion);
       } else {
         // Fallback: group by matched_tag or facility name for tag-only matches
@@ -487,7 +494,7 @@ export default function App() {
   };
 
   const handleResetFilters = () => {
-    setMaxDistance("50");
+    setMaxDistance("60");
     setMaxPrice("");
       setMinPrice("");
     setSelectedInsurance("");
@@ -675,6 +682,11 @@ export default function App() {
                  {showSuggestions && (
                 <div
                   className="absolute z-20 mt-2 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-96"
+                  onMouseDown={(e) => {
+                    // Keep focus on the search input so blur doesn't auto-close the suggestions.
+                    // Clicking suggestions should do nothing (except explicit Book Now).
+                    e.preventDefault();
+                  }}
                 >
                   {!suggestLoading && suggestions.length > 0 ? (
                     <div className="p-3 space-y-3">

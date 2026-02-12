@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -100,25 +104,30 @@ func (a *CalendlyAdapter) GetAvailableSlots(ctx context.Context, externalID stri
 // This implementation generates a one-time scheduling link for the patient
 // Returns (scheduling_link, event_type_id, error)
 func (a *CalendlyAdapter) CreateAppointment(ctx context.Context, appointment *entities.Appointment) (string, string, error) {
-	// For Calendly Standard tier: Generate a scheduling link
-	// The patient will use this link to complete the booking
-	// We will receive confirmation via webhook (invitee.created)
+	eventTypeUUID := strings.TrimSpace(appointment.SchedulingExternalID)
+	if eventTypeUUID == "" {
+		eventTypeUUID = strings.TrimSpace(appointment.FacilityID)
+	}
+	if eventTypeUUID == "" {
+		return "", "", errors.New("missing Calendly event type UUID (facility scheduling external id)")
+	}
 
-	// Get the event type for this facility/procedure
-	// In production, this would be mapped in configuration
-	eventTypeUUID := a.getEventTypeForFacility(appointment.FacilityID)
+	orgURL := strings.TrimRight(strings.TrimSpace(os.Getenv("CALENDLY_ORG_URL")), "/")
+	if orgURL == "" {
+		return "", "", errors.New("CALENDLY_ORG_URL is not configured")
+	}
 
 	// Build scheduling link with pre-filled data
 	schedulingLink := fmt.Sprintf("%s/%s?name=%s&email=%s",
-		"https://calendly.com/your-org", // Replace with actual org URL
+		orgURL,
 		eventTypeUUID,
-		appointment.PatientName,
-		appointment.PatientEmail,
+		url.QueryEscape(strings.TrimSpace(appointment.PatientName)),
+		url.QueryEscape(strings.TrimSpace(appointment.PatientEmail)),
 	)
 
 	// Return the scheduling link that the frontend can redirect to
 	// The webhook will receive the actual event ID when booking completes
-	return schedulingLink, eventTypeUUID, nil
+	return eventTypeUUID, schedulingLink, nil
 }
 
 // CancelAppointment cancels an appointment
@@ -148,14 +157,6 @@ func (a *CalendlyAdapter) CancelAppointment(ctx context.Context, externalID stri
 	}
 
 	return nil
-}
-
-// getEventTypeForFacility maps facility ID to Calendly event type UUID
-// In production, this would be stored in database configuration
-func (a *CalendlyAdapter) getEventTypeForFacility(facilityID string) string {
-	// TODO: Implement database lookup
-	// For now, return a placeholder that should be configured per facility
-	return "event-type-uuid-for-" + facilityID
 }
 
 func (a *CalendlyAdapter) addHeaders(req *http.Request) {

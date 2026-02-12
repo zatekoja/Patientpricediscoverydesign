@@ -49,8 +49,26 @@ func (s *AppointmentService) BookAppointment(ctx context.Context, appointment *e
 		return fmt.Errorf("cannot book appointment in the past")
 	}
 
+	if s.facilityRepo == nil {
+		return fmt.Errorf("facility repository is not configured")
+	}
+
+	facility, err := s.facilityRepo.GetByID(ctx, appointment.FacilityID)
+	if err != nil {
+		return fmt.Errorf("failed to load facility: %w", err)
+	}
+	if facility == nil {
+		return fmt.Errorf("facility not found")
+	}
+
+	externalID := strings.TrimSpace(facility.SchedulingExternalID)
+	if externalID == "" {
+		return fmt.Errorf("facility has no scheduling external id configured")
+	}
+	appointment.SchedulingExternalID = externalID
+
 	// 2. Call external provider to book slot
-	externalID, link, err := s.provider.CreateAppointment(ctx, appointment)
+	providerExternalID, link, err := s.provider.CreateAppointment(ctx, appointment)
 	if err != nil {
 		return fmt.Errorf("failed to book with provider: %w", err)
 	}
@@ -59,13 +77,15 @@ func (s *AppointmentService) BookAppointment(ctx context.Context, appointment *e
 	if appointment.ID == "" {
 		appointment.ID = uuid.New().String()
 	}
-	appointment.Status = entities.AppointmentStatusConfirmed
-	// Note: In a real app, we would store ExternalID and MeetingLink in the entity
-	// For now, we assume they are handled or logged
-	// appointment.ExternalID = externalID
-	// appointment.MeetingLink = link
-	_ = externalID
-	_ = link
+	// Booking is pending until Calendly webhook (invitee.created) confirms attendance.
+	appointment.Status = entities.AppointmentStatusPending
+	appointment.BookingMethod = entities.BookingMethodAPI
+	if providerExternalID != "" {
+		appointment.CalendlyEventID = &providerExternalID
+	}
+	if link != "" {
+		appointment.MeetingLink = &link
+	}
 
 	appointment.CreatedAt = time.Now()
 	appointment.UpdatedAt = time.Now()
@@ -77,21 +97,7 @@ func (s *AppointmentService) BookAppointment(ctx context.Context, appointment *e
 		return fmt.Errorf("failed to save appointment: %w", err)
 	}
 
-	// 5. Send booking confirmation (async, non-blocking)
-	if s.notificationService != nil && s.facilityRepo != nil && s.procedureRepo != nil {
-		facility, err := s.facilityRepo.GetByID(ctx, appointment.FacilityID)
-		if err == nil && facility != nil {
-			procedure, procErr := s.procedureRepo.GetByID(ctx, appointment.ProcedureID)
-			if procErr == nil && procedure != nil {
-				appointmentCopy := *appointment
-				go func() {
-					if err := s.notificationService.SendBookingConfirmation(context.Background(), &appointmentCopy, facility, procedure); err != nil {
-						fmt.Printf("Failed to send booking confirmation: %v\n", err)
-					}
-				}()
-			}
-		}
-	}
+	// NOTE: confirmation notification is sent by Calendly webhook handler after invitee.created.
 
 	return nil
 }

@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -14,7 +17,10 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/utils"
 )
+
+const enrichWorkerCount = 5
 
 type ProviderIngestionSummary struct {
 	RecordsProcessed            int `json:"records_processed"`
@@ -41,6 +47,7 @@ type ProviderIngestionService struct {
 	geocodeCache          map[string]*providers.GeocodedAddress
 	cacheProvider         providers.CacheProvider
 	pageSize              int
+	normalizer            *utils.ServiceNameNormalizer
 }
 
 func NewProviderIngestionService(
@@ -58,6 +65,18 @@ func NewProviderIngestionService(
 	if pageSize <= 0 {
 		pageSize = 500
 	}
+
+	// Initialize service normalizer (graceful degradation if config not found)
+	configPath := os.Getenv("MEDICAL_ABBREVIATIONS_CONFIG")
+	if configPath == "" {
+		configPath = "config/medical_abbreviations.json"
+	}
+	normalizer, err := utils.NewServiceNameNormalizer(configPath)
+	if err != nil {
+		log.Printf("WARNING: Failed to initialize service name normalizer: %v", err)
+		normalizer = nil // Graceful degradation
+	}
+
 	return &ProviderIngestionService{
 		client:                client,
 		facilityRepo:          facilityRepo,
@@ -70,6 +89,7 @@ func NewProviderIngestionService(
 		geocodeCache:          map[string]*providers.GeocodedAddress{},
 		cacheProvider:         cacheProvider,
 		pageSize:              pageSize,
+		normalizer:            normalizer,
 	}
 }
 
@@ -250,10 +270,13 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 
 	s.invalidateSearchCaches(ctx)
 
-	// Enrich procedures during ingestion
-	enrichmentSummary := s.enrichProceduresBatch(ctx)
-	summary.ProcedureEnrichmentsCreated = enrichmentSummary.Created
-	summary.ProcedureEnrichmentsFailed = enrichmentSummary.Failed
+	// Enrich procedures in the background with its own long-lived context
+	// so it doesn't get killed by the 2-minute ingestion timeout.
+	go func() {
+		enrichCtx, enrichCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer enrichCancel()
+		s.enrichProceduresBatch(enrichCtx)
+	}()
 
 	return summary, nil
 }
@@ -624,6 +647,22 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 
 	existing, err := s.procedureRepo.GetByCode(ctx, code)
 	if err == nil {
+		// Backfill normalization for existing procedures (older ingestions may have display_name=name).
+		if s.normalizer != nil {
+			// Prefer normalizing the stored original name to keep deterministic output.
+			normalized := s.normalizer.Normalize(existing.Name)
+			if normalized != nil {
+				if normalized.DisplayName != "" && normalized.DisplayName != existing.DisplayName {
+					existing.DisplayName = normalized.DisplayName
+				}
+				if len(normalized.NormalizedTags) > 0 {
+					// Backfill if missing, or if tags changed due to improved normalization rules.
+					if len(existing.NormalizedTags) == 0 || strings.Join(existing.NormalizedTags, ",") != strings.Join(normalized.NormalizedTags, ",") {
+						existing.NormalizedTags = normalized.NormalizedTags
+					}
+				}
+			}
+		}
 		if record.ProcedureCategory != "" && existing.Category != record.ProcedureCategory {
 			existing.Category = record.ProcedureCategory
 		}
@@ -650,15 +689,27 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 	if record.ProcedureCategory != "" {
 		category = record.ProcedureCategory
 	}
+
+	// Apply normalization
+	displayName := record.ProcedureDescription
+	var normalizedTags []string
+	if s.normalizer != nil {
+		normalized := s.normalizer.Normalize(record.ProcedureDescription)
+		displayName = normalized.DisplayName
+		normalizedTags = normalized.NormalizedTags
+	}
+
 	procedure := &entities.Procedure{
-		ID:          buildProcedureID(code),
-		Name:        record.ProcedureDescription,
-		Code:        code,
-		Category:    category,
-		Description: description,
-		IsActive:    true,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             buildProcedureID(code),
+		Name:           record.ProcedureDescription,
+		DisplayName:    displayName,
+		Code:           code,
+		Category:       category,
+		Description:    description,
+		NormalizedTags: normalizedTags,
+		IsActive:       true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	if err := s.procedureRepo.Create(ctx, procedure); err != nil {
@@ -847,7 +898,9 @@ func inferProcedureCategory(description string, tags []string) string {
 			return "accommodation"
 		case strings.Contains(value, "ambulance") || strings.Contains(value, "emergency") || strings.Contains(value, "casualty") || strings.Contains(value, "triage"):
 			return "emergency"
-		case strings.Contains(value, "report") || strings.Contains(value, "certificate") || strings.Contains(value, "registration") || strings.Contains(value, "card") || strings.Contains(value, "folder"):
+		case strings.Contains(value, "registration") || strings.Contains(value, "card") || strings.Contains(value, "folder"):
+			return "registration"
+		case strings.Contains(value, "report") || strings.Contains(value, "certificate"):
 			return "administrative"
 		case strings.Contains(value, "therapy"):
 			return "therapeutic"
@@ -928,6 +981,7 @@ func applyProfileStatus(facility *entities.Facility, profile *providerapi.Facili
 
 // enrichProceduresBatch enriches all procedures that don't have enrichment data yet.
 // This runs after ingestion to populate enrichment data once for all procedures.
+// Uses a worker pool for concurrent OpenAI calls.
 func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *struct {
 	Created int
 	Failed  int
@@ -956,57 +1010,101 @@ func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *s
 	// Check which procedures need enrichment
 	var proceduresToEnrich []*entities.Procedure
 	for _, proc := range procedures {
-		// Check if enrichment already exists
 		existing, err := s.enrichmentRepo.GetByProcedureID(ctx, proc.ID)
 		if err == nil && existing != nil {
-			// Enrichment already exists, skip
 			continue
 		}
 		proceduresToEnrich = append(proceduresToEnrich, proc)
 	}
 
 	if len(proceduresToEnrich) == 0 {
+		log.Println("all procedures already enriched, nothing to do")
 		return result
 	}
 
-	now := time.Now()
-	for _, proc := range proceduresToEnrich {
-		enriched, err := s.enrichmentProvider.EnrichProcedure(ctx, proc)
-		if err != nil {
-			log.Printf("failed to enrich procedure %s (%s): %v", proc.ID, proc.Name, err)
-			result.Failed++
-			continue
-		}
+	log.Printf("enriching %d procedures with %d workers...", len(proceduresToEnrich), enrichWorkerCount)
 
-		// Ensure required fields are populated
-		if enriched.ID == "" {
-			enriched.ID = fmt.Sprintf("enrich_%s_%d", proc.ID, now.UnixNano())
-		}
-		if enriched.ProcedureID == "" {
-			enriched.ProcedureID = proc.ID
-		}
-		if enriched.CreatedAt.IsZero() {
-			enriched.CreatedAt = now
-		}
-		if enriched.UpdatedAt.IsZero() {
-			enriched.UpdatedAt = now
-		}
-
-		// Use procedure description if enrichment doesn't have one
-		if enriched.Description == "" {
-			enriched.Description = proc.Description
-		}
-
-		// Store enrichment
-		if err := s.enrichmentRepo.Upsert(ctx, enriched); err != nil {
-			log.Printf("failed to store enrichment for procedure %s: %v", proc.ID, err)
-			result.Failed++
-			continue
-		}
-
-		result.Created++
+	// Worker pool for concurrent enrichment
+	var created, failed int64
+	var authFailed int32
+	var authWarnOnce sync.Once
+	type enrichJob struct {
+		proc *entities.Procedure
 	}
 
+	jobs := make(chan enrichJob, len(proceduresToEnrich))
+	var wg sync.WaitGroup
+
+	for w := 0; w < enrichWorkerCount; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				if ctx.Err() != nil {
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+
+				// If credentials are rejected, don't keep hammering the provider.
+				if atomic.LoadInt32(&authFailed) == 1 {
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+				proc := job.proc
+				enriched, err := s.enrichmentProvider.EnrichProcedure(ctx, proc)
+				if err != nil {
+					if errors.Is(err, providers.ErrProcedureEnrichmentUnauthorized) {
+						atomic.StoreInt32(&authFailed, 1)
+						authWarnOnce.Do(func() {
+							log.Printf("procedure enrichment disabled for this run: provider credentials rejected (%v)", err)
+						})
+						atomic.AddInt64(&failed, 1)
+						continue
+					}
+					log.Printf("failed to enrich procedure %s (%s): %v", proc.ID, proc.Name, err)
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+
+				now := time.Now()
+				if enriched.ID == "" {
+					enriched.ID = fmt.Sprintf("enrich_%s_%d", proc.ID, now.UnixNano())
+				}
+				if enriched.ProcedureID == "" {
+					enriched.ProcedureID = proc.ID
+				}
+				if enriched.CreatedAt.IsZero() {
+					enriched.CreatedAt = now
+				}
+				if enriched.UpdatedAt.IsZero() {
+					enriched.UpdatedAt = now
+				}
+				if enriched.Description == "" {
+					enriched.Description = proc.Description
+				}
+
+				if err := s.enrichmentRepo.Upsert(ctx, enriched); err != nil {
+					log.Printf("failed to store enrichment for procedure %s: %v", proc.ID, err)
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+
+				c := atomic.AddInt64(&created, 1)
+				if c%50 == 0 {
+					log.Printf("enrichment progress: %d/%d done", c, len(proceduresToEnrich))
+				}
+			}
+		}()
+	}
+
+	for _, proc := range proceduresToEnrich {
+		jobs <- enrichJob{proc: proc}
+	}
+	close(jobs)
+	wg.Wait()
+
+	result.Created = int(atomic.LoadInt64(&created))
+	result.Failed = int(atomic.LoadInt64(&failed))
 	log.Printf("batch enriched %d procedures (%d failed)", result.Created, result.Failed)
 	return result
 }

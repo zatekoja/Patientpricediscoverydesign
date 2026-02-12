@@ -10,4 +10,7 @@ import (
 type ProcedureEnrichmentRepository interface {
 	GetByProcedureID(ctx context.Context, procedureID string) (*entities.ProcedureEnrichment, error)
 	Upsert(ctx context.Context, enrichment *entities.ProcedureEnrichment) error
+	ListByStatus(ctx context.Context, status string, limit int) ([]*entities.ProcedureEnrichment, error)
+	UpdateStatus(ctx context.Context, id string, status string, errMsg string) error
+	ListProcedureIDsNeedingEnrichment(ctx context.Context, version int, limit int) ([]string, error)
 }

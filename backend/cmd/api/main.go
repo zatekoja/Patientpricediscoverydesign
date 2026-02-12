@@ -211,9 +211,9 @@ func main() {
 	}
 
 	calendlyAPIKey := strings.TrimSpace(os.Getenv("CALENDLY_API_KEY"))
-	allowMockScheduling := strings.EqualFold(os.Getenv("ALLOW_MOCK_SCHEDULING"), "true") || calendlyAPIKey == ""
+	allowMockScheduling := strings.EqualFold(os.Getenv("ALLOW_MOCK_SCHEDULING"), "true")
 	if calendlyAPIKey == "" {
-		log.Warn().Msg("CALENDLY_API_KEY is not set; using mock scheduling provider")
+		log.Warn().Msg("CALENDLY_API_KEY is not set; scheduling provider will reject booking requests")
 	}
 	appointmentProvider := scheduling.NewAppointmentProvider(scheduling.AppointmentProviderConfig{
 		CalendlyAPIKey:         calendlyAPIKey,
@@ -242,6 +242,35 @@ func main() {
 		procedureAdapter,
 		insuranceAdapter,
 	)
+
+	// Initialize term expansion service
+	// Try multiple paths for robustness
+	termConfigPaths := []string{
+		"config/medical_terms.json",
+		"backend/config/medical_terms.json",
+		"../config/medical_terms.json",
+		"../../config/medical_terms.json",
+	}
+
+	var termExpansionService *services.TermExpansionService
+	for _, path := range termConfigPaths {
+		if _, err := os.Stat(path); err == nil {
+			svc, err := services.NewTermExpansionService(path)
+			if err == nil {
+				termExpansionService = svc
+				log.Info().Str("path", path).Msg("Term expansion service initialized successfully")
+				break
+			} else {
+				log.Warn().Err(err).Str("path", path).Msg("Failed to load term expansion config")
+			}
+		}
+	}
+
+	if termExpansionService == nil {
+		log.Warn().Msg("Contextual search disabled (medical_terms.json not found)")
+	} else {
+		facilityService.SetTermExpander(termExpansionService)
+	}
 
 	// Set event bus for real-time updates
 	if eventBus != nil {

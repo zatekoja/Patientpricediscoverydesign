@@ -28,6 +28,7 @@ type Appointment struct {
 	ID                    string            `json:"id" db:"id"`
 	UserID                *string           `json:"user_id,omitempty" db:"user_id"`
 	FacilityID            string            `json:"facility_id" db:"facility_id"`
+	SchedulingExternalID  string            `json:"-" db:"-"`
 	ProcedureID           string            `json:"procedure_id" db:"procedure_id"`
 	ScheduledAt           time.Time         `json:"scheduled_at" db:"scheduled_at"`
 	Status                AppointmentStatus `json:"status" db:"status"`

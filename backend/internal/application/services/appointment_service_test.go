@@ -185,13 +185,20 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 			PatientName: "John Doe",
 		}
 
+		facilityRepo.On("GetByID", mock.Anything, "facility-1").Return(&entities.Facility{
+			ID:                   "facility-1",
+			SchedulingExternalID: "consultation-30min",
+		}, nil)
+
 		// Expectations
 		// 1. Provider is called to book external slot
 		provider.On("CreateAppointment", mock.Anything, appointment).Return("ext-123", "http://meet.com/123", nil)
 
 		// 2. Repository is called to save appointment with external details
 		repo.On("Create", mock.Anything, mock.MatchedBy(func(a *entities.Appointment) bool {
-			return a.Status == entities.AppointmentStatusConfirmed && a.PatientName == "John Doe"
+			return a.Status == entities.AppointmentStatusPending &&
+				a.PatientName == "John Doe" &&
+				a.BookingMethod == entities.BookingMethodAPI
 		})).Return(nil)
 
 		// Act
@@ -201,6 +208,7 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 		assert.NoError(t, err)
 		repo.AssertExpectations(t)
 		provider.AssertExpectations(t)
+		facilityRepo.AssertExpectations(t)
 	})
 
 	t.Run("fails when provider fails", func(t *testing.T) {
@@ -216,6 +224,11 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 			ScheduledAt: time.Now().Add(24 * time.Hour),
 		}
 
+		facilityRepo.On("GetByID", mock.Anything, "facility-1").Return(&entities.Facility{
+			ID:                   "facility-1",
+			SchedulingExternalID: "consultation-30min",
+		}, nil)
+
 		provider.On("CreateAppointment", mock.Anything, appointment).Return("", "", errors.New("provider error"))
 
 		// Act
@@ -225,5 +238,6 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "provider error")
 		repo.AssertNotCalled(t, "Create")
+		facilityRepo.AssertExpectations(t)
 	})
 }

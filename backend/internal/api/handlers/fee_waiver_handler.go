@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -30,9 +31,11 @@ func (h *FeeWaiverHandler) GetFacilityFeeWaiver(w http.ResponseWriter, r *http.R
 
 	waiver, err := h.repo.GetActiveFacilityWaiver(r.Context(), facilityID)
 	if err != nil {
+		log.Printf("ERROR: GetActiveFacilityWaiver failed for facility %s: %v", facilityID, err)
 		respondWithError(w, http.StatusInternalServerError, "failed to check fee waivers")
 		return
 	}
+	log.Printf("DEBUG: GetActiveFacilityWaiver for %s: waiver=%v", facilityID, waiver)
 
 	if waiver == nil {
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{

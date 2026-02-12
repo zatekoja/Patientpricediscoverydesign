@@ -71,11 +71,9 @@ func (a *TypesenseAdapter) InitSchema(ctx context.Context) error {
 	return nil
 }
 
-// Index indexes a facility
+// Index indexes a facility. Uses partial update to avoid wiping fields (like procedures)
+// that are set by the full reindexer but not available here.
 func (a *TypesenseAdapter) Index(ctx context.Context, facility *entities.Facility) error {
-	// WARNING: This partial index update might wipe 'procedures' if they were set by the reindexer.
-	// To fix this properly, we should fetch existing document or fetch procedures here.
-	// For now, minimizing risk by just ensuring schema compliance.
 	document := map[string]interface{}{
 		"id":            facility.ID,
 		"name":          facility.Name,
@@ -95,12 +93,15 @@ func (a *TypesenseAdapter) Index(ctx context.Context, facility *entities.Facilit
 		document["tags"] = tags
 	}
 
-	// Use Update instead of Upsert to avoid clearing fields we don't have here (like procedures)?
-	// But Update fails if doc doesn't exist. Upsert is safer for "Ensure".
-	// Ideally we'd pass procedures to Index.
-	_, err := a.client.Client().Collection(collectionName).Documents().Upsert(ctx, document)
+	// Try partial update first to preserve fields set by the reindexer (e.g. procedures).
+	// Update only modifies the fields we provide, leaving others untouched.
+	_, err := a.client.Client().Collection(collectionName).Document(facility.ID).Update(ctx, document)
 	if err != nil {
-		return fmt.Errorf("failed to index facility: %w", err)
+		// Document doesn't exist yet — fall back to full upsert (creates it).
+		_, err = a.client.Client().Collection(collectionName).Documents().Upsert(ctx, document)
+		if err != nil {
+			return fmt.Errorf("failed to index facility: %w", err)
+		}
 	}
 
 	return nil
@@ -124,7 +125,9 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 // SearchWithCount searches facilities and returns the total match count.
 func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
 	query := "*"
-	if params.Query != "" {
+	if len(params.ExpandedTerms) > 0 {
+		query = strings.Join(params.ExpandedTerms, " ")
+	} else if params.Query != "" {
 		query = params.Query
 	}
 

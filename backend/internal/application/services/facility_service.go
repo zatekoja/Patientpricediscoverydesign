@@ -21,6 +21,7 @@ type FacilityService struct {
 	procedureCatalogRepo repositories.ProcedureRepository
 	insuranceRepo        repositories.InsuranceRepository
 	eventBus             providers.EventBus
+	termExpander         *TermExpansionService
 }
 
 const maxSearchTags = 12
@@ -46,6 +47,22 @@ func NewFacilityService(
 // SetEventBus sets the event bus for publishing real-time updates
 func (s *FacilityService) SetEventBus(eventBus providers.EventBus) {
 	s.eventBus = eventBus
+}
+
+// SetTermExpander sets the term expansion service
+func (s *FacilityService) SetTermExpander(expander *TermExpansionService) {
+	s.termExpander = expander
+}
+
+// ExpandQuery expands a search query using the configured term expander
+func (s *FacilityService) ExpandQuery(query string) []string {
+	if s.termExpander == nil {
+		if query == "" {
+			return []string{}
+		}
+		return []string{query}
+	}
+	return s.termExpander.Expand(query)
 }
 
 // Create creates a new facility and indexes it
@@ -675,19 +692,26 @@ func servicePricesFromProcedures(
 			if !matchesProcedure(preferredQuery, procedure) {
 				continue
 			}
-			if _, exists := seen[procedure.Name]; exists {
+			if _, exists := seen[procedure.ID]; exists {
 				continue
 			}
-			seen[procedure.Name] = struct{}{}
+			seen[procedure.ID] = struct{}{}
+			displayName := procedure.DisplayName
+			if displayName == "" {
+				displayName = procedure.Name
+			}
 			services = append(services, entities.ServicePrice{
 				ProcedureID:       item.ProcedureID,
 				Name:              procedure.Name,
+				DisplayName:       displayName,
 				Price:             item.Price,
 				Currency:          item.Currency,
 				Description:       procedure.Description,
 				Category:          procedure.Category,
 				Code:              procedure.Code,
 				EstimatedDuration: item.EstimatedDuration,
+				NormalizedTags:    procedure.NormalizedTags,
+				IsAvailable:       item.IsAvailable,
 			})
 			break
 		}
@@ -701,19 +725,26 @@ func servicePricesFromProcedures(
 		if err != nil || procedure == nil || procedure.Name == "" {
 			continue
 		}
-		if _, exists := seen[procedure.Name]; exists {
+		if _, exists := seen[procedure.ID]; exists {
 			continue
 		}
-		seen[procedure.Name] = struct{}{}
+		seen[procedure.ID] = struct{}{}
+		displayName := procedure.DisplayName
+		if displayName == "" {
+			displayName = procedure.Name
+		}
 		services = append(services, entities.ServicePrice{
 			ProcedureID:       item.ProcedureID,
 			Name:              procedure.Name,
+			DisplayName:       displayName,
 			Price:             item.Price,
 			Currency:          item.Currency,
 			Description:       procedure.Description,
 			Category:          procedure.Category,
 			Code:              procedure.Code,
 			EstimatedDuration: item.EstimatedDuration,
+			NormalizedTags:    procedure.NormalizedTags,
+			IsAvailable:       item.IsAvailable,
 		})
 	}
 
@@ -726,6 +757,10 @@ func matchesProcedure(query string, procedure *entities.Procedure) bool {
 	}
 	name := strings.ToLower(strings.TrimSpace(procedure.Name))
 	if name != "" && strings.Contains(name, query) {
+		return true
+	}
+	displayName := strings.ToLower(strings.TrimSpace(procedure.DisplayName))
+	if displayName != "" && strings.Contains(displayName, query) {
 		return true
 	}
 	code := strings.ToLower(strings.TrimSpace(procedure.Code))

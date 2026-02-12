@@ -21,6 +21,9 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/ppd-api .
 
+# Copy config files
+COPY --from=builder /app/config ./config
+
 # Expose port
 EXPOSE 8080
 

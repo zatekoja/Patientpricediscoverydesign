@@ -32,7 +32,7 @@ echo "✓ Updating Vault with geolocation API key..."
 # Update the api.json file with the actual key
 cat > /Users/zatekoja/GolandProjects/Patientpricediscoverydesign/vault/init/api.json << EOF
 {
-  "OPENAI_API_KEY": "dev-openai",
+  "OPENAI_API_KEY": "",
   "GEOLOCATION_API_KEY": "$GEOLOCATION_API_KEY",
   "TYPESENSE_API_KEY": "xyz"
 }

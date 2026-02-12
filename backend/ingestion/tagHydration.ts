@@ -157,8 +157,13 @@ const TAG_RULES: TagRule[] = [
     tags: ['outpatient'],
   },
   {
-    id: 'administrative',
-    pattern: /\b(card|folder|registration|appointment|certificate|report|notification of birth|police report|sick leave|maternity leave)\b/i,
+    id: 'registration',
+    pattern: /\b(card|folder|registration|appointment)\b/i,
+    tags: ['registration', 'administrative'],
+  },
+  {
+    id: 'administrative_reports',
+    pattern: /\b(certificate|report|notification of birth|police report|sick leave|maternity leave)\b/i,
     tags: ['administrative', 'documentation'],
   },
   {

@@ -88,6 +88,8 @@ services:
     environment:
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
+      VAULT_API_PATH: ${VAULT_API_PATH:-patient-price-discovery/api}
+      VAULT_PROVIDER_PATH: ${VAULT_PROVIDER_PATH:-patient-price-discovery/provider}
     volumes:
       - ./vault/init:/vault/init:ro
     depends_on:
@@ -96,8 +98,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: >
       "for i in 1 2 3 4 5; do vault status >/dev/null 2>&1 && break; sleep 1; done;
-       vault kv get -mount=secret patient-price-discovery/api >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
-       vault kv get -mount=secret patient-price-discovery/provider >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
+       vault kv get -mount=secret ${VAULT_API_PATH} >/dev/null 2>&1 || vault kv put -mount=secret ${VAULT_API_PATH} @/vault/init/api.json;
+       vault kv get -mount=secret ${VAULT_PROVIDER_PATH} >/dev/null 2>&1 || vault kv put -mount=secret ${VAULT_PROVIDER_PATH} @/vault/init/provider.json;
        exit 0"
     restart: "no"
 

@@ -60,6 +60,7 @@ type FacilityFilter struct {
 // SearchParams defines parameters for facility search
 type SearchParams struct {
 	Query             string
+	ExpandedTerms     []string
 	Latitude          float64
 	Longitude         float64
 	RadiusKm          float64

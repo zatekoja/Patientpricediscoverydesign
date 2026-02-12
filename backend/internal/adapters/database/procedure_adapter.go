@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/lib/pq"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
@@ -31,14 +32,16 @@ func NewProcedureAdapter(client *postgres.Client) repositories.ProcedureReposito
 // Create creates a new procedure
 func (a *ProcedureAdapter) Create(ctx context.Context, procedure *entities.Procedure) error {
 	record := goqu.Record{
-		"id":          procedure.ID,
-		"name":        procedure.Name,
-		"code":        procedure.Code,
-		"category":    sql.NullString{String: procedure.Category, Valid: procedure.Category != ""},
-		"description": sql.NullString{String: procedure.Description, Valid: procedure.Description != ""},
-		"is_active":   procedure.IsActive,
-		"created_at":  procedure.CreatedAt,
-		"updated_at":  procedure.UpdatedAt,
+		"id":              procedure.ID,
+		"name":            procedure.Name,
+		"display_name":    procedure.DisplayName,
+		"code":            procedure.Code,
+		"category":        sql.NullString{String: procedure.Category, Valid: procedure.Category != ""},
+		"description":     sql.NullString{String: procedure.Description, Valid: procedure.Description != ""},
+		"normalized_tags": pq.Array(procedure.NormalizedTags),
+		"is_active":       procedure.IsActive,
+		"created_at":      procedure.CreatedAt,
+		"updated_at":      procedure.UpdatedAt,
 	}
 
 	query, args, err := a.db.Insert("procedures").Rows(record).ToSQL()
@@ -71,8 +74,8 @@ func (a *ProcedureAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entit
 	}
 
 	query, args, err := a.db.Select(
-		"id", "name", "code", "category", "description",
-		"is_active", "created_at", "updated_at",
+		"id", "name", "display_name", "code", "category", "description",
+		"normalized_tags", "is_active", "created_at", "updated_at",
 	).From("procedures").
 		Where(goqu.Ex{"id": ids}).
 		ToSQL()
@@ -95,9 +98,11 @@ func (a *ProcedureAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entit
 		err := rows.Scan(
 			&procedure.ID,
 			&procedure.Name,
+			&procedure.DisplayName,
 			&procedure.Code,
 			&category,
 			&description,
+			pq.Array(&procedure.NormalizedTags),
 			&procedure.IsActive,
 			&procedure.CreatedAt,
 			&procedure.UpdatedAt,
@@ -117,8 +122,8 @@ func (a *ProcedureAdapter) GetByIDs(ctx context.Context, ids []string) ([]*entit
 
 func (a *ProcedureAdapter) getByField(ctx context.Context, field, value string) (*entities.Procedure, error) {
 	query, args, err := a.db.Select(
-		"id", "name", "code", "category", "description",
-		"is_active", "created_at", "updated_at",
+		"id", "name", "display_name", "code", "category", "description",
+		"normalized_tags", "is_active", "created_at", "updated_at",
 	).From("procedures").
 		Where(goqu.Ex{field: value}).
 		ToSQL()
@@ -133,9 +138,11 @@ func (a *ProcedureAdapter) getByField(ctx context.Context, field, value string) 
 	err = a.client.DB().QueryRowContext(ctx, query, args...).Scan(
 		&procedure.ID,
 		&procedure.Name,
+		&procedure.DisplayName,
 		&procedure.Code,
 		&category,
 		&description,
+		pq.Array(&procedure.NormalizedTags),
 		&procedure.IsActive,
 		&procedure.CreatedAt,
 		&procedure.UpdatedAt,
@@ -159,12 +166,14 @@ func (a *ProcedureAdapter) Update(ctx context.Context, procedure *entities.Proce
 	procedure.UpdatedAt = time.Now()
 
 	record := goqu.Record{
-		"name":        procedure.Name,
-		"code":        procedure.Code,
-		"category":    sql.NullString{String: procedure.Category, Valid: procedure.Category != ""},
-		"description": sql.NullString{String: procedure.Description, Valid: procedure.Description != ""},
-		"is_active":   procedure.IsActive,
-		"updated_at":  procedure.UpdatedAt,
+		"name":            procedure.Name,
+		"display_name":    procedure.DisplayName,
+		"code":            procedure.Code,
+		"category":        sql.NullString{String: procedure.Category, Valid: procedure.Category != ""},
+		"description":     sql.NullString{String: procedure.Description, Valid: procedure.Description != ""},
+		"normalized_tags": pq.Array(procedure.NormalizedTags),
+		"is_active":       procedure.IsActive,
+		"updated_at":      procedure.UpdatedAt,
 	}
 
 	query, args, err := a.db.Update("procedures").
@@ -228,8 +237,8 @@ func (a *ProcedureAdapter) Delete(ctx context.Context, id string) error {
 // List retrieves procedures with filters
 func (a *ProcedureAdapter) List(ctx context.Context, filter repositories.ProcedureFilter) ([]*entities.Procedure, error) {
 	ds := a.db.Select(
-		"id", "name", "code", "category", "description",
-		"is_active", "created_at", "updated_at",
+		"id", "name", "display_name", "code", "category", "description",
+		"normalized_tags", "is_active", "created_at", "updated_at",
 	).From("procedures")
 
 	if filter.Category != "" {
@@ -269,9 +278,11 @@ func (a *ProcedureAdapter) List(ctx context.Context, filter repositories.Procedu
 		err := rows.Scan(
 			&procedure.ID,
 			&procedure.Name,
+			&procedure.DisplayName,
 			&procedure.Code,
 			&category,
 			&description,
+			pq.Array(&procedure.NormalizedTags),
 			&procedure.IsActive,
 			&procedure.CreatedAt,
 			&procedure.UpdatedAt,
@@ -444,7 +455,15 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 
 	// Step 1: Build base query with JOIN to procedures table for search capability
 	baseQuery := a.db.From(
-		a.db.Select("fp.*", "p.name as procedure_name", "p.code as procedure_code", "p.category", "p.description").
+		a.db.Select(
+			goqu.L("fp.*"),
+			goqu.COALESCE(goqu.I("p.display_name"), goqu.I("p.name")).As("procedure_name"),
+			goqu.I("p.display_name").As("procedure_display_name"),
+			goqu.I("p.code").As("procedure_code"),
+			goqu.I("p.category").As("category"),
+			goqu.I("p.description").As("description"),
+			goqu.I("p.normalized_tags").As("procedure_normalized_tags"),
+		).
 			From(goqu.T("facility_procedures").As("fp")).
 			Join(goqu.T("procedures").As("p"), goqu.On(goqu.I("fp.procedure_id").Eq(goqu.I("p.id")))).
 			Where(goqu.I("fp.facility_id").Eq(facilityID)).
@@ -476,12 +495,17 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 	// CRITICAL: Search query applied to ENTIRE dataset first
 	if filter.SearchQuery != "" {
 		searchPattern := fmt.Sprintf("%%%s%%", filter.SearchQuery)
-		filteredQuery = filteredQuery.Where(
-			goqu.Or(
-				goqu.I("procedure_name").ILike(searchPattern),
-				goqu.I("description").ILike(searchPattern),
-			),
-		)
+		
+		orConditions := []goqu.Expression{
+			goqu.I("procedure_name").ILike(searchPattern),
+			goqu.I("description").ILike(searchPattern),
+		}
+		
+		if len(filter.SearchTerms) > 0 {
+			orConditions = append(orConditions, goqu.L("procedure_normalized_tags && ?", pq.Array(filter.SearchTerms)))
+		}
+		
+		filteredQuery = filteredQuery.Where(goqu.Or(orConditions...))
 	}
 
 	// Step 3: Get total count of filtered results (before pagination)
@@ -501,7 +525,7 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 	sortedQuery := filteredQuery.Select(
 		"id", "facility_id", "procedure_id", "price", "currency",
 		"estimated_duration", "is_available", "created_at", "updated_at",
-		"procedure_name", "procedure_code", "category", "description",
+		"procedure_name", "procedure_display_name", "procedure_code", "category", "description", "procedure_normalized_tags",
 	)
 
 	if filter.SortBy != "" {
@@ -562,19 +586,22 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 	var procedures []*entities.FacilityProcedure
 	for rows.Next() {
 		fp := &entities.FacilityProcedure{}
-		var procName, procCode, procCategory, procDescription sql.NullString
+		var procName, procDisplayName, procCode, procCategory, procDescription sql.NullString
+		var procTags []string
 		err := rows.Scan(
 			&fp.ID, &fp.FacilityID, &fp.ProcedureID, &fp.Price, &fp.Currency,
 			&fp.EstimatedDuration, &fp.IsAvailable, &fp.CreatedAt, &fp.UpdatedAt,
-			&procName, &procCode, &procCategory, &procDescription,
+			&procName, &procDisplayName, &procCode, &procCategory, &procDescription, pq.Array(&procTags),
 		)
 		if err != nil {
 			return nil, 0, apperrors.NewInternalError("failed to scan facility procedure", err)
 		}
 		fp.ProcedureName = procName.String
+		fp.ProcedureDisplayName = procDisplayName.String
 		fp.ProcedureCode = procCode.String
 		fp.ProcedureCategory = procCategory.String
 		fp.ProcedureDescription = procDescription.String
+		fp.ProcedureTags = procTags
 		procedures = append(procedures, fp)
 	}
 
