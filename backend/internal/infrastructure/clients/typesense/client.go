@@ -10,6 +10,7 @@ import (
 	"github.com/typesense/typesense-go/v2/typesense/api"
 	"github.com/typesense/typesense-go/v2/typesense/api/pointer"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/retry"
 )
 
 const (
@@ -21,7 +22,7 @@ type Client struct {
 	client *typesense.Client
 }
 
-// NewClient creates a new Typesense client
+// NewClient creates a new Typesense client with exponential backoff retry
 func NewClient(cfg *config.TypesenseConfig) (*Client, error) {
 	client := typesense.NewClient(
 		typesense.WithServer(cfg.URL),
@@ -29,14 +30,28 @@ func NewClient(cfg *config.TypesenseConfig) (*Client, error) {
 		typesense.WithConnectionTimeout(5*time.Second),
 	)
 
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Test connection with retry
+	retryConfig := retry.DefaultConfig()
+	err := retry.DoWithLog(
+		context.Background(),
+		retryConfig,
+		"Typesense",
+		func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := client.Health(ctx, 2*time.Second)
+			return err
+		},
+		func(attempt int, err error, nextDelay time.Duration) {
+			log.Printf("Typesense connection attempt %d failed: %v. Retrying in %v...", attempt, err, nextDelay)
+		},
+	)
 
-	if _, err := client.Health(ctx, 2*time.Second); err != nil {
-		return nil, fmt.Errorf("failed to connect to Typesense: %w", err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Typesense after retries: %w", err)
 	}
 
+	log.Println("Successfully connected to Typesense")
 	return &Client{client: client}, nil
 }
 
@@ -106,6 +121,11 @@ func (c *Client) InitSchema(ctx context.Context) error {
 				Name:     "insurance",
 				Type:     "string[]",
 				Facet:    pointer.True(),
+				Optional: pointer.True(),
+			},
+			{
+				Name:     "procedures",
+				Type:     "string[]",
 				Optional: pointer.True(),
 			},
 			{

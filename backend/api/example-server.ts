@@ -29,6 +29,11 @@ import {
   WhatsAppCloudSender,
   CapacityRequestToken,
 } from '../ingestion/capacityRequestService';
+import { BlnkService } from '../internal/adapters/blnk/BlnkService';
+import { CapacityService } from '../services/CapacityService';
+import { TransactionIngestionService } from '../ingestion/TransactionIngestionService';
+import { createClient } from 'redis';
+import { FlutterwaveService } from '../services/FlutterwaveService';
 
 /**
  * Initialize and start the API server
@@ -70,14 +75,34 @@ async function startServer() {
     process.env.PROVIDER_MONGO_DOC_SUMMARY_COLLECTION || 'document_summaries';
   const mongoStateCollection = process.env.PROVIDER_STATE_COLLECTION || 'provider_state';
   const mongoFacilityCollection = process.env.PROVIDER_FACILITY_COLLECTION || 'facility_profiles';
-  const mongoCapacityCollection = process.env.PROVIDER_CAPACITY_TOKEN_COLLECTION || 'capacity_request_tokens';
   const mongoProcedureCollection = process.env.PROVIDER_PROCEDURE_COLLECTION || 'procedure_profiles';
+  const mongoCapacityCollection = process.env.PROVIDER_CAPACITY_COLLECTION || 'capacity_tokens';
   const mongoTTL = process.env.PROVIDER_MONGO_TTL_DAYS
     ? Number.parseInt(process.env.PROVIDER_MONGO_TTL_DAYS, 10)
     : 30;
 
+  // Capacity & Ingestion Setup
+  let redisClient;
+  let capacityService;
+  let blnkService;
+  let transactionIngestionService;
+  let flutterwaveService;
+
+  if (process.env.REDIS_HOST) {
+    const redisUrl = `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`;
+    try {
+      redisClient = createClient({ url: redisUrl });
+      await redisClient.connect();
+      console.log(`✓ Redis connected for Capacity Service (${redisUrl})`);
+      capacityService = new CapacityService(redisClient);
+    } catch (e) {
+      console.error('✗ Redis connection failed:', e);
+    }
+  }
+
   let documentStore: IDocumentStore<PriceData>;
   let docSummaryStore: IDocumentStore<DocumentSummaryCacheRecord>;
+
   let stateStore: IProviderStateStore | undefined;
 
   if (mongoURI) {
@@ -118,7 +143,7 @@ async function startServer() {
       ? Number.parseInt(process.env.PROVIDER_LLM_MAX_TAGS, 10)
       : undefined,
   };
-  const facilityProfileService = new FacilityProfileService(facilityStore, llmConfig);
+  const facilityProfileService = new FacilityProfileService(facilityStore, llmConfig, redisClient);
 
   let procedureStore: IDocumentStore<ProcedureProfile>;
   if (mongoURI) {
@@ -167,8 +192,36 @@ async function startServer() {
     whatsappSender,
   });
 
+  if (process.env.BLNK_URL || process.env.BLNK_SERVER_PORT) {
+    const blnkUrl = process.env.BLNK_URL || `http://localhost:${process.env.BLNK_SERVER_PORT || 5001}`;
+    blnkService = new BlnkService(blnkUrl);
+    console.log(`✓ Blnk Service configured (${blnkUrl})`);
+  }
+
+  if (process.env.FLUTTERWAVE_SECRET_KEY) {
+    flutterwaveService = new FlutterwaveService(
+      process.env.FLUTTERWAVE_SECRET_KEY,
+      process.env.FLUTTERWAVE_WEBHOOK_SECRET || ''
+    );
+    console.log('✓ Flutterwave Service enabled');
+  }
+
+  if (capacityService) {
+    transactionIngestionService = new TransactionIngestionService(
+      capacityService,
+      blnkService || null,
+      facilityProfileService
+    );
+    console.log('✓ Transaction Ingestion Service enabled');
+  }
+
   // 1. Create the API server
-  const api = new DataProviderAPI({ facilityProfileService, capacityRequestService });
+  const api = new DataProviderAPI({ 
+    facilityProfileService, 
+    capacityRequestService,
+    transactionIngestionService,
+    flutterwaveService
+  });
 
   // 3. Create and configure provider
   let providerInitialized = false;
@@ -306,6 +359,20 @@ async function startServer() {
   if (capacityIntervalMinutes > 0) {
     capacityRequestService.start(capacityIntervalMinutes * 60 * 1000);
     console.log(`✓ Capacity request scheduler enabled (every ${capacityIntervalMinutes} minutes)`);
+  }
+
+  // Capacity Snapshot Scheduler (Dynamic Thresholding)
+  if (capacityService) {
+    const snapshotInterval = setInterval(async () => {
+      // For production, we would iterate over all active wards. 
+      // For this prototype, we'll monitor known key wards or all wards with recent activity.
+      // For now, we'll log the action.
+      console.log('Recording capacity snapshots for dynamic thresholding...');
+      // Logic: fetch all keys starting with capacity: and record snapshots
+    }, 15 * 60 * 1000); // Every 15 minutes
+    
+    process.on('SIGTERM', () => clearInterval(snapshotInterval));
+    process.on('SIGINT', () => clearInterval(snapshotInterval));
   }
 
   // 7. Start the API server

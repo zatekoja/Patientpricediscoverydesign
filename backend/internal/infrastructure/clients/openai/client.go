@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -86,13 +87,7 @@ func (c *Client) EnrichProcedure(ctx context.Context, procedure *entities.Proced
 		recordOpenAIRateLimitWait(ctx, c.model, time.Since(waitStart))
 	}
 
-	systemPrompt := "You are a clinical content assistant. Return ONLY valid JSON. " +
-		"Use the schema: {\"description\": string, \"prep_steps\": string[], \"risks\": string[], \"recovery\": string[]}. " +
-		"Description must be 1-2 short sentences. Provide 2-4 items in each list. " +
-		"Keep the language simple and non-alarmist. Do not include medical advice or diagnosis."
-
-	userPrompt := fmt.Sprintf(
-		"Procedure name: %s\nCategory: %s\nCode: %s\nExisting description: %s\n",
+	userPrompt := buildSearchConceptUserPrompt(
 		procedure.Name,
 		procedure.Category,
 		procedure.Code,
@@ -102,11 +97,11 @@ func (c *Client) EnrichProcedure(ctx context.Context, procedure *entities.Proced
 	payload := map[string]interface{}{
 		"model": c.model,
 		"input": []map[string]string{
-			{"role": "system", "content": systemPrompt},
+			{"role": "system", "content": searchConceptSystemPrompt},
 			{"role": "user", "content": userPrompt},
 		},
 		"temperature":       0.2,
-		"max_output_tokens": 400,
+		"max_output_tokens": 600,
 	}
 
 	body, err := json.Marshal(payload)
@@ -131,6 +126,9 @@ func (c *Client) EnrichProcedure(ctx context.Context, procedure *entities.Proced
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		recordOpenAIMetric(ctx, c.model, resp.StatusCode, time.Since(start), fmt.Errorf("status %d", resp.StatusCode))
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, fmt.Errorf("%w: openai request failed with status %d", providers.ErrProcedureEnrichmentUnauthorized, resp.StatusCode)
+		}
 		return nil, fmt.Errorf("openai request failed with status %d", resp.StatusCode)
 	}
 
@@ -158,20 +156,26 @@ func (c *Client) EnrichProcedure(ctx context.Context, procedure *entities.Proced
 		return nil, errors.New("openai response missing output text")
 	}
 
-	var parsed enrichmentPayload
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+	parsed, err := parseEnrichmentPayloadWithConcepts([]byte(text))
+	if err != nil {
 		recordOpenAIMetric(ctx, c.model, resp.StatusCode, time.Since(start), err)
 		return nil, fmt.Errorf("failed to parse openai response: %w", err)
 	}
 
+	// Validate and sanitize search concepts if present
+	if parsed.SearchConcepts != nil {
+		_ = parsed.SearchConcepts.Validate()
+	}
+
 	recordOpenAIMetric(ctx, c.model, resp.StatusCode, time.Since(start), nil)
 	return &entities.ProcedureEnrichment{
-		Description: parsed.Description,
-		PrepSteps:   parsed.PrepSteps,
-		Risks:       parsed.Risks,
-		Recovery:    parsed.Recovery,
-		Provider:    "openai",
-		Model:       c.model,
+		Description:    parsed.Description,
+		PrepSteps:      parsed.PrepSteps,
+		Risks:          parsed.Risks,
+		Recovery:       parsed.Recovery,
+		SearchConcepts: parsed.SearchConcepts,
+		Provider:       "openai",
+		Model:          c.model,
 	}, nil
 }
 

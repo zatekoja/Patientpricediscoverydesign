@@ -1,0 +1,8 @@
+{
+  "baby": ["maternity", "delivery", "newborn", "antenatal"],
+  "xray": ["radiology", "imaging", "scan"],
+  "heart": ["cardiology", "cardiac", "ecg", "ekg"],
+  "eye": ["ophthalmology", "vision", "cataract"],
+  "skin": ["dermatology"],
+  "ent": ["ear", "nose", "throat", "audiology"]
+}

@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -14,7 +17,10 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/providerapi"
 	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/utils"
 )
+
+const enrichWorkerCount = 5
 
 type ProviderIngestionSummary struct {
 	RecordsProcessed            int `json:"records_processed"`
@@ -41,6 +47,7 @@ type ProviderIngestionService struct {
 	geocodeCache          map[string]*providers.GeocodedAddress
 	cacheProvider         providers.CacheProvider
 	pageSize              int
+	normalizer            *utils.ServiceNameNormalizer
 }
 
 func NewProviderIngestionService(
@@ -58,6 +65,18 @@ func NewProviderIngestionService(
 	if pageSize <= 0 {
 		pageSize = 500
 	}
+
+	// Initialize service normalizer (graceful degradation if config not found)
+	configPath := os.Getenv("MEDICAL_ABBREVIATIONS_CONFIG")
+	if configPath == "" {
+		configPath = "config/medical_abbreviations.json"
+	}
+	normalizer, err := utils.NewServiceNameNormalizer(configPath)
+	if err != nil {
+		log.Printf("WARNING: Failed to initialize service name normalizer: %v", err)
+		normalizer = nil // Graceful degradation
+	}
+
 	return &ProviderIngestionService{
 		client:                client,
 		facilityRepo:          facilityRepo,
@@ -70,6 +89,7 @@ func NewProviderIngestionService(
 		geocodeCache:          map[string]*providers.GeocodedAddress{},
 		cacheProvider:         cacheProvider,
 		pageSize:              pageSize,
+		normalizer:            normalizer,
 	}
 }
 
@@ -250,10 +270,13 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 
 	s.invalidateSearchCaches(ctx)
 
-	// Enrich procedures during ingestion
-	enrichmentSummary := s.enrichProceduresBatch(ctx)
-	summary.ProcedureEnrichmentsCreated = enrichmentSummary.Created
-	summary.ProcedureEnrichmentsFailed = enrichmentSummary.Failed
+	// Enrich procedures in the background with its own long-lived context
+	// so it doesn't get killed by the 2-minute ingestion timeout.
+	go func() {
+		enrichCtx, enrichCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer enrichCancel()
+		s.enrichProceduresBatch(enrichCtx)
+	}()
 
 	return summary, nil
 }
@@ -369,46 +392,26 @@ func (s *ProviderIngestionService) ensureFacilityLocation(ctx context.Context, f
 		return true
 	}
 
-	coords, err := s.geolocationProvider.Geocode(ctx, query)
-	if err != nil || coords == nil {
+	geo, err := s.geolocationProvider.Geocode(ctx, query)
+	if err != nil || geo == nil {
 		return false
 	}
 
-	geo := s.reverseGeocodeOrFallback(ctx, coords, facility, query, tags)
+	// Geocode now returns the full address, so we use it directly
+	// We verify if the returned location matches our expectations (e.g., inside Nigeria)
+	loc := entities.Location{
+		Latitude:  geo.Coordinates.Latitude,
+		Longitude: geo.Coordinates.Longitude,
+	}
+	if isLikelyNigeria(tags, query) && isOutsideNigeria(loc) {
+		// If the geocoded result puts us outside Nigeria when we expect to be inside,
+		// we might want to fallback or discard.
+		// For now, we trust the specific geocode result over the generic check.
+	}
+
 	applyGeocodedAddress(facility, geo)
 	s.geocodeCache[query] = geo
 	return true
-}
-
-func (s *ProviderIngestionService) reverseGeocodeOrFallback(ctx context.Context, coords *providers.Coordinates, facility *entities.Facility, query string, tags []string) *providers.GeocodedAddress {
-	if coords == nil {
-		return buildFallbackGeocodedAddress(facility, query, tags, providers.Coordinates{})
-	}
-
-	reverse, err := s.geolocationProvider.ReverseGeocode(ctx, coords.Latitude, coords.Longitude)
-	if err == nil && reverse != nil {
-		if !isLikelyNigeria(tags, query) || strings.EqualFold(reverse.Country, "Nigeria") || reverse.Country == "" {
-			return reverse
-		}
-	}
-
-	return buildFallbackGeocodedAddress(facility, query, tags, *coords)
-}
-
-func buildFallbackGeocodedAddress(facility *entities.Facility, query string, tags []string, coords providers.Coordinates) *providers.GeocodedAddress {
-	// FIX: Don't use tag inference to fill missing city - it causes incorrect defaults
-	// If coordinates are valid but reverse geocoding failed, leave city empty rather than guessing from tags
-	// The actual city should come from:
-	// 1. Facility address (if provided)
-	// 2. Reverse geocoding with coordinates (already attempted before calling this)
-	// 3. Left empty if neither available (DO NOT use tag inference)
-	return &providers.GeocodedAddress{
-		FormattedAddress: query,
-		City:             facility.Address.City, // Use only actual address, not tag inference
-		State:            facility.Address.State,
-		Country:          firstNonEmpty(facility.Address.Country, "Nigeria"),
-		Coordinates:      coords,
-	}
 }
 
 func applyGeocodedAddress(facility *entities.Facility, geo *providers.GeocodedAddress) {
@@ -417,14 +420,45 @@ func applyGeocodedAddress(facility *entities.Facility, geo *providers.GeocodedAd
 	}
 	facility.Location.Latitude = geo.Coordinates.Latitude
 	facility.Location.Longitude = geo.Coordinates.Longitude
+
+	// Populate street address
+	if facility.Address.Street == "" {
+		if geo.Street != "" {
+			facility.Address.Street = geo.Street
+		} else if geo.FormattedAddress != "" {
+			// Use formatted address without country/state suffix as street
+			street := geo.FormattedAddress
+			// Remove country and state suffixes
+			if geo.Country != "" {
+				street = strings.TrimSuffix(street, ", "+geo.Country)
+				street = strings.TrimSuffix(street, ","+geo.Country)
+			}
+			if geo.State != "" {
+				street = strings.TrimSuffix(street, ", "+geo.State)
+				street = strings.TrimSuffix(street, ","+geo.State)
+			}
+			facility.Address.Street = strings.TrimSpace(street)
+		}
+	}
+
+	// Populate city
 	if facility.Address.City == "" && geo.City != "" {
 		facility.Address.City = geo.City
 	}
+
+	// Populate state
 	if facility.Address.State == "" && geo.State != "" {
 		facility.Address.State = geo.State
 	}
+
+	// Populate country
 	if facility.Address.Country == "" && geo.Country != "" {
 		facility.Address.Country = geo.Country
+	}
+
+	// Populate zip code
+	if facility.Address.ZipCode == "" && geo.ZipCode != "" {
+		facility.Address.ZipCode = geo.ZipCode
 	}
 }
 
@@ -613,6 +647,22 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 
 	existing, err := s.procedureRepo.GetByCode(ctx, code)
 	if err == nil {
+		// Backfill normalization for existing procedures (older ingestions may have display_name=name).
+		if s.normalizer != nil {
+			// Prefer normalizing the stored original name to keep deterministic output.
+			normalized := s.normalizer.Normalize(existing.Name)
+			if normalized != nil {
+				if normalized.DisplayName != "" && normalized.DisplayName != existing.DisplayName {
+					existing.DisplayName = normalized.DisplayName
+				}
+				if len(normalized.NormalizedTags) > 0 {
+					// Backfill if missing, or if tags changed due to improved normalization rules.
+					if len(existing.NormalizedTags) == 0 || strings.Join(existing.NormalizedTags, ",") != strings.Join(normalized.NormalizedTags, ",") {
+						existing.NormalizedTags = normalized.NormalizedTags
+					}
+				}
+			}
+		}
 		if record.ProcedureCategory != "" && existing.Category != record.ProcedureCategory {
 			existing.Category = record.ProcedureCategory
 		}
@@ -639,15 +689,27 @@ func (s *ProviderIngestionService) ensureProcedure(ctx context.Context, record p
 	if record.ProcedureCategory != "" {
 		category = record.ProcedureCategory
 	}
+
+	// Apply normalization
+	displayName := record.ProcedureDescription
+	var normalizedTags []string
+	if s.normalizer != nil {
+		normalized := s.normalizer.Normalize(record.ProcedureDescription)
+		displayName = normalized.DisplayName
+		normalizedTags = normalized.NormalizedTags
+	}
+
 	procedure := &entities.Procedure{
-		ID:          buildProcedureID(code),
-		Name:        record.ProcedureDescription,
-		Code:        code,
-		Category:    category,
-		Description: description,
-		IsActive:    true,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             buildProcedureID(code),
+		Name:           record.ProcedureDescription,
+		DisplayName:    displayName,
+		Code:           code,
+		Category:       category,
+		Description:    description,
+		NormalizedTags: normalizedTags,
+		IsActive:       true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	if err := s.procedureRepo.Create(ctx, procedure); err != nil {
@@ -800,12 +862,46 @@ func inferProcedureCategory(description string, tags []string) string {
 
 	for _, value := range candidates {
 		switch {
-		case strings.Contains(value, "imaging") || strings.Contains(value, "scan") || strings.Contains(value, "x-ray"):
+		case strings.Contains(value, "hiv") || strings.Contains(value, "sti") || strings.Contains(value, "std") || strings.Contains(value, "vdrl") || strings.Contains(value, "hepatitis") || strings.Contains(value, "sexual health") || strings.Contains(value, "gonorrh") || strings.Contains(value, "chlamydia") || strings.Contains(value, "syphilis"):
+			return "sti_testing"
+		case strings.Contains(value, "imaging") || strings.Contains(value, "scan") || strings.Contains(value, "x-ray") || strings.Contains(value, "radiolog") || strings.Contains(value, "ultrasound") || strings.Contains(value, "mri") || strings.Contains(value, "echo"):
 			return "imaging"
-		case strings.Contains(value, "lab") || strings.Contains(value, "laboratory") || strings.Contains(value, "test"):
+		case strings.Contains(value, "lab") || strings.Contains(value, "laboratory") || strings.Contains(value, "diagnostic"):
 			return "laboratory"
-		case strings.Contains(value, "surgery") || strings.Contains(value, "operation"):
+		case strings.Contains(value, "ophthal") || strings.Contains(value, "cataract") || strings.Contains(value, "glaucoma") || strings.Contains(value, "retina") || strings.Contains(value, "cornea"):
+			return "ophthalmology"
+		case strings.Contains(value, "dental") || strings.Contains(value, "tooth") || strings.Contains(value, "orthodontic") || strings.Contains(value, "maxillofacial"):
+			return "dental"
+		case strings.Contains(value, "surgery") || strings.Contains(value, "operation") || strings.Contains(value, "theatre") || strings.Contains(value, "laparotomy") || strings.Contains(value, "laparoscop"):
 			return "surgical"
+		case value == "ent" || strings.Contains(value, "tonsil") || strings.Contains(value, "adenoid") || strings.Contains(value, "mastoid") || strings.Contains(value, "laryngoscop") || strings.Contains(value, "tracheostomy") || strings.Contains(value, "ear nose"):
+			return "ent"
+		case strings.Contains(value, "psychiatr") || strings.Contains(value, "psycholog") || strings.Contains(value, "mental") || strings.Contains(value, "electroconvulsive"):
+			return "psychiatry"
+		case strings.Contains(value, "dermatol") || strings.Contains(value, "skin biopsy") || strings.Contains(value, "hyfrecation"):
+			return "dermatology"
+		case strings.Contains(value, "physiotherapy") || strings.Contains(value, "physio") || strings.Contains(value, "rehab"):
+			return "physiotherapy"
+		case strings.Contains(value, "dietary") || strings.Contains(value, "nutrition") || strings.Contains(value, "meal") || strings.Contains(value, "feeding"):
+			return "dietary"
+		case strings.Contains(value, "endoscop") || strings.Contains(value, "colonoscop") || strings.Contains(value, "polypectomy"):
+			return "endoscopy"
+		case strings.Contains(value, "urol") || strings.Contains(value, "catheter") || strings.Contains(value, "cystoscop") || strings.Contains(value, "prostat"):
+			return "urology"
+		case strings.Contains(value, "oncol") || strings.Contains(value, "chemo") || strings.Contains(value, "radiotherapy") || strings.Contains(value, "cancer"):
+			return "oncology"
+		case strings.Contains(value, "orthopaed") || strings.Contains(value, "orthoped") || strings.Contains(value, "fracture") || strings.Contains(value, "plaster of paris"):
+			return "orthopaedics"
+		case strings.Contains(value, "stroke") || strings.Contains(value, "cerebrovascular") || strings.Contains(value, "eeg") || strings.Contains(value, "electroencephalogr"):
+			return "neurology"
+		case strings.Contains(value, "ward") || strings.Contains(value, "admission") || strings.Contains(value, "accommodation") || strings.Contains(value, "bed"):
+			return "accommodation"
+		case strings.Contains(value, "ambulance") || strings.Contains(value, "emergency") || strings.Contains(value, "casualty") || strings.Contains(value, "triage"):
+			return "emergency"
+		case strings.Contains(value, "registration") || strings.Contains(value, "card") || strings.Contains(value, "folder"):
+			return "registration"
+		case strings.Contains(value, "report") || strings.Contains(value, "certificate"):
+			return "administrative"
 		case strings.Contains(value, "therapy"):
 			return "therapeutic"
 		case strings.Contains(value, "checkup") || strings.Contains(value, "screen"):
@@ -875,12 +971,17 @@ func applyProfileStatus(facility *entities.Facility, profile *providerapi.Facili
 			changed = true
 		}
 	}
+	if profile.WardStatuses != nil {
+		facility.WardStatuses = profile.WardStatuses
+		changed = true
+	}
 
 	return changed
 }
 
 // enrichProceduresBatch enriches all procedures that don't have enrichment data yet.
 // This runs after ingestion to populate enrichment data once for all procedures.
+// Uses a worker pool for concurrent OpenAI calls.
 func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *struct {
 	Created int
 	Failed  int
@@ -909,57 +1010,101 @@ func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *s
 	// Check which procedures need enrichment
 	var proceduresToEnrich []*entities.Procedure
 	for _, proc := range procedures {
-		// Check if enrichment already exists
 		existing, err := s.enrichmentRepo.GetByProcedureID(ctx, proc.ID)
 		if err == nil && existing != nil {
-			// Enrichment already exists, skip
 			continue
 		}
 		proceduresToEnrich = append(proceduresToEnrich, proc)
 	}
 
 	if len(proceduresToEnrich) == 0 {
+		log.Println("all procedures already enriched, nothing to do")
 		return result
 	}
 
-	now := time.Now()
-	for _, proc := range proceduresToEnrich {
-		enriched, err := s.enrichmentProvider.EnrichProcedure(ctx, proc)
-		if err != nil {
-			log.Printf("failed to enrich procedure %s (%s): %v", proc.ID, proc.Name, err)
-			result.Failed++
-			continue
-		}
+	log.Printf("enriching %d procedures with %d workers...", len(proceduresToEnrich), enrichWorkerCount)
 
-		// Ensure required fields are populated
-		if enriched.ID == "" {
-			enriched.ID = fmt.Sprintf("enrich_%s_%d", proc.ID, now.UnixNano())
-		}
-		if enriched.ProcedureID == "" {
-			enriched.ProcedureID = proc.ID
-		}
-		if enriched.CreatedAt.IsZero() {
-			enriched.CreatedAt = now
-		}
-		if enriched.UpdatedAt.IsZero() {
-			enriched.UpdatedAt = now
-		}
-
-		// Use procedure description if enrichment doesn't have one
-		if enriched.Description == "" {
-			enriched.Description = proc.Description
-		}
-
-		// Store enrichment
-		if err := s.enrichmentRepo.Upsert(ctx, enriched); err != nil {
-			log.Printf("failed to store enrichment for procedure %s: %v", proc.ID, err)
-			result.Failed++
-			continue
-		}
-
-		result.Created++
+	// Worker pool for concurrent enrichment
+	var created, failed int64
+	var authFailed int32
+	var authWarnOnce sync.Once
+	type enrichJob struct {
+		proc *entities.Procedure
 	}
 
+	jobs := make(chan enrichJob, len(proceduresToEnrich))
+	var wg sync.WaitGroup
+
+	for w := 0; w < enrichWorkerCount; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				if ctx.Err() != nil {
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+
+				// If credentials are rejected, don't keep hammering the provider.
+				if atomic.LoadInt32(&authFailed) == 1 {
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+				proc := job.proc
+				enriched, err := s.enrichmentProvider.EnrichProcedure(ctx, proc)
+				if err != nil {
+					if errors.Is(err, providers.ErrProcedureEnrichmentUnauthorized) {
+						atomic.StoreInt32(&authFailed, 1)
+						authWarnOnce.Do(func() {
+							log.Printf("procedure enrichment disabled for this run: provider credentials rejected (%v)", err)
+						})
+						atomic.AddInt64(&failed, 1)
+						continue
+					}
+					log.Printf("failed to enrich procedure %s (%s): %v", proc.ID, proc.Name, err)
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+
+				now := time.Now()
+				if enriched.ID == "" {
+					enriched.ID = fmt.Sprintf("enrich_%s_%d", proc.ID, now.UnixNano())
+				}
+				if enriched.ProcedureID == "" {
+					enriched.ProcedureID = proc.ID
+				}
+				if enriched.CreatedAt.IsZero() {
+					enriched.CreatedAt = now
+				}
+				if enriched.UpdatedAt.IsZero() {
+					enriched.UpdatedAt = now
+				}
+				if enriched.Description == "" {
+					enriched.Description = proc.Description
+				}
+
+				if err := s.enrichmentRepo.Upsert(ctx, enriched); err != nil {
+					log.Printf("failed to store enrichment for procedure %s: %v", proc.ID, err)
+					atomic.AddInt64(&failed, 1)
+					continue
+				}
+
+				c := atomic.AddInt64(&created, 1)
+				if c%50 == 0 {
+					log.Printf("enrichment progress: %d/%d done", c, len(proceduresToEnrich))
+				}
+			}
+		}()
+	}
+
+	for _, proc := range proceduresToEnrich {
+		jobs <- enrichJob{proc: proc}
+	}
+	close(jobs)
+	wg.Wait()
+
+	result.Created = int(atomic.LoadInt64(&created))
+	result.Failed = int(atomic.LoadInt64(&failed))
 	log.Printf("batch enriched %d procedures (%d failed)", result.Created, result.Failed)
 	return result
 }

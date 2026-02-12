@@ -116,6 +116,57 @@ func (m *MockFacilityRepository) Search(ctx context.Context, params repositories
 	return args.Get(0).([]*entities.Facility), args.Error(1)
 }
 
+type MockProcedureRepository struct {
+	mock.Mock
+}
+
+func (m *MockProcedureRepository) Create(ctx context.Context, procedure *entities.Procedure) error {
+	args := m.Called(ctx, procedure)
+	return args.Error(0)
+}
+
+func (m *MockProcedureRepository) GetByID(ctx context.Context, id string) (*entities.Procedure, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entities.Procedure), args.Error(1)
+}
+
+func (m *MockProcedureRepository) GetByCode(ctx context.Context, code string) (*entities.Procedure, error) {
+	args := m.Called(ctx, code)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entities.Procedure), args.Error(1)
+}
+
+func (m *MockProcedureRepository) GetByIDs(ctx context.Context, ids []string) ([]*entities.Procedure, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entities.Procedure), args.Error(1)
+}
+
+func (m *MockProcedureRepository) Update(ctx context.Context, procedure *entities.Procedure) error {
+	args := m.Called(ctx, procedure)
+	return args.Error(0)
+}
+
+func (m *MockProcedureRepository) Delete(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockProcedureRepository) List(ctx context.Context, filter repositories.ProcedureFilter) ([]*entities.Procedure, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entities.Procedure), args.Error(1)
+}
+
 // Tests
 
 func TestAppointmentService_BookAppointment(t *testing.T) {
@@ -123,8 +174,9 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 		// Arrange
 		repo := new(MockAppointmentRepository)
 		facilityRepo := new(MockFacilityRepository)
+		procedureRepo := new(MockProcedureRepository)
 		provider := new(MockAppointmentProvider)
-		service := services.NewAppointmentService(repo, facilityRepo, provider, true)
+		service := services.NewAppointmentService(repo, facilityRepo, procedureRepo, provider, true, nil)
 
 		appointment := &entities.Appointment{
 			FacilityID:  "facility-1",
@@ -133,13 +185,20 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 			PatientName: "John Doe",
 		}
 
+		facilityRepo.On("GetByID", mock.Anything, "facility-1").Return(&entities.Facility{
+			ID:                   "facility-1",
+			SchedulingExternalID: "consultation-30min",
+		}, nil)
+
 		// Expectations
 		// 1. Provider is called to book external slot
 		provider.On("CreateAppointment", mock.Anything, appointment).Return("ext-123", "http://meet.com/123", nil)
 
 		// 2. Repository is called to save appointment with external details
 		repo.On("Create", mock.Anything, mock.MatchedBy(func(a *entities.Appointment) bool {
-			return a.Status == entities.AppointmentStatusConfirmed && a.PatientName == "John Doe"
+			return a.Status == entities.AppointmentStatusPending &&
+				a.PatientName == "John Doe" &&
+				a.BookingMethod == entities.BookingMethodAPI
 		})).Return(nil)
 
 		// Act
@@ -149,19 +208,26 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 		assert.NoError(t, err)
 		repo.AssertExpectations(t)
 		provider.AssertExpectations(t)
+		facilityRepo.AssertExpectations(t)
 	})
 
 	t.Run("fails when provider fails", func(t *testing.T) {
 		// Arrange
 		repo := new(MockAppointmentRepository)
 		facilityRepo := new(MockFacilityRepository)
+		procedureRepo := new(MockProcedureRepository)
 		provider := new(MockAppointmentProvider)
-		service := services.NewAppointmentService(repo, facilityRepo, provider, true)
+		service := services.NewAppointmentService(repo, facilityRepo, procedureRepo, provider, true, nil)
 
 		appointment := &entities.Appointment{
 			FacilityID:  "facility-1",
 			ScheduledAt: time.Now().Add(24 * time.Hour),
 		}
+
+		facilityRepo.On("GetByID", mock.Anything, "facility-1").Return(&entities.Facility{
+			ID:                   "facility-1",
+			SchedulingExternalID: "consultation-30min",
+		}, nil)
 
 		provider.On("CreateAppointment", mock.Anything, appointment).Return("", "", errors.New("provider error"))
 
@@ -172,5 +238,6 @@ func TestAppointmentService_BookAppointment(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "provider error")
 		repo.AssertNotCalled(t, "Create")
+		facilityRepo.AssertExpectations(t)
 	})
 }

@@ -5,7 +5,7 @@ import { API_BASE_URL } from "../../lib/api";
 import type { UIFacility } from "../../lib/mappers";
 import fallbackMap from "../../assets/fallback-image-asset.png";
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GEOLOCATION_API_KEY || "";
 
 interface MapViewProps {
   facilities: UIFacility[];
@@ -52,6 +52,10 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
       scale: "1",
     });
 
+    // Add user's location marker (blue)
+    mapParams.append("markers", `color:blue|${center.lat},${center.lon}`);
+
+    // Add facility markers (red with labels)
     facilities.forEach((facility, index) => {
       if (facility.lat == null || facility.lon == null) {
         return;
@@ -77,19 +81,11 @@ export function MapView({ facilities, center, onSelectFacility }: MapViewProps) 
               onError={() => setStaticMapError(true)}
             />
 
-            {/* User location marker */}
-            <div
-              className="absolute bg-blue-600 rounded-full p-3 shadow-lg"
-              style={{ top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
-            >
-              <Navigation className="w-5 h-5 text-white" />
-            </div>
-
             <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2">
               <span className="text-xs text-gray-600">
                 {staticMapError
                   ? "Fallback map preview."
-                  : "Static map (Add VITE_GOOGLE_MAPS_API_KEY for interactive map)."}
+                  : "Static map (Add GEOLOCATION_API_KEY to Vault for interactive map)."}
               </span>
             </div>
           </div>

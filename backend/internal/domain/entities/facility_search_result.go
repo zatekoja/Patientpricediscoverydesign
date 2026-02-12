@@ -24,6 +24,7 @@ type FacilitySearchResult struct {
 	NextAvailableAt     *time.Time          `json:"next_available_at,omitempty"`
 	AvgWaitMinutes      *int                `json:"avg_wait_minutes,omitempty"`
 	CapacityStatus      string              `json:"capacity_status,omitempty"`
+	WardStatuses        interface{}         `json:"ward_statuses,omitempty"`
 	UrgentCareAvailable *bool               `json:"urgent_care_available,omitempty"`
 	UpdatedAt           time.Time           `json:"updated_at"`
 }
@@ -37,12 +38,15 @@ type FacilityPriceRange struct {
 
 // ServicePrice represents a priced service at a facility.
 type ServicePrice struct {
-	ProcedureID       string  `json:"procedure_id"`
-	Name              string  `json:"name"`
-	Price             float64 `json:"price"`
-	Currency          string  `json:"currency"`
-	Description       string  `json:"description,omitempty"`
-	Category          string  `json:"category,omitempty"`
-	Code              string  `json:"code,omitempty"`
-	EstimatedDuration int     `json:"estimated_duration,omitempty"`
+	ProcedureID       string   `json:"procedure_id"`
+	Name              string   `json:"name"`
+	DisplayName       string   `json:"display_name,omitempty"`
+	Price             float64  `json:"price"`
+	Currency          string   `json:"currency"`
+	Description       string   `json:"description,omitempty"`
+	Category          string   `json:"category,omitempty"`
+	Code              string   `json:"code,omitempty"`
+	EstimatedDuration int      `json:"estimated_duration,omitempty"`
+	NormalizedTags    []string `json:"normalized_tags,omitempty"`
+	IsAvailable       bool     `json:"is_available,omitempty"`
 }

@@ -61,31 +61,31 @@ func NewGoogleGeolocationProviderWithOptions(apiKey string, cache providers.Cach
 	}
 }
 
-// Geocode converts an address to coordinates.
-func (g *GoogleGeolocationProvider) Geocode(ctx context.Context, address string) (*providers.Coordinates, error) {
+// Geocode converts an address to a full geocoded address.
+func (g *GoogleGeolocationProvider) Geocode(ctx context.Context, address string) (*providers.GeocodedAddress, error) {
 	trimmed := strings.TrimSpace(address)
 	if trimmed == "" {
 		return nil, fmt.Errorf("address is required")
 	}
 
-	cacheKey := "geo:geocode:" + hashKey(strings.ToLower(trimmed))
+	cacheKey := "geo:v2:geocode:" + hashKey(strings.ToLower(trimmed))
 	if g.cache != nil {
 		if cached, err := g.cache.Get(ctx, cacheKey); err == nil && len(cached) > 0 {
-			var coords providers.Coordinates
-			if err := json.Unmarshal(cached, &coords); err == nil {
-				return &coords, nil
+			var addr providers.GeocodedAddress
+			if err := json.Unmarshal(cached, &addr); err == nil && (addr.Coordinates.Latitude != 0 || addr.Coordinates.Longitude != 0) {
+				return &addr, nil
 			}
 		}
 	}
 
 	if g.placesURL != "" {
-		if coords, err := g.searchPlaceCoordinates(ctx, trimmed); err == nil && coords != nil {
+		if addr, err := g.searchPlaceAddress(ctx, trimmed); err == nil && addr != nil {
 			if g.cache != nil {
-				if payload, err := json.Marshal(*coords); err == nil {
+				if payload, err := json.Marshal(*addr); err == nil {
 					_ = g.cache.Set(ctx, cacheKey, payload, defaultGeocodeCacheTTL)
 				}
 			}
-			return coords, nil
+			return addr, nil
 		}
 	}
 
@@ -98,25 +98,36 @@ func (g *GoogleGeolocationProvider) Geocode(ctx context.Context, address string)
 		return nil, fmt.Errorf("no results for address")
 	}
 
-	location := resp.Results[0].Geometry.Location
-	coords := providers.Coordinates{Latitude: location.Lat, Longitude: location.Lng}
+	result := resp.Results[0]
+	addr := providers.GeocodedAddress{
+		FormattedAddress: result.FormattedAddress,
+		Street:           buildStreet(result.AddressComponents),
+		City:             component(result.AddressComponents, "locality", "administrative_area_level_2"),
+		State:            component(result.AddressComponents, "administrative_area_level_1"),
+		ZipCode:          component(result.AddressComponents, "postal_code"),
+		Country:          component(result.AddressComponents, "country"),
+		Coordinates: providers.Coordinates{
+			Latitude:  result.Geometry.Location.Lat,
+			Longitude: result.Geometry.Location.Lng,
+		},
+	}
 
 	if g.cache != nil {
-		if payload, err := json.Marshal(coords); err == nil {
+		if payload, err := json.Marshal(addr); err == nil {
 			_ = g.cache.Set(ctx, cacheKey, payload, defaultGeocodeCacheTTL)
 		}
 	}
 
-	return &coords, nil
+	return &addr, nil
 }
 
 // ReverseGeocode converts coordinates to an address.
 func (g *GoogleGeolocationProvider) ReverseGeocode(ctx context.Context, lat, lon float64) (*providers.GeocodedAddress, error) {
-	cacheKey := "geo:reverse:" + hashKey(fmt.Sprintf("%.5f,%.5f", lat, lon))
+	cacheKey := "geo:v2:reverse:" + hashKey(fmt.Sprintf("%.5f,%.5f", lat, lon))
 	if g.cache != nil {
 		if cached, err := g.cache.Get(ctx, cacheKey); err == nil && len(cached) > 0 {
 			var address providers.GeocodedAddress
-			if err := json.Unmarshal(cached, &address); err == nil {
+			if err := json.Unmarshal(cached, &address); err == nil && (address.Coordinates.Latitude != 0 || address.Coordinates.Longitude != 0) {
 				return &address, nil
 			}
 		}
@@ -202,7 +213,7 @@ func (g *GoogleGeolocationProvider) doGeocodeRequest(ctx context.Context, params
 	return &payload, nil
 }
 
-func (g *GoogleGeolocationProvider) searchPlaceCoordinates(ctx context.Context, query string) (*providers.Coordinates, error) {
+func (g *GoogleGeolocationProvider) searchPlaceAddress(ctx context.Context, query string) (*providers.GeocodedAddress, error) {
 	resp, err := g.doPlacesTextSearch(ctx, query)
 	if err != nil {
 		return nil, err
@@ -217,8 +228,15 @@ func (g *GoogleGeolocationProvider) searchPlaceCoordinates(ctx context.Context, 
 		return nil, fmt.Errorf("places text search failed: %s", resp.Status)
 	}
 
-	location := resp.Results[0].Geometry.Location
-	return &providers.Coordinates{Latitude: location.Lat, Longitude: location.Lng}, nil
+	result := resp.Results[0]
+	// Places API Text Search returns FormattedAddress.
+	return &providers.GeocodedAddress{
+		FormattedAddress: result.FormattedAddress,
+		Coordinates: providers.Coordinates{
+			Latitude:  result.Geometry.Location.Lat,
+			Longitude: result.Geometry.Location.Lng,
+		},
+	}, nil
 }
 
 func (g *GoogleGeolocationProvider) doPlacesTextSearch(ctx context.Context, query string) (*googlePlacesTextSearchResponse, error) {

@@ -88,6 +88,8 @@ services:
     environment:
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
+      VAULT_API_PATH: ${VAULT_API_PATH:-patient-price-discovery/api}
+      VAULT_PROVIDER_PATH: ${VAULT_PROVIDER_PATH:-patient-price-discovery/provider}
     volumes:
       - ./vault/init:/vault/init:ro
     depends_on:
@@ -96,10 +98,78 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: >
       "for i in 1 2 3 4 5; do vault status >/dev/null 2>&1 && break; sleep 1; done;
-       vault kv get -mount=secret patient-price-discovery/api >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/api @/vault/init/api.json;
-       vault kv get -mount=secret patient-price-discovery/provider >/dev/null 2>&1 || vault kv put -mount=secret patient-price-discovery/provider @/vault/init/provider.json;
+       vault kv get -mount=secret ${VAULT_API_PATH} >/dev/null 2>&1 || vault kv put -mount=secret ${VAULT_API_PATH} @/vault/init/api.json;
+       vault kv get -mount=secret ${VAULT_PROVIDER_PATH} >/dev/null 2>&1 || vault kv put -mount=secret ${VAULT_PROVIDER_PATH} @/vault/init/provider.json;
        exit 0"
     restart: "no"
+
+  # ==========================================
+  # Blnk Finance (Financial Ledger)
+  # ==========================================
+  blnk-postgres:
+    image: postgres:15-alpine
+    container_name: ppd_blnk_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: blnk
+    ports:
+      - "5433:5432" # Exposed on 5433 to avoid conflict with main DB
+    volumes:
+      - blnk_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  blnk-redis:
+    image: redis:7-alpine
+    container_name: ppd_blnk_redis
+    ports:
+      - "6380:6379" # Exposed on 6380 to avoid conflict with main Redis
+    volumes:
+      - blnk_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  blnk:
+    build:
+      context: ./backend
+      dockerfile: blnk.Dockerfile
+    container_name: ppd_blnk
+    environment:
+      BLNK_DATA_SOURCE_DNS: "postgres://postgres:postgres@blnk-postgres:5432/blnk?sslmode=disable"
+      BLNK_REDIS_DNS: "blnk-redis:6379"
+      BLNK_SERVER_PORT: "5001"
+      BLNK_PROJECT_NAME: "Megalek Reconciliation"
+    ports:
+      - "5001:5001"
+    depends_on:
+      blnk-postgres:
+        condition: service_healthy
+      blnk-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  blnk-worker:
+    build:
+      context: ./backend
+      dockerfile: blnk.Dockerfile
+    container_name: ppd_blnk_worker
+    command: ["blnk", "workers"]
+    environment:
+      BLNK_DATA_SOURCE_DNS: "postgres://postgres:postgres@blnk-postgres:5432/blnk?sslmode=disable"
+      BLNK_REDIS_DNS: "blnk-redis:6379"
+    depends_on:
+      blnk-postgres:
+        condition: service_healthy
+      blnk-redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   # ==========================================
   # Application Services
@@ -143,7 +213,7 @@ services:
       - VAULT_API_PATH=${VAULT_API_PATH:-patient-price-discovery/api}
       - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
       - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
-      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-true}
+      - VAULT_OVERWRITE=true
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
     depends_on:
@@ -171,6 +241,8 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - OTEL_ENABLED=true
       - OTEL_SERVICE_NAME=patient-price-discovery-provider
       - OTEL_SERVICE_VERSION=1.0.0
@@ -183,7 +255,7 @@ services:
       - PROVIDER_RUN_INITIAL_SYNC=true
       - PRICE_LIST_CURRENCY=NGN
       - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
-      - LLM_DOC_PARSER_ENABLED=true
+      - LLM_DOC_PARSER_ENABLED=false
       - VAULT_ENABLED=true
       - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}
       - VAULT_TOKEN=${VAULT_TOKEN:-root}
@@ -240,6 +312,7 @@ services:
       - TYPESENSE_URL=http://typesense:8108
       - TYPESENSE_API_KEY=${TYPESENSE_API_KEY:-xyz}
       - REINDEX_INTERVAL=${REINDEX_INTERVAL:-6h}
+      - RESET_TYPESENSE=true
     depends_on:
       postgres:
         condition: service_healthy
@@ -292,10 +365,14 @@ services:
       context: .
       dockerfile: Frontend/frontend.Dockerfile
       args:
-        VITE_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+        VITE_GEOLOCATION_API_KEY: ${GEOLOCATION_API_KEY:-}
     container_name: ppd_frontend
     ports:
       - "3000:80"
+      - "5173:5173"  # Vite dev server (when using npm run dev)
+    volumes:
+      - ./Frontend:/app/Frontend
+      - /app/Frontend/node_modules
     depends_on:
       - api
       - sse
@@ -462,3 +539,5 @@ volumes:
   mongo_data:
   clickhouse_data:
   signoz_data:
+  blnk_postgres_data:
+  blnk_redis_data:

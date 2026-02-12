@@ -7,6 +7,7 @@ export interface FacilityUpdate {
   facility_id: string;
   event_type:
     | 'capacity_update'
+    | 'ward_capacity_update'
     | 'wait_time_update'
     | 'urgent_care_update'
     | 'service_health_update'
@@ -86,6 +87,11 @@ export class FacilitySSEClient {
 
       // Listen for capacity updates
       this.eventSource.addEventListener('capacity_update', (event) => {
+        this.handleEvent((event as MessageEvent).data);
+      });
+
+      // Listen for ward capacity updates
+      this.eventSource.addEventListener('ward_capacity_update', (event) => {
         this.handleEvent((event as MessageEvent).data);
       });
 

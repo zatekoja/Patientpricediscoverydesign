@@ -1,5 +1,11 @@
 {
-  "OPENAI_API_KEY": "dev-openai",
-  "GEOLOCATION_API_KEY": "AIzaSyASMvsfXPkitc9QblghrhaPfKTmTkre4jg",
-  "TYPESENSE_API_KEY": "xyz"
+  "OPENAI_API_KEY": "",
+  "GEOLOCATION_API_KEY": "placeholder",
+  "TYPESENSE_API_KEY": "xyz",
+  "CALENDLY_API_KEY": "",
+  "CALENDLY_WEBHOOK_SECRET": "",
+  "CALENDLY_ORG_URL": "",
+  "ALLOW_MOCK_SCHEDULING": "false",
+  "FLUTTERWAVE_WEBHOOK_SECRET": "whsec_placeholder_megalek_recon",
+  "FLUTTERWAVE_SECRET_KEY": "FLWSECK_placeholder"
 }

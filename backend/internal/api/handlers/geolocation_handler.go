@@ -27,16 +27,17 @@ func (h *GeolocationHandler) Geocode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	coords, err := h.provider.Geocode(r.Context(), address)
+	geo, err := h.provider.Geocode(r.Context(), address)
 	if err != nil {
 		respondWithError(w, http.StatusBadGateway, "failed to geocode address")
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"address": address,
-		"lat":     coords.Latitude,
-		"lon":     coords.Longitude,
+		"address":           address,
+		"formatted_address": geo.FormattedAddress,
+		"lat":               geo.Coordinates.Latitude,
+		"lon":               geo.Coordinates.Longitude,
 	})
 }
 

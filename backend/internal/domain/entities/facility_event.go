@@ -11,6 +11,7 @@ type FacilityEventType string
 
 const (
 	FacilityEventTypeCapacityUpdate            FacilityEventType = "capacity_update"
+	FacilityEventTypeWardCapacityUpdate        FacilityEventType = "ward_capacity_update"
 	FacilityEventTypeWaitTimeUpdate            FacilityEventType = "wait_time_update"
 	FacilityEventTypeUrgentCareUpdate          FacilityEventType = "urgent_care_update"
 	FacilityEventTypeServiceHealthUpdate       FacilityEventType = "service_health_update"

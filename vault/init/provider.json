@@ -1,4 +1,6 @@
 {
   "PROVIDER_LLM_API_KEY": "sk-test-placeholder",
-  "PROVIDER_LLM_API_ENDPOINT": "https://api.openai.com/v1/chat/completions"
+  "PROVIDER_LLM_API_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+  "FLUTTERWAVE_WEBHOOK_SECRET": "whsec_placeholder_megalek_recon",
+  "FLUTTERWAVE_SECRET_KEY": "FLWSECK_placeholder"
 }

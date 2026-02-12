@@ -18,12 +18,14 @@ export type UIFacility = {
   servicePrices: {
     procedureId?: string;
     name: string;
+    displayName?: string;
     price: number;
     currency: string;
     description?: string;
     category?: string;
     code?: string;
     estimatedDuration?: number;
+    normalizedTags?: string[];
     isAvailable?: boolean;
   }[];
   lat?: number;
@@ -36,6 +38,12 @@ export type UIFacility = {
   capacityStatus?: string | null;
   avgWaitMinutes?: number | null;
   urgentCareAvailable?: boolean | null;
+  wardStatuses?: Record<string, {
+    status: string;
+    count: number;
+    trend: string;
+    lastUpdated: string | Date;
+  }>;
 };
 
 const buildAddress = (facility: FacilitySearchResult): string => {
@@ -80,12 +88,14 @@ export const mapFacilitySearchResultToUI = (
     servicePrices: (facility.service_prices ?? []).map((item) => ({
       procedureId: item.procedure_id,
       name: item.name,
+      displayName: item.display_name,
       price: item.price,
       currency: item.currency,
       description: item.description,
       category: item.category,
       code: item.code,
       estimatedDuration: item.estimated_duration,
+      normalizedTags: item.normalized_tags,
       isAvailable: item.is_available ?? true,
     })),
     lat: facility.location?.latitude,
@@ -98,5 +108,6 @@ export const mapFacilitySearchResultToUI = (
     capacityStatus: facility.capacity_status ?? null,
     avgWaitMinutes: facility.avg_wait_minutes ?? null,
     urgentCareAvailable: facility.urgent_care_available ?? null,
+    wardStatuses: facility.ward_statuses as any ?? null,
   };
 };

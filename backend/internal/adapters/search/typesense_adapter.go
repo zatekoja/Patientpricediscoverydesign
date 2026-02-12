@@ -14,7 +14,7 @@ import (
 
 const (
 	collectionName  = "facilities"
-	maxFacilityTags = 20
+	maxFacilityTags = 100
 )
 
 // TypesenseAdapter implements facility search using Typesense
@@ -38,7 +38,9 @@ func (a *TypesenseAdapter) InitSchema(ctx context.Context) error {
 	// Check if collection exists
 	_, err := a.client.Client().Collection(collectionName).Retrieve(ctx)
 	if err == nil {
-		return nil // Collection exists
+		// Collection exists. For dev/prototype, we might need to delete/recreate to update schema
+		// or use Update() if supported. For now, assuming the 'reset' flag in reindexer handles this.
+		return nil
 	}
 
 	// Create collection
@@ -56,6 +58,7 @@ func (a *TypesenseAdapter) InitSchema(ctx context.Context) error {
 			{Name: "created_at", Type: "int64"},
 			{Name: "insurance", Type: "string[]", Facet: pointer.True(), Optional: pointer.True()},
 			{Name: "tags", Type: "string[]", Optional: pointer.True()},
+			{Name: "procedures", Type: "string[]", Optional: pointer.True()},
 		},
 		DefaultSortingField: pointer.String("created_at"),
 	}
@@ -68,7 +71,8 @@ func (a *TypesenseAdapter) InitSchema(ctx context.Context) error {
 	return nil
 }
 
-// Index indexes a facility
+// Index indexes a facility. Uses partial update to avoid wiping fields (like procedures)
+// that are set by the full reindexer but not available here.
 func (a *TypesenseAdapter) Index(ctx context.Context, facility *entities.Facility) error {
 	document := map[string]interface{}{
 		"id":            facility.ID,
@@ -89,9 +93,15 @@ func (a *TypesenseAdapter) Index(ctx context.Context, facility *entities.Facilit
 		document["tags"] = tags
 	}
 
-	_, err := a.client.Client().Collection(collectionName).Documents().Upsert(ctx, document)
+	// Try partial update first to preserve fields set by the reindexer (e.g. procedures).
+	// Update only modifies the fields we provide, leaving others untouched.
+	_, err := a.client.Client().Collection(collectionName).Document(facility.ID).Update(ctx, document)
 	if err != nil {
-		return fmt.Errorf("failed to index facility: %w", err)
+		// Document doesn't exist yet — fall back to full upsert (creates it).
+		_, err = a.client.Client().Collection(collectionName).Documents().Upsert(ctx, document)
+		if err != nil {
+			return fmt.Errorf("failed to index facility: %w", err)
+		}
 	}
 
 	return nil
@@ -115,7 +125,9 @@ func (a *TypesenseAdapter) Search(ctx context.Context, params repositories.Searc
 // SearchWithCount searches facilities and returns the total match count.
 func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
 	query := "*"
-	if params.Query != "" {
+	if len(params.ExpandedTerms) > 0 {
+		query = strings.Join(params.ExpandedTerms, " ")
+	} else if params.Query != "" {
 		query = params.Query
 	}
 
@@ -124,7 +136,12 @@ func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositor
 		limit = 20
 	}
 
-	filter := fmt.Sprintf("is_active:=true && location:(%f, %f, %f km)", params.Latitude, params.Longitude, params.RadiusKm)
+	filter := "is_active:=true"
+	// Only apply location filter if coordinates are provided (non-zero)
+	if params.Latitude != 0 || params.Longitude != 0 {
+		filter = fmt.Sprintf("%s && location:(%f, %f, %f km)", filter, params.Latitude, params.Longitude, params.RadiusKm)
+	}
+
 	if params.InsuranceProvider != "" {
 		filter = fmt.Sprintf("%s && insurance:=[%s]", filter, escapeFilterValue(params.InsuranceProvider))
 	}
@@ -137,7 +154,7 @@ func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositor
 
 	searchParams := &api.SearchCollectionParams{
 		Q:        pointer.String(query),
-		QueryBy:  pointer.String("name,facility_type,tags,insurance"),
+		QueryBy:  pointer.String("name,facility_type,tags,insurance,procedures"),
 		FilterBy: pointer.String(filter),
 		Page:     pointer.Int(params.Offset/limit + 1),
 		PerPage:  pointer.Int(limit),
@@ -217,10 +234,16 @@ func (a *TypesenseAdapter) Suggest(ctx context.Context, query string, lat, lon f
 		limit = 5
 	}
 
+	filter := "is_active:=true"
+	// Only apply location filter if coordinates are provided (non-zero)
+	if lat != 0 || lon != 0 {
+		filter = fmt.Sprintf("%s && location:(%f, %f, %f km)", filter, lat, lon, 500.0)
+	}
+
 	searchParams := &api.SearchCollectionParams{
 		Q:        pointer.String(trimmed),
-		QueryBy:  pointer.String("name,facility_type,tags,insurance"),
-		FilterBy: pointer.String(fmt.Sprintf("is_active:=true && location:(%f, %f, %f km)", lat, lon, 50.0)),
+		QueryBy:  pointer.String("name,facility_type,tags,insurance,procedures"),
+		FilterBy: pointer.String(filter),
 		Page:     pointer.Int(1),
 		PerPage:  pointer.Int(limit),
 		NumTypos: pointer.String("2"),

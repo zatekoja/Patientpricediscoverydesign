@@ -29,6 +29,9 @@ type Router struct {
 	providerPriceHandler     *handlers.ProviderPriceHandler
 	providerIngestionHandler *handlers.ProviderIngestionHandler
 
+	calendlyWebhookHandler *handlers.CalendlyWebhookHandler
+	feeWaiverHandler       *handlers.FeeWaiverHandler
+
 	cacheMiddleware *middleware.CacheMiddleware
 	metrics         *observability.Metrics
 }
@@ -54,6 +57,9 @@ func NewRouter(
 	providerPriceHandler *handlers.ProviderPriceHandler,
 	providerIngestionHandler *handlers.ProviderIngestionHandler,
 
+	calendlyWebhookHandler *handlers.CalendlyWebhookHandler,
+	feeWaiverHandler *handlers.FeeWaiverHandler,
+
 	metrics *observability.Metrics,
 
 ) *Router {
@@ -77,6 +83,9 @@ func NewRouter(
 
 		providerPriceHandler:     providerPriceHandler,
 		providerIngestionHandler: providerIngestionHandler,
+
+		calendlyWebhookHandler: calendlyWebhookHandler,
+		feeWaiverHandler:       feeWaiverHandler,
 
 		cacheMiddleware: cacheMiddleware,
 		metrics:         metrics,
@@ -107,6 +116,9 @@ func (r *Router) SetupRoutes() http.Handler {
 	r.mux.HandleFunc("GET /api/facilities/suggest", r.facilityHandler.SuggestFacilities)
 
 	r.mux.HandleFunc("GET /api/facilities/{id}", r.facilityHandler.GetFacility)
+
+	r.mux.HandleFunc("GET /api/facilities/{id}/services", r.facilityHandler.GetFacilityServices)
+	r.mux.HandleFunc("GET /api/facilities/{id}/service-fees", r.facilityHandler.GetFacilityServiceFees)
 
 	r.mux.HandleFunc("PATCH /api/facilities/{id}", r.facilityHandler.UpdateFacility)
 	r.mux.HandleFunc("PATCH /api/facilities/{id}/services/{procedureId}", r.facilityHandler.UpdateServiceAvailability)
@@ -163,6 +175,17 @@ func (r *Router) SetupRoutes() http.Handler {
 	// Provider ingestion endpoint (hydrate core DB from provider API)
 
 	r.mux.HandleFunc("POST /api/provider/ingest", r.providerIngestionHandler.TriggerIngestion)
+
+	// Fee waiver endpoints
+	if r.feeWaiverHandler != nil {
+		r.mux.HandleFunc("GET /api/facilities/{id}/fee-waiver", r.feeWaiverHandler.GetFacilityFeeWaiver)
+		r.mux.HandleFunc("POST /api/admin/fee-waivers", r.feeWaiverHandler.CreateFeeWaiver)
+	}
+
+	// Calendly webhook endpoint for appointment notifications
+	if r.calendlyWebhookHandler != nil {
+		r.mux.HandleFunc("POST /webhooks/calendly", r.calendlyWebhookHandler.HandleWebhook)
+	}
 
 	// Apply middleware in reverse order (last middleware wraps first)
 

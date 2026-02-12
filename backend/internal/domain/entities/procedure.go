@@ -6,14 +6,16 @@ import (
 
 // Procedure represents a medical procedure/service
 type Procedure struct {
-	ID          string    `json:"id" db:"id"`
-	Name        string    `json:"name" db:"name"`
-	Code        string    `json:"code" db:"code"` // CPT/HCPCS code
-	Category    string    `json:"category" db:"category"`
-	Description string    `json:"description" db:"description"`
-	IsActive    bool      `json:"is_active" db:"is_active"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID             string    `json:"id" db:"id"`
+	Name           string    `json:"name" db:"name"`
+	DisplayName    string    `json:"display_name" db:"display_name"` // Normalized human-readable name
+	Code           string    `json:"code" db:"code"`                 // CPT/HCPCS code
+	Category       string    `json:"category" db:"category"`
+	Description    string    `json:"description" db:"description"`
+	NormalizedTags []string  `json:"normalized_tags" db:"normalized_tags"` // Searchable tags from normalization
+	IsActive       bool      `json:"is_active" db:"is_active"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
 
 	// GraphQL support fields (populated by resolvers when in context of a facility)
 	FacilityID string  `json:"facility_id,omitempty" db:"-"`
@@ -32,4 +34,12 @@ type FacilityProcedure struct {
 	IsAvailable       bool      `json:"is_available" db:"is_available"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+
+	// Enriched fields populated by JOIN queries (not stored in facility_procedures table)
+	ProcedureName        string   `json:"name,omitempty" db:"-"`
+	ProcedureDisplayName string   `json:"display_name,omitempty" db:"-"`
+	ProcedureCode        string   `json:"code,omitempty" db:"-"`
+	ProcedureCategory    string   `json:"category,omitempty" db:"-"`
+	ProcedureDescription string   `json:"description,omitempty" db:"-"`
+	ProcedureTags        []string `json:"normalized_tags,omitempty" db:"-"`
 }

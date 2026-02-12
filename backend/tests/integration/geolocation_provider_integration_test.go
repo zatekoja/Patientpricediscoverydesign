@@ -69,8 +69,8 @@ func TestGoogleProviderAndStaticMapCaching(t *testing.T) {
 
 	coords, err := provider.Geocode(ctx, "Lagos, Nigeria")
 	require.NoError(t, err)
-	require.Equal(t, 6.5244, coords.Latitude)
-	require.Equal(t, 3.3792, coords.Longitude)
+	require.Equal(t, 6.5244, coords.Coordinates.Latitude)
+	require.Equal(t, 3.3792, coords.Coordinates.Longitude)
 
 	coords, err = provider.Geocode(ctx, "Lagos, Nigeria")
 	require.NoError(t, err)
@@ -142,8 +142,8 @@ func TestGoogleProviderPlacesFallback(t *testing.T) {
 	coords, err := provider.Geocode(context.Background(), "General Hospital Badagry, Nigeria")
 	require.NoError(t, err)
 	require.NotNil(t, coords)
-	require.Equal(t, 6.4152, coords.Latitude)
-	require.Equal(t, 2.8866, coords.Longitude)
+	require.Equal(t, 6.4152, coords.Coordinates.Latitude)
+	require.Equal(t, 2.8866, coords.Coordinates.Longitude)
 	require.Equal(t, int32(0), atomic.LoadInt32(&geocodeCalls))
 	require.Equal(t, int32(1), atomic.LoadInt32(&placesCalls))
 }

@@ -71,6 +71,12 @@ func (suite *ProcedureAdapterIntegrationTestSuite) runMigrations() {
 	require.NoError(suite.T(), err)
 	_, err = suite.db.Exec(string(migrationSQL))
 	require.NoError(suite.T(), err)
+
+	migrationPath2 := "../../migrations/002_add_service_normalization.sql"
+	migrationSQL2, err := os.ReadFile(migrationPath2)
+	require.NoError(suite.T(), err)
+	_, err = suite.db.Exec(string(migrationSQL2))
+	require.NoError(suite.T(), err)
 }
 
 func (suite *ProcedureAdapterIntegrationTestSuite) cleanupTestData() {
@@ -86,6 +92,7 @@ func (suite *ProcedureAdapterIntegrationTestSuite) TestProcedureCRUD() {
 	proc := &entities.Procedure{
 		ID:          "proc-test-1",
 		Name:        "Test Procedure",
+		DisplayName: "Test Procedure",
 		Code:        "99213",
 		Category:    "Evaluation",
 		Description: "Office visit",
@@ -149,7 +156,7 @@ func (suite *ProcedureAdapterIntegrationTestSuite) TestFacilityProcedureCRUD() {
 	_, err := suite.db.Exec("INSERT INTO facilities (id, name, created_at, updated_at) VALUES ($1, 'Test Fac', NOW(), NOW())", facID)
 	require.NoError(suite.T(), err)
 	
-	_, err = suite.db.Exec("INSERT INTO procedures (id, name, code, created_at, updated_at) VALUES ($1, 'Test Proc', 'TP002', NOW(), NOW())", procID)
+	_, err = suite.db.Exec("INSERT INTO procedures (id, name, display_name, code, created_at, updated_at) VALUES ($1, 'Test Proc', 'Test Proc', 'TP002', NOW(), NOW())", procID)
 	require.NoError(suite.T(), err)
 
 	fp := &entities.FacilityProcedure{

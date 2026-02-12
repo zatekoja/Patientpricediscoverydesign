@@ -157,8 +157,13 @@ const TAG_RULES: TagRule[] = [
     tags: ['outpatient'],
   },
   {
-    id: 'administrative',
-    pattern: /\b(card|folder|registration|appointment|certificate|report|notification of birth|police report|sick leave|maternity leave)\b/i,
+    id: 'registration',
+    pattern: /\b(card|folder|registration|appointment)\b/i,
+    tags: ['registration', 'administrative'],
+  },
+  {
+    id: 'administrative_reports',
+    pattern: /\b(certificate|report|notification of birth|police report|sick leave|maternity leave)\b/i,
     tags: ['administrative', 'documentation'],
   },
   {
@@ -185,6 +190,76 @@ const TAG_RULES: TagRule[] = [
     id: 'icu',
     pattern: /\b(icu|intensive care)\b/i,
     tags: ['critical_care', 'icu'],
+  },
+  {
+    id: 'ophthalmology',
+    pattern: /\b(ophthal|ophthamol|cataract|glaucoma|retina|cornea|eyelid|lacrimal|orbital|pterygium|iop|tonometry|refraction|eye)\b/i,
+    tags: ['ophthalmology', 'eye_care'],
+  },
+  {
+    id: 'ent',
+    pattern: /\b(ent|tonsil|adenoid|septoplasty|rhinoplasty|mastoid|myringotomy|turbinect|laryngoscopy|tracheostomy|ear\s*nose|otolaryngol)\b/i,
+    tags: ['ent', 'ear_nose_throat'],
+  },
+  {
+    id: 'urology',
+    pattern: /\b(urol|catheter|endourol|lithotrip|cystoscopy|prostat|circumcision)\b/i,
+    tags: ['urology'],
+  },
+  {
+    id: 'oncology',
+    pattern: /\b(oncol|chemo|chemotherapy|radiotherapy|cancer)\b/i,
+    tags: ['oncology'],
+  },
+  {
+    id: 'stroke',
+    pattern: /\b(stroke|cerebrovascular)\b/i,
+    tags: ['stroke', 'neurology'],
+  },
+  {
+    id: 'dermatology',
+    pattern: /\b(dermatol|skin biopsy|hyfrecation|cryotherapy|chemical peel)\b/i,
+    tags: ['dermatology'],
+  },
+  {
+    id: 'dietary',
+    pattern: /\b(diet|dietary|nutrition|nutritional|feeding|meal)\b/i,
+    tags: ['dietary', 'nutrition'],
+  },
+  {
+    id: 'psychiatry',
+    pattern: /\b(psychiatr|psycholog|mental|electroconvulsive|ect|hypnotherapy)\b/i,
+    tags: ['psychiatry', 'mental_health'],
+  },
+  {
+    id: 'orthopaedics',
+    pattern: /\b(ortho|orthop|plaster of paris|fracture|pop)\b/i,
+    tags: ['orthopaedics'],
+  },
+  {
+    id: 'endoscopy',
+    pattern: /\b(endoscop|colonoscop|polypectomy|peg tube|variceal band|phototherapy)\b/i,
+    tags: ['endoscopy', 'gastroenterology'],
+  },
+  {
+    id: 'eeg',
+    pattern: /\b(eeg|electroencephalogr)\b/i,
+    tags: ['eeg', 'neurology'],
+  },
+  {
+    id: 'vip',
+    pattern: /\b(vip|accelerated care)\b/i,
+    tags: ['vip', 'premium_care'],
+  },
+  {
+    id: 'reports',
+    pattern: /\b(medical report|death certificate|police report|assault fee|adoption fee|notification of death)\b/i,
+    tags: ['reports', 'administrative'],
+  },
+  {
+    id: 'sti_testing',
+    pattern: /\b(hiv|sti|std|vdrl|hepatitis|sexual\s*health|gonorrh|chlamydia|syphilis)\b/i,
+    tags: ['sti_testing', 'diagnostics'],
   },
 ];
 
