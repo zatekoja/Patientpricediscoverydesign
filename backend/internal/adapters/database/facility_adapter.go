@@ -248,9 +248,9 @@ func (a *FacilityAdapter) Update(ctx context.Context, facility *entities.Facilit
 			Valid: facility.UrgentCareAvailable != nil,
 		},
 		"rating":       facility.Rating,
-		"review_count":           facility.ReviewCount,
-		"is_active":              facility.IsActive,
-		"updated_at":             facility.UpdatedAt,
+		"review_count": facility.ReviewCount,
+		"is_active":    facility.IsActive,
+		"updated_at":   facility.UpdatedAt,
 	}
 
 	query, args, err := a.db.Update("facilities").
