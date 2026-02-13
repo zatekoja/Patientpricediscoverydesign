@@ -64,7 +64,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Run type check
-        run: npm run type-check || npx tsc --noEmit
+        run: npm run type-check --if-present
 
       - name: Run lint
         run: npm run lint --if-present
