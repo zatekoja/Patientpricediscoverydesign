@@ -170,6 +170,12 @@ func (h *FacilityHandler) GetFacilityServices(w http.ResponseWriter, r *http.Req
 	// Parse query parameters for filtering and pagination
 	query := r.URL.Query()
 	searchQuery := strings.TrimSpace(query.Get("search"))
+	offset := 0
+	if offsetStr := query.Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil {
+			offset = parsedOffset
+		}
+	}
 
 	filter := repositories.FacilityProcedureFilter{
 		SearchQuery: searchQuery,
@@ -177,7 +183,7 @@ func (h *FacilityHandler) GetFacilityServices(w http.ResponseWriter, r *http.Req
 		SortBy:      query.Get("sort"),
 		SortOrder:   query.Get("order"),
 		Limit:       parseIntDefault(query.Get("limit"), 20),
-		Offset:      parseIntDefault(query.Get("offset"), 0),
+		Offset:      offset,
 	}
 
 	// Expand search query if present
@@ -381,10 +387,6 @@ func (h *FacilityHandler) SearchFacilities(w http.ResponseWriter, r *http.Reques
 		RadiusKm:  radius,
 		Limit:     limit,
 		Offset:    offset,
-	}
-
-	if params.Query != "" {
-		params.ExpandedTerms = h.service.ExpandQuery(params.Query)
 	}
 
 	if insuranceProvider := strings.TrimSpace(query.Get("insurance_provider")); insuranceProvider != "" {
@@ -722,7 +724,9 @@ func (h *FacilityHandler) GetFacilityServiceFees(w http.ResponseWriter, r *http.
 func respondWithJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(payload)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("failed to encode JSON response: %v", err)
+	}
 }
 
 func respondWithError(w http.ResponseWriter, statusCode int, message string) {

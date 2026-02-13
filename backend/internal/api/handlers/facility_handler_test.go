@@ -278,7 +278,8 @@ func TestFacilityHandler_UpdateFacility(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var response entities.Facility
-		json.NewDecoder(w.Body).Decode(&response)
+		err := json.NewDecoder(w.Body).Decode(&response)
+		assert.NoError(t, err)
 
 		assert.Equal(t, "high", *response.CapacityStatus)
 		mockService.AssertExpectations(t)

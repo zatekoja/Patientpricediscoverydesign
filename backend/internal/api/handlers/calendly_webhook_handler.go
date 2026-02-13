@@ -84,7 +84,9 @@ func (h *CalendlyWebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Re
 	if h.isEventProcessed(ctx, eventID) {
 		// Already processed, return success
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "already_processed"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": "already_processed"}); err != nil {
+			fmt.Printf("Failed to encode duplicate webhook response: %v\n", err)
+		}
 		return
 	}
 
@@ -112,11 +114,15 @@ func (h *CalendlyWebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Re
 	}
 
 	// Mark event as processed
-	h.markEventProcessed(ctx, eventID)
+	if err := h.markEventProcessed(ctx, eventID); err != nil {
+		fmt.Printf("Failed to mark webhook event as processed: %v\n", err)
+	}
 
 	// Return success
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "processed"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "processed"}); err != nil {
+		fmt.Printf("Failed to encode webhook response: %v\n", err)
+	}
 }
 
 // handleInviteeCreated processes invitee.created events
@@ -254,7 +260,10 @@ func (h *CalendlyWebhookHandler) verifySignature(r *http.Request) bool {
 func (h *CalendlyWebhookHandler) isEventProcessed(ctx context.Context, eventID string) bool {
 	var count int
 	query := `SELECT COUNT(*) FROM webhook_events WHERE id = $1 AND provider = 'calendly' AND processed = true`
-	h.db.GetContext(ctx, &count, query, eventID)
+	if err := h.db.GetContext(ctx, &count, query, eventID); err != nil {
+		fmt.Printf("Failed to check webhook event status for %s: %v\n", eventID, err)
+		return false
+	}
 	return count > 0
 }
 
@@ -278,7 +287,9 @@ func (h *CalendlyWebhookHandler) markEventProcessed(ctx context.Context, eventID
 func (h *CalendlyWebhookHandler) markEventFailed(ctx context.Context, eventID string, err error) {
 	errMsg := err.Error()
 	query := `UPDATE webhook_events SET error_message = $1 WHERE id = $2 AND provider = 'calendly'`
-	h.db.ExecContext(ctx, query, errMsg, eventID)
+	if _, execErr := h.db.ExecContext(ctx, query, errMsg, eventID); execErr != nil {
+		fmt.Printf("Failed to mark webhook event as failed for %s: %v\n", eventID, execErr)
+	}
 }
 
 func (h *CalendlyWebhookHandler) findAppointmentByEmail(ctx context.Context, email, startTime string) (*entities.Appointment, error) {

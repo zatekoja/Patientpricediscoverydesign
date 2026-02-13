@@ -123,7 +123,9 @@ func TestWhatsAppCloudSender_SendTemplate(t *testing.T) {
 				}
 
 				w.WriteHeader(tt.mockStatusCode)
-				json.NewEncoder(w).Encode(tt.mockResponse)
+				if err := json.NewEncoder(w).Encode(tt.mockResponse); err != nil {
+					t.Errorf("failed to encode mock response: %v", err)
+				}
 			}))
 			defer server.Close()
 
@@ -200,7 +202,9 @@ func TestWhatsAppCloudSender_SendText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.mockStatusCode)
-				json.NewEncoder(w).Encode(tt.mockResponse)
+				if err := json.NewEncoder(w).Encode(tt.mockResponse); err != nil {
+					t.Errorf("failed to encode mock response: %v", err)
+				}
 			}))
 			defer server.Close()
 
@@ -247,11 +251,13 @@ func TestWhatsAppCloudSender_SendMessage_NetworkError(t *testing.T) {
 func TestWhatsAppResponse_NoMessageID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(WhatsAppResponse{
+		if err := json.NewEncoder(w).Encode(WhatsAppResponse{
 			Messages: []struct {
 				ID string `json:"id"`
 			}{}, // Empty messages array
-		})
+		}); err != nil {
+			t.Errorf("failed to encode mock response: %v", err)
+		}
 	}))
 	defer server.Close()
 

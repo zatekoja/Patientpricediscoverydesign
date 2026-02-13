@@ -295,6 +295,11 @@ func main() {
 	facilityService.SetSearchRanking(rankingService)
 	log.Info().Msg("Search Ranking Service initialized successfully")
 
+	// Initialize Feature Flags
+	featureFlags := services.NewFeatureFlags()
+	facilityService.SetFeatureFlags(featureFlags)
+	log.Info().Msg("Feature Flags initialized successfully")
+
 	// Set event bus for real-time updates
 	if eventBus != nil {
 		facilityService.SetEventBus(eventBus)

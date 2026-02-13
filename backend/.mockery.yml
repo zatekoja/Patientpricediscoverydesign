@@ -3,6 +3,10 @@ dir: "tests/mocks"
 mockname: "Mock{{.InterfaceName}}"
 outpkg: "mocks"
 packages:
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers:
+    interfaces:
+      FacilityService:
+      FacilityProcedureService:
   github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories:
     interfaces:
       FacilityRepository:

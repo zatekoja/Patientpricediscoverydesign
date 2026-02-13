@@ -123,8 +123,3 @@ func TestNotificationService_ExtractTemplateParameters(t *testing.T) {
 		})
 	}
 }
-
-// Helper function
-func stringPtr(s string) *string {
-	return &s
-}

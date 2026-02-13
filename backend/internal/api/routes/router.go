@@ -103,7 +103,9 @@ func (r *Router) SetupRoutes() http.Handler {
 
 		w.WriteHeader(http.StatusOK)
 
-		w.Write([]byte("OK"))
+		if _, err := w.Write([]byte("OK")); err != nil {
+			return
+		}
 
 	})
 

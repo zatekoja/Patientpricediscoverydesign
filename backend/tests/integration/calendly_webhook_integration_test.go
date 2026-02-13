@@ -263,7 +263,8 @@ func TestCalendlyWebhookEndpointResponse(t *testing.T) {
 		w := httptest.NewRecorder()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, err = w.Write(body)
+		require.NoError(t, err)
 
 		// Verify response
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -288,7 +289,8 @@ func TestCalendlyWebhookEndpointResponse(t *testing.T) {
 		w := httptest.NewRecorder()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, err = w.Write(body)
+		require.NoError(t, err)
 
 		var result map[string]interface{}
 		err = json.Unmarshal(w.Body.Bytes(), &result)

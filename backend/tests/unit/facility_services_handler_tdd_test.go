@@ -22,6 +22,7 @@ func TestFacilityHandler_GetFacilityServices_TDD_SearchAcrossAllData(t *testing.
 	mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 	handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
+	mockFacilityService.On("ExpandQuery", "MRI").Return([]string{"MRI"})
 
 	facilityID := "fac-123"
 
@@ -109,6 +110,7 @@ func TestFacilityHandler_GetFacilityServices_TDD_ComplexFiltering(t *testing.T) 
 	mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 	handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
+	mockFacilityService.On("ExpandQuery", "therapy").Return([]string{"therapy"})
 
 	facilityID := "fac-456"
 
@@ -170,6 +172,7 @@ func TestFacilityHandler_GetFacilityServices_TDD_PaginationConsistency(t *testin
 	mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 	handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
+	mockFacilityService.On("ExpandQuery", "scan").Return([]string{"scan"})
 
 	facilityID := "fac-789"
 	totalMatchingProcedures := 47 // Total procedures matching search

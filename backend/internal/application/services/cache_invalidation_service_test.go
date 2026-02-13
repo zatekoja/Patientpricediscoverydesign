@@ -187,7 +187,9 @@ func TestCacheInvalidationService_HandleEvent(t *testing.T) {
 	defer service.Stop()
 
 	// Add some cache data
-	cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Publish facility event
 	event := entities.NewFacilityEvent(
@@ -197,7 +199,9 @@ func TestCacheInvalidationService_HandleEvent(t *testing.T) {
 		map[string]interface{}{"capacity_status": "high"},
 	)
 
-	eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, event)
+	if err := eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, event); err != nil {
+		t.Fatalf("Failed to publish facility event: %v", err)
+	}
 
 	// Wait for event processing
 	time.Sleep(200 * time.Millisecond)
@@ -214,7 +218,9 @@ func TestCacheInvalidationService_InvalidateFacilityCache(t *testing.T) {
 	service := services.NewCacheInvalidationService(cache, eventBus)
 
 	// Add cache data
-	cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Invalidate facility cache
 	err := service.InvalidateFacilityCache(context.Background(), "fac_001")
@@ -234,8 +240,12 @@ func TestCacheInvalidationService_InvalidateSearchCaches(t *testing.T) {
 	service := services.NewCacheInvalidationService(cache, eventBus)
 
 	// Add cache data
-	cache.Set(context.Background(), "http:cache:search:1", []byte("data"), 300)
-	cache.Set(context.Background(), "http:cache:search:2", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:search:1", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
+	if err := cache.Set(context.Background(), "http:cache:search:2", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Invalidate search caches
 	err := service.InvalidateSearchCaches(context.Background())
@@ -255,7 +265,9 @@ func TestCacheInvalidationService_InvalidateRegionalCaches(t *testing.T) {
 	service := services.NewCacheInvalidationService(cache, eventBus)
 
 	// Add cache data
-	cache.Set(context.Background(), "http:cache:search:region", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:search:region", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Invalidate regional caches
 	err := service.InvalidateRegionalCaches(context.Background(), 6.5244, 3.3792, 25.0)

@@ -81,7 +81,11 @@ func (b *RedisEventBus) Subscribe(ctx context.Context, channel string) (<-chan *
 
 // receiveMessages receives messages from Redis and broadcasts them to subscribers
 func (b *RedisEventBus) receiveMessages(channel string, pubsub *redis.PubSub) {
-	defer b.cleanupChannel(channel)
+	defer func() {
+		if err := b.cleanupChannel(channel); err != nil {
+			log.Printf("Failed to cleanup channel %s: %v", channel, err)
+		}
+	}()
 
 	ch := pubsub.Channel()
 	for {

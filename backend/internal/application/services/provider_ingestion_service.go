@@ -399,16 +399,6 @@ func (s *ProviderIngestionService) ensureFacilityLocation(ctx context.Context, f
 
 	// Geocode now returns the full address, so we use it directly
 	// We verify if the returned location matches our expectations (e.g., inside Nigeria)
-	loc := entities.Location{
-		Latitude:  geo.Coordinates.Latitude,
-		Longitude: geo.Coordinates.Longitude,
-	}
-	if isLikelyNigeria(tags, query) && isOutsideNigeria(loc) {
-		// If the geocoded result puts us outside Nigeria when we expect to be inside,
-		// we might want to fallback or discard.
-		// For now, we trust the specific geocode result over the generic check.
-	}
-
 	applyGeocodedAddress(facility, geo)
 	s.geocodeCache[query] = geo
 	return true
@@ -604,15 +594,6 @@ func containsToken(parts []string, token string) bool {
 		}
 	}
 	return false
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func mergeTags(a []string, profile *providerapi.FacilityProfile) []string {

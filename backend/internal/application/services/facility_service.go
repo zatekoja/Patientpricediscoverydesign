@@ -341,9 +341,7 @@ func (s *FacilityService) searchWithCount(ctx context.Context, params repositori
 			if len(params.Specialties) == 0 {
 				params.Specialties = interpretation.MappedConcepts.Specialties
 			}
-			if len(params.FacilityTypes) == 0 {
-				params.FacilityTypes = interpretation.MappedConcepts.FacilityTypes
-			}
+			// Don't hard-filter by facility types from interpretation as it is too restrictive
 		}
 	}
 

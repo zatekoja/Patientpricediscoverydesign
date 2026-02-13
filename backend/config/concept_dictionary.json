@@ -99,7 +99,7 @@
 
   "belle": {"canonical_form": "pregnancy", "category": "symptom", "related_terms": ["pregnancy", "pregnant", "antenatal", "maternity", "baby"], "specialties": ["obstetrics"], "facility_types": ["hospital"]},
   "sugar test": {"canonical_form": "blood glucose test", "category": "procedure", "related_terms": ["glucose test", "diabetes test", "fasting blood sugar", "blood sugar"], "specialties": ["laboratory", "endocrinology"], "facility_types": ["hospital", "diagnostic_lab"]},
-  "baby": {"canonical_form": "pediatrics", "category": "symptom", "related_terms": ["child", "infant", "newborn", "maternity", "delivery", "antenatal", "paediatric"], "specialties": ["obstetrics", "paediatrics"], "facility_types": ["hospital", "clinic"]},
+  "baby": {"canonical_form": "pediatrics", "category": "symptom", "related_terms": ["child", "infant", "newborn", "maternity", "delivery", "antenatal", "paediatric"], "specialties": ["obstetrics", "paediatrics", "pediatrics"], "facility_types": ["hospital", "clinic"]},
   "body check": {"canonical_form": "medical checkup", "category": "procedure", "related_terms": ["health check", "annual checkup", "screening", "physical exam", "wellness check"], "specialties": ["general_practice"], "facility_types": ["hospital", "clinic"]},
   "scan": {"canonical_form": "scan", "category": "procedure", "related_terms": ["ultrasound", "ct scan", "mri", "body scan"], "specialties": ["radiology"], "facility_types": ["hospital", "imaging_center"]},
   "remove tooth": {"canonical_form": "tooth extraction", "category": "procedure", "related_terms": ["tooth extraction", "pull tooth", "dental extraction"], "specialties": ["dental"], "facility_types": ["hospital", "clinic"]},

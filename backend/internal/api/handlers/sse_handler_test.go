@@ -142,7 +142,9 @@ func TestSSEHandler_StreamFacilityUpdates(t *testing.T) {
 		)
 
 		channel := providers.GetFacilityChannel("fac_002")
-		eventBus.Publish(context.Background(), channel, event)
+		if err := eventBus.Publish(context.Background(), channel, event); err != nil {
+			t.Fatalf("Failed to publish facility event: %v", err)
+		}
 
 		// Wait for event to be sent
 		time.Sleep(200 * time.Millisecond)
@@ -235,8 +237,12 @@ func TestSSEHandler_StreamRegionalUpdates(t *testing.T) {
 			map[string]interface{}{"capacity_status": "low"},
 		)
 
-		eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, eventInRegion)
-		eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, eventOutsideRegion)
+		if err := eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, eventInRegion); err != nil {
+			t.Fatalf("Failed to publish in-region event: %v", err)
+		}
+		if err := eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, eventOutsideRegion); err != nil {
+			t.Fatalf("Failed to publish out-of-region event: %v", err)
+		}
 
 		time.Sleep(200 * time.Millisecond)
 
