@@ -1,0 +1,425 @@
+{
+  "count": 3,
+  "suggestions": [
+    {
+      "id": "file_price_list_randle_general_hospital",
+      "name": "Randle General Hospital",
+      "facility_type": "imaging_center",
+      "address": {
+        "street": "Gbaja Street",
+        "city": "Lagos",
+        "state": "Lagos",
+        "zip_code": "101241",
+        "country": "Nigeria"
+      },
+      "location": {
+        "latitude": 6.5044648,
+        "longitude": 3.3598009
+      },
+      "rating": 0,
+      "price": {
+        "min": 1500,
+        "max": 700000,
+        "currency": "NGN"
+      },
+      "service_prices": [
+        {
+          "procedure_id": "proc_oxygen_per_day_children",
+          "name": "OXYGEN PER DAY CHILDREN",
+          "display_name": "Oxygen Per Day Pediatrics",
+          "price": 5000,
+          "currency": "NGN",
+          "description": "OXYGEN PER DAY CHILDREN",
+          "category": "dental",
+          "code": "oxygen_per_day_children",
+          "normalized_tags": [
+            "oxygen_per_day_children",
+            "oxygen_per_day_pediatrics"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_anc_reg",
+          "name": "ANC REG",
+          "display_name": "Antenatal Care Reg",
+          "price": 51700,
+          "currency": "NGN",
+          "description": "ANC REG",
+          "category": "dental",
+          "code": "anc_reg",
+          "normalized_tags": [
+            "anc_reg",
+            "antenatal_care_reg"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_book_normal_delivery_wit_81d33c0e",
+          "name": "BOOK NORMAL DELIVERY WITH STURING AND DELIVERY PACK",
+          "display_name": "Book Normal Delivery with Suturing and Delivery Pack",
+          "price": 59500,
+          "currency": "NGN",
+          "description": "BOOK NORMAL DELIVERY WITH STURING AND DELIVERY PACK",
+          "category": "dental",
+          "code": "book_normal_delivery_wit_81d33c0e",
+          "normalized_tags": [
+            "book_normal_delivery_with_sturing_and_delivery_pack",
+            "book_normal_delivery_with_suturing_and_delivery_pack"
+          ],
+          "is_available": true
+        }
+      ],
+      "matched_service_price": {
+        "procedure_id": "proc_oxygen_per_day_children",
+        "name": "OXYGEN PER DAY CHILDREN",
+        "display_name": "Oxygen Per Day Pediatrics",
+        "price": 5000,
+        "currency": "NGN",
+        "description": "OXYGEN PER DAY CHILDREN",
+        "category": "dental",
+        "code": "oxygen_per_day_children",
+        "normalized_tags": [
+          "oxygen_per_day_children",
+          "oxygen_per_day_pediatrics"
+        ],
+        "is_available": true
+      },
+      "matched_services": [
+        {
+          "procedure_id": "proc_oxygen_per_day_children",
+          "name": "OXYGEN PER DAY CHILDREN",
+          "display_name": "Oxygen Per Day Pediatrics",
+          "price": 5000,
+          "currency": "NGN",
+          "description": "OXYGEN PER DAY CHILDREN",
+          "category": "dental",
+          "code": "oxygen_per_day_children",
+          "normalized_tags": [
+            "oxygen_per_day_children",
+            "oxygen_per_day_pediatrics"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_anc_reg",
+          "name": "ANC REG",
+          "display_name": "Antenatal Care Reg",
+          "price": 51700,
+          "currency": "NGN",
+          "description": "ANC REG",
+          "category": "dental",
+          "code": "anc_reg",
+          "normalized_tags": [
+            "anc_reg",
+            "antenatal_care_reg"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_book_normal_delivery_wit_81d33c0e",
+          "name": "BOOK NORMAL DELIVERY WITH STURING AND DELIVERY PACK",
+          "display_name": "Book Normal Delivery with Suturing and Delivery Pack",
+          "price": 59500,
+          "currency": "NGN",
+          "description": "BOOK NORMAL DELIVERY WITH STURING AND DELIVERY PACK",
+          "category": "dental",
+          "code": "book_normal_delivery_wit_81d33c0e",
+          "normalized_tags": [
+            "book_normal_delivery_with_sturing_and_delivery_pack",
+            "book_normal_delivery_with_suturing_and_delivery_pack"
+          ],
+          "is_available": true
+        }
+      ],
+      "tags": [
+        "operculectomy",
+        "dental",
+        "digital xray",
+        "digital_xray",
+        "opg"
+      ]
+    },
+    {
+      "id": "file_price_list_lagos_state_university_teaching_hospital_lasuth",
+      "name": "Lagos State University Teaching Hospital (LASUTH)",
+      "facility_type": "outpatient_surgery",
+      "address": {
+        "street": "1-5 Oba Akinjobi Way",
+        "city": "Ikeja",
+        "state": "Lagos",
+        "zip_code": "101233",
+        "country": "Nigeria"
+      },
+      "location": {
+        "latitude": 6.5904312,
+        "longitude": 3.3422622
+      },
+      "rating": 0,
+      "price": {
+        "min": 0,
+        "max": 2522550,
+        "currency": "NGN"
+      },
+      "service_prices": [
+        {
+          "procedure_id": "proc_emergency_wards_accomoda_bdcbf470",
+          "name": "EMERGENCY WARDS ACCOMODATION (daily) Medical Emergency Ward Surgical Emergency Ward Paediatrics Emergency -Free",
+          "display_name": "Accident and Emergency Wards Accommodation Medical Accident and Emergency Ward Surgical Accident and Emergency Ward Pediatrics Accident and Emergency -free",
+          "price": 5000,
+          "currency": "NGN",
+          "description": "EMERGENCY WARDS ACCOMODATION (daily) Medical Emergency Ward Surgical Emergency Ward Paediatrics Emergency -Free",
+          "category": "accommodation",
+          "code": "emergency_wards_accomoda_bdcbf470",
+          "normalized_tags": [
+            "accident_and_emergency_wards_accommodation_medical_accident_and_emergency_ward_surgical_accident_and_emergency_ward_pediatrics_accident_and_emergency_free",
+            "daily",
+            "emergency_wards_accomodation_daily_medical_emergency_ward_surgical_emergency_ward_paediatrics_emergency_free"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_o_g_emergency_ward_accom_8edb07f0",
+          "name": "O&G EMERGENCY WARD ACCOMMODATION (daily)",
+          "display_name": "Obstetrics and Gynecology Accident and Emergency Ward Accommodation",
+          "price": 7500,
+          "currency": "NGN",
+          "description": "O&G EMERGENCY WARD ACCOMMODATION (daily)",
+          "category": "accommodation",
+          "code": "o_g_emergency_ward_accom_8edb07f0",
+          "normalized_tags": [
+            "daily",
+            "o_g_emergency_ward_accommodation_daily",
+            "obstetrics_and_gynecology_accident_and_emergency_ward_accommodation"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_o_g_general_wards_accomm_23a383b2",
+          "name": "O&G GENERAL WARDS ACCOMMODATION (daily)",
+          "display_name": "Obstetrics and Gynecology General Wards Accommodation",
+          "price": 7500,
+          "currency": "NGN",
+          "description": "O&G GENERAL WARDS ACCOMMODATION (daily)",
+          "category": "accommodation",
+          "code": "o_g_general_wards_accomm_23a383b2",
+          "normalized_tags": [
+            "daily",
+            "o_g_general_wards_accommodation_daily",
+            "obstetrics_and_gynecology_general_wards_accommodation"
+          ],
+          "is_available": true
+        }
+      ],
+      "matched_service_price": {
+        "procedure_id": "proc_emergency_wards_accomoda_bdcbf470",
+        "name": "EMERGENCY WARDS ACCOMODATION (daily) Medical Emergency Ward Surgical Emergency Ward Paediatrics Emergency -Free",
+        "display_name": "Accident and Emergency Wards Accommodation Medical Accident and Emergency Ward Surgical Accident and Emergency Ward Pediatrics Accident and Emergency -free",
+        "price": 5000,
+        "currency": "NGN",
+        "description": "EMERGENCY WARDS ACCOMODATION (daily) Medical Emergency Ward Surgical Emergency Ward Paediatrics Emergency -Free",
+        "category": "accommodation",
+        "code": "emergency_wards_accomoda_bdcbf470",
+        "normalized_tags": [
+          "accident_and_emergency_wards_accommodation_medical_accident_and_emergency_ward_surgical_accident_and_emergency_ward_pediatrics_accident_and_emergency_free",
+          "daily",
+          "emergency_wards_accomodation_daily_medical_emergency_ward_surgical_emergency_ward_paediatrics_emergency_free"
+        ],
+        "is_available": true
+      },
+      "matched_services": [
+        {
+          "procedure_id": "proc_emergency_wards_accomoda_bdcbf470",
+          "name": "EMERGENCY WARDS ACCOMODATION (daily) Medical Emergency Ward Surgical Emergency Ward Paediatrics Emergency -Free",
+          "display_name": "Accident and Emergency Wards Accommodation Medical Accident and Emergency Ward Surgical Accident and Emergency Ward Pediatrics Accident and Emergency -free",
+          "price": 5000,
+          "currency": "NGN",
+          "description": "EMERGENCY WARDS ACCOMODATION (daily) Medical Emergency Ward Surgical Emergency Ward Paediatrics Emergency -Free",
+          "category": "accommodation",
+          "code": "emergency_wards_accomoda_bdcbf470",
+          "normalized_tags": [
+            "accident_and_emergency_wards_accommodation_medical_accident_and_emergency_ward_surgical_accident_and_emergency_ward_pediatrics_accident_and_emergency_free",
+            "daily",
+            "emergency_wards_accomodation_daily_medical_emergency_ward_surgical_emergency_ward_paediatrics_emergency_free"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_o_g_emergency_ward_accom_8edb07f0",
+          "name": "O&G EMERGENCY WARD ACCOMMODATION (daily)",
+          "display_name": "Obstetrics and Gynecology Accident and Emergency Ward Accommodation",
+          "price": 7500,
+          "currency": "NGN",
+          "description": "O&G EMERGENCY WARD ACCOMMODATION (daily)",
+          "category": "accommodation",
+          "code": "o_g_emergency_ward_accom_8edb07f0",
+          "normalized_tags": [
+            "daily",
+            "o_g_emergency_ward_accommodation_daily",
+            "obstetrics_and_gynecology_accident_and_emergency_ward_accommodation"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_o_g_general_wards_accomm_23a383b2",
+          "name": "O&G GENERAL WARDS ACCOMMODATION (daily)",
+          "display_name": "Obstetrics and Gynecology General Wards Accommodation",
+          "price": 7500,
+          "currency": "NGN",
+          "description": "O&G GENERAL WARDS ACCOMMODATION (daily)",
+          "category": "accommodation",
+          "code": "o_g_general_wards_accomm_23a383b2",
+          "normalized_tags": [
+            "daily",
+            "o_g_general_wards_accommodation_daily",
+            "obstetrics_and_gynecology_general_wards_accommodation"
+          ],
+          "is_available": true
+        }
+      ],
+      "tags": [
+        "sdg standard private ward accommodation (daily)",
+        "sdg_standard_private_war_3eb072f5",
+        "accommodation",
+        "extraction of all teeth/ retained root/ fractured tooth",
+        "extraction_of_all_teeth_bb0fe7b7"
+      ]
+    },
+    {
+      "id": "file_price_list_ijede_general_hospital",
+      "name": "Ijede General Hospital",
+      "facility_type": "hospital",
+      "address": {
+        "street": "Egbin Thermal Station Road",
+        "city": "Ijede",
+        "state": "Lagos",
+        "zip_code": "104102",
+        "country": "Nigeria"
+      },
+      "location": {
+        "latitude": 6.5647021,
+        "longitude": 3.5965551
+      },
+      "rating": 0,
+      "price": {
+        "min": 200,
+        "max": 500000,
+        "currency": "NGN"
+      },
+      "service_prices": [
+        {
+          "procedure_id": "proc_pre_registration_card_an_a23e12dc",
+          "name": "PRE REGISTRATION CARD (ANTENATAL)DENTAL CARD",
+          "display_name": "Pre Registration Carddental Card",
+          "price": 500,
+          "currency": "NGN",
+          "description": "PRE REGISTRATION CARD (ANTENATAL)DENTAL CARD",
+          "category": "dental",
+          "code": "pre_registration_card_an_a23e12dc",
+          "normalized_tags": [
+            "antenatal",
+            "pre_registration_card_antenatal_dental_card",
+            "pre_registration_carddental_card"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_extral_days_for_the_paediatrics",
+          "name": "EXTRAL DAYS FOR THE PAEDIATRICS",
+          "display_name": "Extra Days for the Pediatrics",
+          "price": 500,
+          "currency": "NGN",
+          "description": "EXTRAL DAYS FOR THE PAEDIATRICS",
+          "category": "accommodation",
+          "code": "extral_days_for_the_paediatrics",
+          "normalized_tags": [
+            "extra_days_for_the_pediatrics",
+            "extral_days_for_the_paediatrics"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_maternity_leave",
+          "name": "MATERNITY LEAVE",
+          "display_name": "Maternity Leave",
+          "price": 5000,
+          "currency": "NGN",
+          "description": "MATERNITY LEAVE",
+          "code": "maternity_leave",
+          "normalized_tags": [
+            "maternity_leave"
+          ],
+          "is_available": true
+        }
+      ],
+      "matched_service_price": {
+        "procedure_id": "proc_pre_registration_card_an_a23e12dc",
+        "name": "PRE REGISTRATION CARD (ANTENATAL)DENTAL CARD",
+        "display_name": "Pre Registration Carddental Card",
+        "price": 500,
+        "currency": "NGN",
+        "description": "PRE REGISTRATION CARD (ANTENATAL)DENTAL CARD",
+        "category": "dental",
+        "code": "pre_registration_card_an_a23e12dc",
+        "normalized_tags": [
+          "antenatal",
+          "pre_registration_card_antenatal_dental_card",
+          "pre_registration_carddental_card"
+        ],
+        "is_available": true
+      },
+      "matched_services": [
+        {
+          "procedure_id": "proc_pre_registration_card_an_a23e12dc",
+          "name": "PRE REGISTRATION CARD (ANTENATAL)DENTAL CARD",
+          "display_name": "Pre Registration Carddental Card",
+          "price": 500,
+          "currency": "NGN",
+          "description": "PRE REGISTRATION CARD (ANTENATAL)DENTAL CARD",
+          "category": "dental",
+          "code": "pre_registration_card_an_a23e12dc",
+          "normalized_tags": [
+            "antenatal",
+            "pre_registration_card_antenatal_dental_card",
+            "pre_registration_carddental_card"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_extral_days_for_the_paediatrics",
+          "name": "EXTRAL DAYS FOR THE PAEDIATRICS",
+          "display_name": "Extra Days for the Pediatrics",
+          "price": 500,
+          "currency": "NGN",
+          "description": "EXTRAL DAYS FOR THE PAEDIATRICS",
+          "category": "accommodation",
+          "code": "extral_days_for_the_paediatrics",
+          "normalized_tags": [
+            "extra_days_for_the_pediatrics",
+            "extral_days_for_the_paediatrics"
+          ],
+          "is_available": true
+        },
+        {
+          "procedure_id": "proc_maternity_leave",
+          "name": "MATERNITY LEAVE",
+          "display_name": "Maternity Leave",
+          "price": 5000,
+          "currency": "NGN",
+          "description": "MATERNITY LEAVE",
+          "code": "maternity_leave",
+          "normalized_tags": [
+            "maternity_leave"
+          ],
+          "is_available": true
+        }
+      ],
+      "tags": [
+        "treatment card",
+        "treatment_card",
+        "administrative",
+        "sick leave",
+        "sick_leave"
+      ]
+    }
+  ]
+}

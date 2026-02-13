@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -55,9 +56,15 @@ var (
 	missingTermCounter     metric.Int64Counter
 )
 
+const (
+	missingTermCountCacheKeyPrefix = "metrics:term_not_found:"
+	missingTermCountTTLSeconds     = 86400
+	missingTermCatalogThreshold    = 3
+)
+
 var ignoredUnmatchedTerms = map[string]struct{}{
 	"a": {}, "an": {}, "and": {}, "at": {}, "for": {}, "in": {}, "me": {},
-	"near": {}, "of": {}, "on": {}, "or": {}, "the": {}, "to": {}, "with": {},
+	"near": {}, "nearby": {}, "of": {}, "on": {}, "or": {}, "the": {}, "to": {}, "with": {},
 	"without": {},
 }
 
@@ -437,6 +444,74 @@ func shouldTrackUnmatchedTerm(term string) bool {
 	return true
 }
 
+func isLikelyMeaningfulUnmatchedTerm(term string) bool {
+	if !shouldTrackUnmatchedTerm(term) {
+		return false
+	}
+
+	var (
+		hasLetter bool
+		vowels    int
+		digits    int
+		repeatRun int
+		lastRune  rune
+	)
+	for i, r := range term {
+		if i == 0 || r != lastRune {
+			repeatRun = 1
+		} else {
+			repeatRun++
+			if repeatRun >= 3 {
+				return false
+			}
+		}
+		lastRune = r
+
+		if unicode.IsLetter(r) {
+			hasLetter = true
+			switch unicode.ToLower(r) {
+			case 'a', 'e', 'i', 'o', 'u':
+				vowels++
+			}
+		} else if unicode.IsNumber(r) {
+			digits++
+		}
+	}
+
+	if !hasLetter {
+		return false
+	}
+	if len(term) >= 5 && vowels == 0 {
+		return false
+	}
+	if digits > 0 && digits*2 > len(term) {
+		return false
+	}
+
+	return true
+}
+
+func (s *QueryUnderstandingService) shouldCatalogMissingTerm(term string) bool {
+	if !isLikelyMeaningfulUnmatchedTerm(term) {
+		return false
+	}
+	if s.cache == nil {
+		return true
+	}
+
+	key := missingTermCountCacheKeyPrefix + term
+	count := 0
+	if data, err := s.cache.Get(context.Background(), key); err == nil && len(data) > 0 {
+		if parsed, parseErr := strconv.Atoi(string(data)); parseErr == nil && parsed > 0 {
+			count = parsed
+		}
+	}
+	count++
+	_ = s.cache.Set(context.Background(), key, []byte(strconv.Itoa(count)), missingTermCountTTLSeconds)
+
+	return count >= missingTermCatalogThreshold
+}
+
 func initMissingTermCounter() {
 	meter := otel.Meter("github.com/zatekoja/Patientpricediscoverydesign/backend/query_understanding")
 	counter, err := meter.Int64Counter(
@@ -457,6 +532,9 @@ func (s *QueryUnderstandingService) recordMissingTermMetrics(terms []string) {
 		return
 	}
 	for _, term := range terms {
+		if !s.shouldCatalogMissingTerm(term) {
+			continue
+		}
 		missingTermCounter.Add(
 			context.Background(),
 			1,

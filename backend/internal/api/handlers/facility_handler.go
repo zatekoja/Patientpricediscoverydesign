@@ -500,6 +500,7 @@ type FacilitySuggestion struct {
 	Price               *entities.FacilityPriceRange `json:"price,omitempty"`
 	ServicePrices       []entities.ServicePrice      `json:"service_prices,omitempty"`
 	MatchedServicePrice *entities.ServicePrice       `json:"matched_service_price,omitempty"`
+	MatchedServices     []entities.ServicePrice      `json:"matched_services,omitempty"`
 	Tags                []string                     `json:"tags,omitempty"`
 	MatchedTag          string                       `json:"matched_tag,omitempty"`
 }
@@ -518,9 +519,16 @@ func FacilitySuggestionFromSearchResult(result entities.FacilitySearchResult, qu
 		Tags:          trimTags(result.Tags, 5),
 	}
 
-	if matched := matchServicePrice(query, result.ServicePrices); matched != nil {
+	// Use conceptually matched services if available from the search engine
+	if len(result.MatchedServices) > 0 {
+		suggestion.MatchedServices = trimServicePrices(result.MatchedServices, 3)
+		suggestion.MatchedServicePrice = &suggestion.MatchedServices[0]
+	} else if matched := matchServicePrice(query, result.ServicePrices); matched != nil {
+		// Fallback to lexical match
 		suggestion.MatchedServicePrice = matched
+		suggestion.MatchedServices = []entities.ServicePrice{*matched}
 	}
+
 	if matched := matchTag(query, result.Tags); matched != "" {
 		suggestion.MatchedTag = matched
 	}

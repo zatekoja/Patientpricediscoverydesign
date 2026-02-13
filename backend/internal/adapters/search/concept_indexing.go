@@ -6,7 +6,7 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 )
 
-const MaxIndexedTerms = 100
+const MaxIndexedTerms = 500
 
 type ConceptFields struct {
 	Concepts    []string
