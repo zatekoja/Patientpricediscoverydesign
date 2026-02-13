@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package typesense
 
 import (
@@ -5,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/config"
 )
 
@@ -21,14 +24,14 @@ func TestClient_Integration(t *testing.T) {
 	}
 
 	client, err := NewClient(&cfg.Typesense)
-	assert.NoError(t, err)
-	assert.NotNil(t, client)
+	require.NoError(t, err)
+	require.NotNil(t, client)
 
 	ctx := context.Background()
 
 	// Test InitSchema
 	err = client.InitSchema(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test Indexing
 	doc := map[string]interface{}{
@@ -42,12 +45,12 @@ func TestClient_Integration(t *testing.T) {
 		"is_active":     true,
 	}
 	err = client.IndexFacility(ctx, doc)
-	assert.NoError(t, err)
-	
+	require.NoError(t, err)
+
 	// Allow some time for indexing
 	time.Sleep(1 * time.Second)
 
 	// Test Search (optional validation)
-	// We'd need to import the api package to construct search params, 
+	// We'd need to import the api package to construct search params,
 	// or expose a simplified Search method.
 }

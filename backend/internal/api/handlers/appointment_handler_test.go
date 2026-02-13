@@ -106,7 +106,7 @@ func TestAppointmentHandler_GetAvailability(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/facilities/fac-1/availability?from=2025-01-01T00:00:00Z&to=2025-01-02T00:00:00Z", nil)
 		// Manually set PathValue for ServeMux behavior in test
 		req.SetPathValue("id", "fac-1")
-		
+
 		w := httptest.NewRecorder()
 
 		slots := []entities.AvailabilitySlot{

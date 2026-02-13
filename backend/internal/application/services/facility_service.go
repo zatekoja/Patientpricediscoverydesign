@@ -7,10 +7,12 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
 )
 
 // FacilityService handles business logic for facilities
@@ -22,6 +24,11 @@ type FacilityService struct {
 	insuranceRepo        repositories.InsuranceRepository
 	eventBus             providers.EventBus
 	termExpander         *TermExpansionService
+	queryUnderstanding   *QueryUnderstandingService
+	searchRanking        *SearchRankingService
+	featureFlags         *FeatureFlags
+	analytics            *SearchAnalyticsService
+	metrics              *observability.Metrics
 }
 
 const maxSearchTags = 12
@@ -52,6 +59,31 @@ func (s *FacilityService) SetEventBus(eventBus providers.EventBus) {
 // SetTermExpander sets the term expansion service
 func (s *FacilityService) SetTermExpander(expander *TermExpansionService) {
 	s.termExpander = expander
+}
+
+// SetQueryUnderstanding sets the query understanding service
+func (s *FacilityService) SetQueryUnderstanding(svc *QueryUnderstandingService) {
+	s.queryUnderstanding = svc
+}
+
+// SetSearchRanking sets the search ranking service
+func (s *FacilityService) SetSearchRanking(svc *SearchRankingService) {
+	s.searchRanking = svc
+}
+
+// SetFeatureFlags sets the feature flags service
+func (s *FacilityService) SetFeatureFlags(ff *FeatureFlags) {
+	s.featureFlags = ff
+}
+
+// SetAnalytics sets the search analytics service
+func (s *FacilityService) SetAnalytics(svc *SearchAnalyticsService) {
+	s.analytics = svc
+}
+
+// SetMetrics sets the observability metrics service
+func (s *FacilityService) SetMetrics(m *observability.Metrics) {
+	s.metrics = m
 }
 
 // ExpandQuery expands a search query using the configured term expander
@@ -306,52 +338,126 @@ func (s *FacilityService) Search(ctx context.Context, params repositories.Search
 	return s.repo.Search(ctx, params)
 }
 
-func (s *FacilityService) searchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
-	if s.searchRepo != nil {
-		if adapterWithCount, ok := s.searchRepo.(interface {
-			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
-		}); ok {
-			facilities, totalCount, err := adapterWithCount.SearchWithCount(ctx, params)
-			if err == nil {
-				return facilities, totalCount, nil
+func (s *FacilityService) searchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, *QueryInterpretation, error) {
+	start := time.Now()
+	var interpretation *QueryInterpretation
+	useContextual := s.featureFlags == nil || s.featureFlags.ContextualSearchEnabled()
+
+	if useContextual && s.queryUnderstanding != nil && params.Query != "" {
+		interpretation = s.queryUnderstanding.Interpret(params.Query)
+		if len(params.ExpandedTerms) == 0 {
+			// Limit expansion terms to avoid overly restrictive AND behavior in Typesense
+			expanded := interpretation.SearchTerms
+			if len(expanded) > 5 {
+				expanded = expanded[:5]
 			}
-			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
-		} else {
-			facilities, err := s.searchRepo.Search(ctx, params)
-			if err == nil {
-				return facilities, len(facilities), nil
+			params.ExpandedTerms = expanded
+		}
+		if params.DetectedIntent == "" {
+			params.DetectedIntent = string(interpretation.DetectedIntent)
+		}
+		if interpretation.MappedConcepts != nil {
+			params.ConceptTerms = interpretation.MappedConcepts.AllTerms()
+			if len(params.Specialties) == 0 {
+				params.Specialties = interpretation.MappedConcepts.Specialties
 			}
-			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
+			// Don't hard-filter by facility types from interpretation as it is too restrictive
 		}
 	}
 
-	if adapterWithCount, ok := s.repo.(interface {
-		SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
-	}); ok {
-		return adapterWithCount.SearchWithCount(ctx, params)
+	var facilities []*entities.Facility
+	var totalCount int
+	var err error
+	var usedSearchRepo bool
+
+	if s.searchRepo != nil {
+		usedSearchRepo = true
+		if adapterWithCount, ok := s.searchRepo.(interface {
+			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+		}); ok {
+			facilities, totalCount, err = adapterWithCount.SearchWithCount(ctx, params)
+		} else {
+			facilities, err = s.searchRepo.Search(ctx, params)
+			if err == nil {
+				totalCount = len(facilities)
+			}
+		}
 	}
 
-	facilities, err := s.repo.Search(ctx, params)
-	if err != nil {
-		return nil, 0, err
+	if !usedSearchRepo || err != nil {
+		if usedSearchRepo {
+			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
+		}
+
+		if adapterWithCount, ok := s.repo.(interface {
+			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+		}); ok {
+			facilities, totalCount, err = adapterWithCount.SearchWithCount(ctx, params)
+		} else {
+			facilities, err = s.repo.Search(ctx, params)
+			if err == nil {
+				totalCount = len(facilities)
+			}
+		}
 	}
-	return facilities, len(facilities), nil
+
+	if err != nil {
+		return nil, 0, interpretation, err
+	}
+
+	if useContextual && s.searchRanking != nil && len(facilities) > 0 {
+		ranked := s.searchRanking.Rank(facilities, interpretation, params.Latitude, params.Longitude)
+		facilities = make([]*entities.Facility, len(ranked))
+		for i, r := range ranked {
+			facilities[i] = r.Facility
+		}
+	}
+
+	// Track search event for analytics
+	if params.Query != "" {
+		if s.analytics != nil {
+			event := &entities.SearchEvent{
+				Query:         params.Query,
+				ResultCount:   totalCount,
+				LatencyMs:     int(time.Since(start).Milliseconds()),
+				UserLatitude:  params.Latitude,
+				UserLongitude: params.Longitude,
+			}
+			if interpretation != nil {
+				event.NormalizedQuery = interpretation.NormalizedQuery
+				event.DetectedIntent = string(interpretation.DetectedIntent)
+				event.IntentConfidence = interpretation.IntentConfidence
+			}
+			s.analytics.TrackSearch(ctx, event)
+		}
+
+		// Record zero result metric for SigNoz
+		if totalCount == 0 && s.metrics != nil {
+			intent := "unknown"
+			if interpretation != nil {
+				intent = string(interpretation.DetectedIntent)
+			}
+			observability.RecordZeroResultSearch(ctx, s.metrics, intent)
+		}
+	}
+
+	return facilities, totalCount, interpretation, nil
 }
 
 // SearchResults returns enriched facility search results for the UI.
 func (s *FacilityService) SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error) {
-	results, _, err := s.SearchResultsWithCount(ctx, params)
+	results, _, _, err := s.SearchResultsWithCount(ctx, params)
 	return results, err
 }
 
 // SearchResultsWithCount returns enriched facility search results and total count for pagination.
-func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error) {
-	facilities, totalCount, err := s.searchWithCount(ctx, params)
+func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, *QueryInterpretation, error) {
+	facilities, totalCount, interpretation, err := s.searchWithCount(ctx, params)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
-	results := make([]entities.FacilitySearchResult, 0, len(facilities))
+	searchResultsEnriched := make([]entities.FacilitySearchResult, 0, len(facilities))
 	for _, facility := range facilities {
 		if facility == nil {
 			continue
@@ -409,7 +515,7 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 				}
 
 				if s.procedureCatalogRepo != nil {
-					result.ServicePrices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8, params.Query)
+					result.ServicePrices, result.MatchedServices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8, params.Query, interpretation)
 					result.Services = serviceNamesFromPrices(result.ServicePrices)
 				}
 			}
@@ -426,10 +532,18 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 			}
 		}
 
-		results = append(results, result)
+		searchResultsEnriched = append(searchResultsEnriched, result)
 	}
 
-	return results, totalCount, nil
+	return searchResultsEnriched, totalCount, interpretation, nil
+}
+
+// GetZeroResultQueries retrieves recent searches that yielded no results.
+func (s *FacilityService) GetZeroResultQueries(ctx context.Context, limit int) ([]*entities.SearchEvent, error) {
+	if s.analytics == nil {
+		return []*entities.SearchEvent{}, nil
+	}
+	return s.analytics.GetZeroResultQueries(ctx, limit)
 }
 
 // Suggest returns facility suggestions for a query.
@@ -654,9 +768,10 @@ func servicePricesFromProcedures(
 	procedureRepo repositories.ProcedureRepository,
 	limit int,
 	query string,
-) []entities.ServicePrice {
+	interp *QueryInterpretation,
+) ([]entities.ServicePrice, []entities.ServicePrice) {
 	if limit <= 0 || len(items) == 0 {
-		return []entities.ServicePrice{}
+		return []entities.ServicePrice{}, []entities.ServicePrice{}
 	}
 
 	filtered := make([]*entities.FacilityProcedure, 0, len(items))
@@ -668,7 +783,7 @@ func servicePricesFromProcedures(
 	}
 
 	if len(filtered) == 0 {
-		return []entities.ServicePrice{}
+		return []entities.ServicePrice{}, []entities.ServicePrice{}
 	}
 
 	sort.Slice(filtered, func(i, j int) bool {
@@ -676,11 +791,35 @@ func servicePricesFromProcedures(
 	})
 
 	preferredQuery := strings.ToLower(strings.TrimSpace(query))
-
 	services := make([]entities.ServicePrice, 0, limit)
+	matchedServices := make([]entities.ServicePrice, 0, limit)
 	seen := make(map[string]struct{})
 
-	if preferredQuery != "" {
+	// 1. First pass: identify conceptual matches
+	if interp != nil && len(interp.SearchTerms) > 0 {
+		for _, item := range filtered {
+			if len(matchedServices) >= limit {
+				break
+			}
+			procedure, err := procedureRepo.GetByID(ctx, item.ProcedureID)
+			if err != nil || procedure == nil || procedure.Name == "" {
+				continue
+			}
+			if _, exists := seen[procedure.ID]; exists {
+				continue
+			}
+
+			if matchesConceptualProcedure(procedure, interp) {
+				seen[procedure.ID] = struct{}{}
+				sp := mapToServicePrice(item, procedure)
+				matchedServices = append(matchedServices, sp)
+				services = append(services, sp)
+			}
+		}
+	}
+
+	// 2. Second pass: identify exact lexical matches
+	if preferredQuery != "" && len(services) < limit {
 		for _, item := range filtered {
 			if len(services) >= limit {
 				break
@@ -689,34 +828,23 @@ func servicePricesFromProcedures(
 			if err != nil || procedure == nil || procedure.Name == "" {
 				continue
 			}
-			if !matchesProcedure(preferredQuery, procedure) {
-				continue
-			}
 			if _, exists := seen[procedure.ID]; exists {
 				continue
 			}
-			seen[procedure.ID] = struct{}{}
-			displayName := procedure.DisplayName
-			if displayName == "" {
-				displayName = procedure.Name
+
+			if matchesProcedure(preferredQuery, procedure) {
+				seen[procedure.ID] = struct{}{}
+				sp := mapToServicePrice(item, procedure)
+				services = append(services, sp)
+				// If it didn't match conceptually but matched lexical, maybe it's still relevant
+				if len(matchedServices) < 3 {
+					matchedServices = append(matchedServices, sp)
+				}
 			}
-			services = append(services, entities.ServicePrice{
-				ProcedureID:       item.ProcedureID,
-				Name:              procedure.Name,
-				DisplayName:       displayName,
-				Price:             item.Price,
-				Currency:          item.Currency,
-				Description:       procedure.Description,
-				Category:          procedure.Category,
-				Code:              procedure.Code,
-				EstimatedDuration: item.EstimatedDuration,
-				NormalizedTags:    procedure.NormalizedTags,
-				IsAvailable:       item.IsAvailable,
-			})
-			break
 		}
 	}
 
+	// 3. Third pass: fill remaining slots with cheapest available services
 	for _, item := range filtered {
 		if len(services) >= limit {
 			break
@@ -728,27 +856,80 @@ func servicePricesFromProcedures(
 		if _, exists := seen[procedure.ID]; exists {
 			continue
 		}
+
 		seen[procedure.ID] = struct{}{}
-		displayName := procedure.DisplayName
-		if displayName == "" {
-			displayName = procedure.Name
-		}
-		services = append(services, entities.ServicePrice{
-			ProcedureID:       item.ProcedureID,
-			Name:              procedure.Name,
-			DisplayName:       displayName,
-			Price:             item.Price,
-			Currency:          item.Currency,
-			Description:       procedure.Description,
-			Category:          procedure.Category,
-			Code:              procedure.Code,
-			EstimatedDuration: item.EstimatedDuration,
-			NormalizedTags:    procedure.NormalizedTags,
-			IsAvailable:       item.IsAvailable,
-		})
+		services = append(services, mapToServicePrice(item, procedure))
 	}
 
-	return services
+	return services, matchedServices
+}
+
+func matchesConceptualProcedure(procedure *entities.Procedure, interp *QueryInterpretation) bool {
+	if procedure == nil || interp == nil {
+		return false
+	}
+
+	name := strings.ToLower(procedure.Name)
+	displayName := strings.ToLower(procedure.DisplayName)
+	cat := strings.ToLower(procedure.Category)
+
+	// Match against mapped specialties/conditions (Higher precision)
+	if interp.MappedConcepts != nil {
+		for _, spec := range interp.MappedConcepts.Specialties {
+			if strings.Contains(cat, spec) || strings.Contains(name, spec) {
+				return true
+			}
+		}
+		for _, cond := range interp.MappedConcepts.Conditions {
+			if strings.Contains(strings.ToLower(procedure.Description), cond) || strings.Contains(name, cond) {
+				return true
+			}
+		}
+	}
+
+	// Match against expanded terms with word boundary logic for short terms
+	for _, term := range interp.SearchTerms {
+		if len(term) <= 5 {
+			// Exact word match for short terms to avoid "ache" matching "tracheostomy"
+			if containsWord(name, term) || containsWord(displayName, term) || containsWord(cat, term) {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(name, term) || strings.Contains(displayName, term) || strings.Contains(cat, term) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsWord(s, word string) bool {
+	if s == word {
+		return true
+	}
+	// Simple word boundary check
+	return strings.Contains(s, " "+word+" ") || strings.HasPrefix(s, word+" ") || strings.HasSuffix(s, " "+word)
+}
+
+func mapToServicePrice(item *entities.FacilityProcedure, procedure *entities.Procedure) entities.ServicePrice {
+	displayName := procedure.DisplayName
+	if displayName == "" {
+		displayName = procedure.Name
+	}
+	return entities.ServicePrice{
+		ProcedureID:       item.ProcedureID,
+		Name:              procedure.Name,
+		DisplayName:       displayName,
+		Price:             item.Price,
+		Currency:          item.Currency,
+		Description:       procedure.Description,
+		Category:          procedure.Category,
+		Code:              procedure.Code,
+		EstimatedDuration: item.EstimatedDuration,
+		NormalizedTags:    procedure.NormalizedTags,
+		IsAvailable:       item.IsAvailable,
+	}
 }
 
 func matchesProcedure(query string, procedure *entities.Procedure) bool {

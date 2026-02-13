@@ -59,7 +59,7 @@ func (a *RedisAdapter) GetMulti(ctx context.Context, keys []string) (map[string]
 
 	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
-		// Ignore redis.Nil as some keys might not exist
+		return nil, fmt.Errorf("failed to get multiple items from cache: %w", err)
 	}
 
 	result := make(map[string][]byte)

@@ -41,10 +41,6 @@ func facilitiesListCacheKey(filter repositories.FacilityFilter) string {
 	return fmt.Sprintf("facilities:list:%s:%d:%d", filter.FacilityType, filter.Limit, filter.Offset)
 }
 
-func facilitiesSearchCacheKey(params string) string {
-	return fmt.Sprintf("facilities:search:%s", params)
-}
-
 func facilitiesSearchCountCacheKey(params string) string {
 	return fmt.Sprintf("facilities:search:count:%s", params)
 }

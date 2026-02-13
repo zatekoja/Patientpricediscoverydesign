@@ -213,9 +213,10 @@ services:
       - VAULT_API_PATH=${VAULT_API_PATH:-patient-price-discovery/api}
       - VAULT_KV_VERSION=${VAULT_KV_VERSION:-2}
       - VAULT_TIMEOUT_MS=${VAULT_TIMEOUT_MS:-5000}
-      - VAULT_OVERWRITE=true
+      - VAULT_OVERWRITE=${VAULT_OVERWRITE:-false}
       - OTEL_ENABLED=true
       - OTEL_ENDPOINT=signoz-otel-collector:4317
+      - FEATURE_CONTEXTUAL_SEARCH=true
     depends_on:
       postgres:
         condition: service_healthy

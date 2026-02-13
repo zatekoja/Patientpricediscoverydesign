@@ -28,6 +28,10 @@ const faqData: FAQItem[] = [
     question: "How to reach out to us?",
     answer: "You can reach out to us through our contact form, email us directly, or connect with us on social media. We're always happy to hear from you and answer any questions you may have.",
   },
+  {
+    question: "Technology",
+    answer: "The Open Health Initiative is powered by Ateru Analytics, a leading data analytics platform dedicated to addressing Africa's most pressing information challenges. Ateru Analytics leverages its advanced analytics engine to deliver comprehensive insights across multiple sectors and industries. The Open Health Initiative represents just one of the numerous applications showcasing Ateru Analytics' transformative capabilities. To learn more about our technology partner and their solutions, visit ateru.analytics.io",
+  },
 ];
 
 export function FAQ({ isOpen, onClose }: FAQProps) {

@@ -59,7 +59,7 @@ func (s *TermExpansionService) Expand(query string) []string {
 	// TODO: Can be improved to handle multi-word concepts if needed (e.g. "heart attack")
 	// For now, simple tokenization
 	rawTerms := strings.Fields(query)
-	
+
 	var expanded []string
 	seen := make(map[string]bool)
 
@@ -69,7 +69,7 @@ func (s *TermExpansionService) Expand(query string) []string {
 			expanded = append(expanded, term)
 			seen[term] = true
 		}
-		
+
 		// Add expansions
 		if synonyms, ok := s.terms[term]; ok {
 			for _, syn := range synonyms {
@@ -80,6 +80,6 @@ func (s *TermExpansionService) Expand(query string) []string {
 			}
 		}
 	}
-	
+
 	return expanded
 }

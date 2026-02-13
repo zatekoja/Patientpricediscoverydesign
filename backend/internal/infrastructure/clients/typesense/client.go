@@ -133,6 +133,27 @@ func (c *Client) InitSchema(ctx context.Context) error {
 				Type:     "string[]",
 				Optional: pointer.True(),
 			},
+			{
+				Name:     "concepts",
+				Type:     "string[]",
+				Optional: pointer.True(),
+			},
+			{
+				Name:     "conditions",
+				Type:     "string[]",
+				Optional: pointer.True(),
+			},
+			{
+				Name:     "symptoms",
+				Type:     "string[]",
+				Optional: pointer.True(),
+			},
+			{
+				Name:     "specialties",
+				Type:     "string[]",
+				Facet:    pointer.True(),
+				Optional: pointer.True(),
+			},
 		},
 		DefaultSortingField: pointer.String("created_at"),
 	}

@@ -1,25 +1,34 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+	"unicode"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/evaluation"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // QueryInterpretation holds the result of interpreting a user search query.
 type QueryInterpretation struct {
-	OriginalQuery    string                  `json:"original_query"`
-	NormalizedQuery  string                  `json:"normalized_query"`
-	CorrectedQuery   string                  `json:"corrected_query,omitempty"`
-	DetectedIntent   evaluation.Intent       `json:"detected_intent"`
-	IntentConfidence float64                 `json:"intent_confidence"`
+	OriginalQuery    string                   `json:"original_query"`
+	NormalizedQuery  string                   `json:"normalized_query"`
+	CorrectedQuery   string                   `json:"corrected_query,omitempty"`
+	DetectedIntent   evaluation.Intent        `json:"detected_intent"`
+	IntentConfidence float64                  `json:"intent_confidence"`
 	MappedConcepts   *entities.SearchConcepts `json:"mapped_concepts,omitempty"`
-	ExpandedTerms    []string                `json:"expanded_terms,omitempty"`
-	SearchTerms      []string                `json:"search_terms"`
+	ExpandedTerms    []string                 `json:"expanded_terms,omitempty"`
+	SearchTerms      []string                 `json:"search_terms"`
+	UnmatchedTerms   []string                 `json:"unmatched_terms,omitempty"`
 }
 
 // ConceptEntry represents a single entry in the concept dictionary.
@@ -37,9 +46,27 @@ type QueryUnderstandingService struct {
 	conceptDict    map[string]*ConceptEntry // term → concept
 	spellingDict   map[string]string        // misspelling → correct
 	multiWordIndex map[string][]string      // first word → full multi-word keys
+	cache          providers.CacheProvider
 }
 
 var nonAlphaNumDash = regexp.MustCompile(`[^\p{L}\p{N}\s\-'/]`)
+
+var (
+	missingTermCounterOnce sync.Once
+	missingTermCounter     metric.Int64Counter
+)
+
+const (
+	missingTermCountCacheKeyPrefix = "metrics:term_not_found:"
+	missingTermCountTTLSeconds     = 86400
+	missingTermCatalogThreshold    = 3
+)
+
+var ignoredUnmatchedTerms = map[string]struct{}{
+	"a": {}, "an": {}, "and": {}, "at": {}, "for": {}, "in": {}, "me": {},
+	"near": {}, "nearby": {}, "of": {}, "on": {}, "or": {}, "the": {}, "to": {}, "with": {},
+	"without": {},
+}
 
 // NewQueryUnderstandingService creates a new service from config files.
 func NewQueryUnderstandingService(conceptDictPath, spellingPath string) (*QueryUnderstandingService, error) {
@@ -97,8 +124,28 @@ func (s *QueryUnderstandingService) loadSpellingDict(path string) error {
 	return nil
 }
 
+// SetCache sets the cache provider for interpretation results.
+func (s *QueryUnderstandingService) SetCache(cache providers.CacheProvider) {
+	s.cache = cache
+}
+
 // Interpret processes a raw search query through the full understanding pipeline.
 func (s *QueryUnderstandingService) Interpret(query string) *QueryInterpretation {
+	q := strings.TrimSpace(strings.ToLower(query))
+	if q == "" {
+		return &QueryInterpretation{OriginalQuery: query}
+	}
+
+	if s.cache != nil {
+		cacheKey := "query_interp:" + q
+		if data, err := s.cache.Get(context.Background(), cacheKey); err == nil {
+			var cached QueryInterpretation
+			if json.Unmarshal(data, &cached) == nil {
+				return &cached
+			}
+		}
+	}
+
 	result := &QueryInterpretation{
 		OriginalQuery: query,
 	}
@@ -118,8 +165,9 @@ func (s *QueryUnderstandingService) Interpret(query string) *QueryInterpretation
 	effectiveQuery := corrected
 
 	// Step 3: Map to concepts (try multi-word first, then individual words)
-	concepts, matchedEntries := s.mapToConcepts(effectiveQuery)
+	concepts, matchedEntries, unmatchedTerms := s.mapToConcepts(effectiveQuery)
 	result.MappedConcepts = concepts
+	result.UnmatchedTerms = unmatchedTerms
 
 	// Step 4: Detect intent from matched entries
 	result.DetectedIntent, result.IntentConfidence = s.detectIntent(effectiveQuery, matchedEntries)
@@ -127,6 +175,14 @@ func (s *QueryUnderstandingService) Interpret(query string) *QueryInterpretation
 	// Step 5: Build search terms (original + related + concept terms)
 	result.SearchTerms = s.buildSearchTerms(effectiveQuery, matchedEntries)
 	result.ExpandedTerms = result.SearchTerms
+	s.recordMissingTermMetrics(result.UnmatchedTerms)
+
+	if s.cache != nil {
+		cacheKey := "query_interp:" + q
+		if data, err := json.Marshal(result); err == nil {
+			_ = s.cache.Set(context.Background(), cacheKey, data, 86400) // 24 hours
+		}
+	}
 
 	return result
 }
@@ -157,10 +213,10 @@ func (s *QueryUnderstandingService) spellCorrect(normalized string) (string, boo
 	return result, changed
 }
 
-func (s *QueryUnderstandingService) mapToConcepts(query string) (*entities.SearchConcepts, []*ConceptEntry) {
+func (s *QueryUnderstandingService) mapToConcepts(query string) (*entities.SearchConcepts, []*ConceptEntry, []string) {
 	words := strings.Fields(query)
 	if len(words) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var matchedEntries []*ConceptEntry
@@ -224,7 +280,7 @@ func (s *QueryUnderstandingService) mapToConcepts(query string) (*entities.Searc
 	}
 
 	if len(matchedEntries) == 0 {
-		return nil, nil
+		return nil, nil, collectUnmatchedTerms(words, matched)
 	}
 
 	// Merge all matched concepts
@@ -245,7 +301,7 @@ func (s *QueryUnderstandingService) mapToConcepts(query string) (*entities.Searc
 		}
 	}
 
-	return concepts, matchedEntries
+	return concepts, matchedEntries, collectUnmatchedTerms(words, matched)
 }
 
 func (s *QueryUnderstandingService) detectIntent(query string, entries []*ConceptEntry) (evaluation.Intent, float64) {
@@ -350,4 +406,139 @@ func appendUnique(slice []string, items ...string) []string {
 		}
 	}
 	return slice
+}
+
+func collectUnmatchedTerms(words []string, matched map[int]bool) []string {
+	seen := make(map[string]struct{})
+	terms := make([]string, 0, len(words))
+	for i, word := range words {
+		if matched[i] {
+			continue
+		}
+		normalized := strings.ToLower(strings.TrimSpace(word))
+		if !shouldTrackUnmatchedTerm(normalized) {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		terms = append(terms, normalized)
+	}
+	return terms
+}
+
+func shouldTrackUnmatchedTerm(term string) bool {
+	if term == "" || len(term) < 2 || len(term) > 32 {
+		return false
+	}
+	if _, ignore := ignoredUnmatchedTerms[term]; ignore {
+		return false
+	}
+	for _, r := range term {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '-' || r == '/' || r == '\'' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isLikelyMeaningfulUnmatchedTerm(term string) bool {
+	if !shouldTrackUnmatchedTerm(term) {
+		return false
+	}
+
+	var (
+		hasLetter bool
+		vowels    int
+		digits    int
+		repeatRun int
+		lastRune  rune
+	)
+	for i, r := range term {
+		if i == 0 || r != lastRune {
+			repeatRun = 1
+		} else {
+			repeatRun++
+			if repeatRun >= 3 {
+				return false
+			}
+		}
+		lastRune = r
+
+		if unicode.IsLetter(r) {
+			hasLetter = true
+			switch unicode.ToLower(r) {
+			case 'a', 'e', 'i', 'o', 'u':
+				vowels++
+			}
+		} else if unicode.IsNumber(r) {
+			digits++
+		}
+	}
+
+	if !hasLetter {
+		return false
+	}
+	if len(term) >= 5 && vowels == 0 {
+		return false
+	}
+	if digits > 0 && digits*2 > len(term) {
+		return false
+	}
+
+	return true
+}
+
+func (s *QueryUnderstandingService) shouldCatalogMissingTerm(term string) bool {
+	if !isLikelyMeaningfulUnmatchedTerm(term) {
+		return false
+	}
+	if s.cache == nil {
+		return true
+	}
+
+	key := missingTermCountCacheKeyPrefix + term
+	count := 0
+	if data, err := s.cache.Get(context.Background(), key); err == nil && len(data) > 0 {
+		if parsed, parseErr := strconv.Atoi(string(data)); parseErr == nil && parsed > 0 {
+			count = parsed
+		}
+	}
+	count++
+	_ = s.cache.Set(context.Background(), key, []byte(strconv.Itoa(count)), missingTermCountTTLSeconds)
+
+	return count >= missingTermCatalogThreshold
+}
+
+func initMissingTermCounter() {
+	meter := otel.Meter("github.com/zatekoja/Patientpricediscoverydesign/backend/query_understanding")
+	counter, err := meter.Int64Counter(
+		"search.term_not_found.count",
+		metric.WithDescription("Count of query terms not found in the concept index"),
+	)
+	if err == nil {
+		missingTermCounter = counter
+	}
+}
+
+func (s *QueryUnderstandingService) recordMissingTermMetrics(terms []string) {
+	if len(terms) == 0 {
+		return
+	}
+	missingTermCounterOnce.Do(initMissingTermCounter)
+	if missingTermCounter == nil {
+		return
+	}
+	for _, term := range terms {
+		if !s.shouldCatalogMissingTerm(term) {
+			continue
+		}
+		missingTermCounter.Add(
+			context.Background(),
+			1,
+			metric.WithAttributes(attribute.String("search.term", term)),
+		)
+	}
 }

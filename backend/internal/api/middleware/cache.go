@@ -70,7 +70,9 @@ func (m *CacheMiddleware) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("X-Cache", "HIT")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write(cached)
+			if _, writeErr := w.Write(cached); writeErr != nil {
+				log.Printf("Failed to write cached response for %s: %v", cacheKey, writeErr)
+			}
 			return
 		}
 

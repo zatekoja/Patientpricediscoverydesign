@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 )
@@ -52,12 +53,16 @@ func (m *MockFacilityService) SearchResults(ctx context.Context, params reposito
 	return args.Get(0).([]entities.FacilitySearchResult), args.Error(1)
 }
 
-func (m *MockFacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error) {
+func (m *MockFacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, *services.QueryInterpretation, error) {
 	args := m.Called(ctx, params)
 	if args.Get(0) == nil {
-		return nil, 0, args.Error(2)
+		return nil, 0, nil, args.Error(3)
 	}
-	return args.Get(0).([]entities.FacilitySearchResult), args.Int(1), args.Error(2)
+	var interpretation *services.QueryInterpretation
+	if args.Get(2) != nil {
+		interpretation = args.Get(2).(*services.QueryInterpretation)
+	}
+	return args.Get(0).([]entities.FacilitySearchResult), args.Int(1), interpretation, args.Error(3)
 }
 
 func (m *MockFacilityService) Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error) {
@@ -79,6 +84,15 @@ func (m *MockFacilityService) UpdateServiceAvailability(ctx context.Context, fac
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*entities.FacilityProcedure), args.Error(1)
+}
+
+func (m *MockFacilityService) ExpandQuery(query string) []string {
+	args := m.Called(query)
+	return args.Get(0).([]string)
+}
+
+func (m *MockFacilityService) GetZeroResultQueries(ctx context.Context, limit int) ([]*entities.SearchEvent, error) {
+	return []*entities.SearchEvent{}, nil
 }
 
 type searchFacilitiesResponse struct {
@@ -140,7 +154,9 @@ func TestFacilityHandler_SearchFacilities_ReturnsContract(t *testing.T) {
 
 	mockService.On("SearchResultsWithCount", mock.Anything, mock.MatchedBy(func(p repositories.SearchParams) bool {
 		return p.Latitude == 6.5244 && p.Longitude == 3.3792 && p.RadiusKm == 20 && p.Limit == 5 && p.Offset == 10 && p.Query == "clinic"
-	})).Return(expected, 42, nil)
+	})).Return(expected, 42, nil, nil)
+
+	mockService.On("ExpandQuery", "clinic").Return([]string{"clinic"})
 
 	req := httptest.NewRequest("GET", "/api/facilities/search?lat=6.5244&lon=3.3792&radius=20&limit=5&offset=10&query=clinic", nil)
 	w := httptest.NewRecorder()
@@ -266,7 +282,8 @@ func TestFacilityHandler_UpdateFacility(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var response entities.Facility
-		json.NewDecoder(w.Body).Decode(&response)
+		err := json.NewDecoder(w.Body).Decode(&response)
+		assert.NoError(t, err)
 
 		assert.Equal(t, "high", *response.CapacityStatus)
 		mockService.AssertExpectations(t)

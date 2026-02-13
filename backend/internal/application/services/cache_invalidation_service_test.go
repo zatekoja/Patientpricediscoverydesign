@@ -2,6 +2,7 @@ package services_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 // MockCacheProvider for testing
 type MockCacheProvider struct {
+	mu      sync.RWMutex
 	data    map[string][]byte
 	deleted []string
 }
@@ -24,6 +26,8 @@ func NewMockCacheProvider() *MockCacheProvider {
 }
 
 func (m *MockCacheProvider) Get(ctx context.Context, key string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if val, ok := m.data[key]; ok {
 		return val, nil
 	}
@@ -31,11 +35,15 @@ func (m *MockCacheProvider) Get(ctx context.Context, key string) ([]byte, error)
 }
 
 func (m *MockCacheProvider) Set(ctx context.Context, key string, value []byte, expirationSeconds int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data[key] = value
 	return nil
 }
 
 func (m *MockCacheProvider) GetMulti(ctx context.Context, keys []string) (map[string][]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	result := make(map[string][]byte)
 	for _, key := range keys {
 		if val, ok := m.data[key]; ok {
@@ -46,6 +54,8 @@ func (m *MockCacheProvider) GetMulti(ctx context.Context, keys []string) (map[st
 }
 
 func (m *MockCacheProvider) SetMulti(ctx context.Context, items map[string][]byte, expirationSeconds int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for key, value := range items {
 		m.data[key] = value
 	}
@@ -53,17 +63,23 @@ func (m *MockCacheProvider) SetMulti(ctx context.Context, items map[string][]byt
 }
 
 func (m *MockCacheProvider) Delete(ctx context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.data, key)
 	m.deleted = append(m.deleted, key)
 	return nil
 }
 
 func (m *MockCacheProvider) Exists(ctx context.Context, key string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	_, ok := m.data[key]
 	return ok, nil
 }
 
 func (m *MockCacheProvider) DeletePattern(ctx context.Context, pattern string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// Simple pattern matching for tests
 	for key := range m.data {
 		// Mock implementation - just delete all keys for testing
@@ -74,11 +90,19 @@ func (m *MockCacheProvider) DeletePattern(ctx context.Context, pattern string) e
 }
 
 func (m *MockCacheProvider) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	// Mock implementation - return a default TTL if key exists
 	if _, ok := m.data[key]; ok {
 		return time.Minute * 5, nil
 	}
 	return 0, nil
+}
+
+func (m *MockCacheProvider) DeletedCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.deleted)
 }
 
 // MockEventBus for testing
@@ -163,7 +187,9 @@ func TestCacheInvalidationService_HandleEvent(t *testing.T) {
 	defer service.Stop()
 
 	// Add some cache data
-	cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Publish facility event
 	event := entities.NewFacilityEvent(
@@ -173,13 +199,15 @@ func TestCacheInvalidationService_HandleEvent(t *testing.T) {
 		map[string]interface{}{"capacity_status": "high"},
 	)
 
-	eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, event)
+	if err := eventBus.Publish(context.Background(), providers.EventChannelFacilityUpdates, event); err != nil {
+		t.Fatalf("Failed to publish facility event: %v", err)
+	}
 
 	// Wait for event processing
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify cache was invalidated
-	if len(cache.deleted) == 0 {
+	if cache.DeletedCount() == 0 {
 		t.Error("Expected cache to be invalidated")
 	}
 }
@@ -190,7 +218,9 @@ func TestCacheInvalidationService_InvalidateFacilityCache(t *testing.T) {
 	service := services.NewCacheInvalidationService(cache, eventBus)
 
 	// Add cache data
-	cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:facilities/fac_001", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Invalidate facility cache
 	err := service.InvalidateFacilityCache(context.Background(), "fac_001")
@@ -199,7 +229,7 @@ func TestCacheInvalidationService_InvalidateFacilityCache(t *testing.T) {
 	}
 
 	// Verify cache was deleted
-	if len(cache.deleted) == 0 {
+	if cache.DeletedCount() == 0 {
 		t.Error("Expected cache keys to be deleted")
 	}
 }
@@ -210,8 +240,12 @@ func TestCacheInvalidationService_InvalidateSearchCaches(t *testing.T) {
 	service := services.NewCacheInvalidationService(cache, eventBus)
 
 	// Add cache data
-	cache.Set(context.Background(), "http:cache:search:1", []byte("data"), 300)
-	cache.Set(context.Background(), "http:cache:search:2", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:search:1", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
+	if err := cache.Set(context.Background(), "http:cache:search:2", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Invalidate search caches
 	err := service.InvalidateSearchCaches(context.Background())
@@ -220,7 +254,7 @@ func TestCacheInvalidationService_InvalidateSearchCaches(t *testing.T) {
 	}
 
 	// Verify caches were deleted
-	if len(cache.deleted) == 0 {
+	if cache.DeletedCount() == 0 {
 		t.Error("Expected cache keys to be deleted")
 	}
 }
@@ -231,7 +265,9 @@ func TestCacheInvalidationService_InvalidateRegionalCaches(t *testing.T) {
 	service := services.NewCacheInvalidationService(cache, eventBus)
 
 	// Add cache data
-	cache.Set(context.Background(), "http:cache:search:region", []byte("data"), 300)
+	if err := cache.Set(context.Background(), "http:cache:search:region", []byte("data"), 300); err != nil {
+		t.Fatalf("Failed to seed cache data: %v", err)
+	}
 
 	// Invalidate regional caches
 	err := service.InvalidateRegionalCaches(context.Background(), 6.5244, 3.3792, 25.0)
@@ -240,7 +276,7 @@ func TestCacheInvalidationService_InvalidateRegionalCaches(t *testing.T) {
 	}
 
 	// Verify caches were deleted
-	if len(cache.deleted) == 0 {
+	if cache.DeletedCount() == 0 {
 		t.Error("Expected cache keys to be deleted")
 	}
 }

@@ -103,7 +103,9 @@ func (r *Router) SetupRoutes() http.Handler {
 
 		w.WriteHeader(http.StatusOK)
 
-		w.Write([]byte("OK"))
+		if _, err := w.Write([]byte("OK")); err != nil {
+			return
+		}
 
 	})
 
@@ -175,6 +177,9 @@ func (r *Router) SetupRoutes() http.Handler {
 	// Provider ingestion endpoint (hydrate core DB from provider API)
 
 	r.mux.HandleFunc("POST /api/provider/ingest", r.providerIngestionHandler.TriggerIngestion)
+
+	// Analytics endpoints
+	r.mux.HandleFunc("GET /api/analytics/zero-result-queries", r.facilityHandler.GetZeroResultQueries)
 
 	// Fee waiver endpoints
 	if r.feeWaiverHandler != nil {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
@@ -21,8 +22,9 @@ type FacilityService interface {
 	List(ctx context.Context, filter repositories.FacilityFilter) ([]*entities.Facility, error)
 	Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error)
 	SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error)
-	SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error)
+	SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, *services.QueryInterpretation, error)
 	Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error)
+	GetZeroResultQueries(ctx context.Context, limit int) ([]*entities.SearchEvent, error)
 	Update(ctx context.Context, facility *entities.Facility) error
 	UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error)
 	ExpandQuery(query string) []string
@@ -169,6 +171,12 @@ func (h *FacilityHandler) GetFacilityServices(w http.ResponseWriter, r *http.Req
 	// Parse query parameters for filtering and pagination
 	query := r.URL.Query()
 	searchQuery := strings.TrimSpace(query.Get("search"))
+	offset := 0
+	if offsetStr := query.Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil {
+			offset = parsedOffset
+		}
+	}
 
 	filter := repositories.FacilityProcedureFilter{
 		SearchQuery: searchQuery,
@@ -176,7 +184,7 @@ func (h *FacilityHandler) GetFacilityServices(w http.ResponseWriter, r *http.Req
 		SortBy:      query.Get("sort"),
 		SortOrder:   query.Get("order"),
 		Limit:       parseIntDefault(query.Get("limit"), 20),
-		Offset:      parseIntDefault(query.Get("offset"), 0),
+		Offset:      offset,
 	}
 
 	// Expand search query if present
@@ -382,10 +390,6 @@ func (h *FacilityHandler) SearchFacilities(w http.ResponseWriter, r *http.Reques
 		Offset:    offset,
 	}
 
-	if params.Query != "" {
-		params.ExpandedTerms = h.service.ExpandQuery(params.Query)
-	}
-
 	if insuranceProvider := strings.TrimSpace(query.Get("insurance_provider")); insuranceProvider != "" {
 		params.InsuranceProvider = insuranceProvider
 	}
@@ -409,16 +413,22 @@ func (h *FacilityHandler) SearchFacilities(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Search facilities
-	facilities, totalCount, err := h.service.SearchResultsWithCount(r.Context(), params)
+	facilities, totalCount, interpretation, err := h.service.SearchResultsWithCount(r.Context(), params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "failed to search facilities")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"facilities": facilities,
 		"count":      totalCount,
-	})
+	}
+
+	if interpretation != nil {
+		response["query_interpretation"] = interpretation
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 // SuggestFacilities handles GET /api/facilities/suggest
@@ -491,6 +501,7 @@ type FacilitySuggestion struct {
 	Price               *entities.FacilityPriceRange `json:"price,omitempty"`
 	ServicePrices       []entities.ServicePrice      `json:"service_prices,omitempty"`
 	MatchedServicePrice *entities.ServicePrice       `json:"matched_service_price,omitempty"`
+	MatchedServices     []entities.ServicePrice      `json:"matched_services,omitempty"`
 	Tags                []string                     `json:"tags,omitempty"`
 	MatchedTag          string                       `json:"matched_tag,omitempty"`
 }
@@ -509,9 +520,16 @@ func FacilitySuggestionFromSearchResult(result entities.FacilitySearchResult, qu
 		Tags:          trimTags(result.Tags, 5),
 	}
 
-	if matched := matchServicePrice(query, result.ServicePrices); matched != nil {
+	// Use conceptually matched services if available from the search engine
+	if len(result.MatchedServices) > 0 {
+		suggestion.MatchedServices = trimServicePrices(result.MatchedServices, 3)
+		suggestion.MatchedServicePrice = &suggestion.MatchedServices[0]
+	} else if matched := matchServicePrice(query, result.ServicePrices); matched != nil {
+		// Fallback to lexical match
 		suggestion.MatchedServicePrice = matched
+		suggestion.MatchedServices = []entities.ServicePrice{*matched}
 	}
+
 	if matched := matchTag(query, result.Tags); matched != "" {
 		suggestion.MatchedTag = matched
 	}
@@ -711,11 +729,31 @@ func (h *FacilityHandler) GetFacilityServiceFees(w http.ResponseWriter, r *http.
 	})
 }
 
+func (h *FacilityHandler) GetZeroResultQueries(w http.ResponseWriter, r *http.Request) {
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 100)
+
+	// We need access to the service's internal analytics service
+	// Since FacilityService interface doesn't have it, we might need a workaround or update the interface.
+	// For now, let's assume we can add it to the interface.
+	events, err := h.service.GetZeroResultQueries(r.Context(), limit)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to fetch analytics")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"queries": events,
+		"count":   len(events),
+	})
+}
+
 // Helper functions
 func respondWithJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(payload)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("failed to encode JSON response: %v", err)
+	}
 }
 
 func respondWithError(w http.ResponseWriter, statusCode int, message string) {

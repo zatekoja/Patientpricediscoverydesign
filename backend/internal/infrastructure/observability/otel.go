@@ -27,13 +27,14 @@ import (
 
 // Metrics holds all application metrics
 type Metrics struct {
-	RequestCount         metric.Int64Counter
-	RequestDuration      metric.Float64Histogram
-	DBQueryDuration      metric.Float64Histogram
-	CacheHitCount        metric.Int64Counter
-	CacheMissCount       metric.Int64Counter
-	ActiveRequests       metric.Int64ObservableGauge
-	SSEActiveConnections metric.Int64ObservableGauge
+	RequestCount          metric.Int64Counter
+	RequestDuration       metric.Float64Histogram
+	DBQueryDuration       metric.Float64Histogram
+	CacheHitCount         metric.Int64Counter
+	CacheMissCount        metric.Int64Counter
+	ActiveRequests        metric.Int64ObservableGauge
+	SSEActiveConnections  metric.Int64ObservableGauge
+	ZeroResultSearchCount metric.Int64Counter
 }
 
 // ObservabilityShutdown holds shutdown functions for all observability components
@@ -243,14 +244,23 @@ func InitMetrics() (*Metrics, error) {
 		return nil, err
 	}
 
+	zeroResultSearchCount, err := meter.Int64Counter(
+		"search.zero_results.count",
+		metric.WithDescription("Number of searches that returned zero results"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Metrics{
-		RequestCount:         requestCount,
-		RequestDuration:      requestDuration,
-		DBQueryDuration:      dbQueryDuration,
-		CacheHitCount:        cacheHitCount,
-		CacheMissCount:       cacheMissCount,
-		ActiveRequests:       activeRequestsGauge,
-		SSEActiveConnections: sseActiveConnections,
+		RequestCount:          requestCount,
+		RequestDuration:       requestDuration,
+		DBQueryDuration:       dbQueryDuration,
+		CacheHitCount:         cacheHitCount,
+		CacheMissCount:        cacheMissCount,
+		ActiveRequests:        activeRequestsGauge,
+		SSEActiveConnections:  sseActiveConnections,
+		ZeroResultSearchCount: zeroResultSearchCount,
 	}, nil
 }
 
@@ -262,6 +272,17 @@ func (m *Metrics) RegisterSSECallback(callback func() int64) error {
 		return nil
 	}, m.SSEActiveConnections)
 	return err
+}
+
+// RecordZeroResultSearch records a search that returned no results
+func RecordZeroResultSearch(ctx context.Context, metrics *Metrics, intent string) {
+	if metrics == nil || metrics.ZeroResultSearchCount == nil {
+		return
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String("search.intent", intent),
+	}
+	metrics.ZeroResultSearchCount.Add(ctx, 1, metric.WithAttributes(attrs...))
 }
 
 // IncrementActiveRequests increments the active request counter

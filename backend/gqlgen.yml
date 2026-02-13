@@ -2,6 +2,9 @@
 schema:
   - internal/graphql/schema.graphql
 
+# Avoid CI flakiness from transitive module tidy drift during codegen.
+skip_mod_tidy: true
+
 # Where should the generated server code go?
 exec:
   filename: internal/graphql/generated/generated.go

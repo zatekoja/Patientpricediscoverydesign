@@ -222,8 +222,6 @@ func TestInferRegionFromTagsProblem(t *testing.T) {
 	}
 }
 
-
-
 // TestGeocodeQueryBuildingAddingLagos tests if Lagos is being added to geocode queries incorrectly
 func TestGeocodeQueryBuildingAddingLagos(t *testing.T) {
 	tests := []struct {

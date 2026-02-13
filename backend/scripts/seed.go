@@ -32,7 +32,9 @@ func main() {
 	var searchRepo *search.TypesenseAdapter
 	if err == nil {
 		searchRepo = search.NewTypesenseAdapter(tsClient)
-		searchRepo.InitSchema(context.Background())
+		if err := searchRepo.InitSchema(context.Background()); err != nil {
+			log.Printf("Failed to initialize Typesense schema: %v", err)
+		}
 	}
 
 	facilityRepo := database.NewFacilityAdapter(pgClient)

@@ -6,6 +6,10 @@ template: testify
 template-data:
   unroll-variadic: true
 packages:
+  github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers:
+    interfaces:
+      FacilityProcedureService: {}
+      FacilityService: {}
   github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers:
     interfaces:
       CacheProvider: {}

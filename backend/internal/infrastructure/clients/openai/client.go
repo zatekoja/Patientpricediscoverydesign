@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -156,7 +157,18 @@ func (c *Client) EnrichProcedure(ctx context.Context, procedure *entities.Proced
 		return nil, errors.New("openai response missing output text")
 	}
 
-	parsed, err := parseEnrichmentPayloadWithConcepts([]byte(text))
+	// Clean Markdown code blocks if present
+	cleaned := text
+	if strings.HasPrefix(cleaned, "```json") {
+		cleaned = strings.TrimPrefix(cleaned, "```json")
+		cleaned = strings.TrimSuffix(cleaned, "```")
+	} else if strings.HasPrefix(cleaned, "```") {
+		cleaned = strings.TrimPrefix(cleaned, "```")
+		cleaned = strings.TrimSuffix(cleaned, "```")
+	}
+	cleaned = strings.TrimSpace(cleaned)
+
+	parsed, err := parseEnrichmentPayloadWithConcepts([]byte(cleaned))
 	if err != nil {
 		recordOpenAIMetric(ctx, c.model, resp.StatusCode, time.Since(start), err)
 		return nil, fmt.Errorf("failed to parse openai response: %w", err)

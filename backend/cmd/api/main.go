@@ -272,6 +272,45 @@ func main() {
 		facilityService.SetTermExpander(termExpansionService)
 	}
 
+	// Initialize Query Understanding and Search Ranking services
+	conceptDictPath := "config/concept_dictionary.json"
+	spellingPath := "config/spelling_corrections.json"
+	if _, err := os.Stat("backend/" + conceptDictPath); err == nil {
+		conceptDictPath = "backend/" + conceptDictPath
+		spellingPath = "backend/" + spellingPath
+	}
+
+	quService, err := services.NewQueryUnderstandingService(conceptDictPath, spellingPath)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize Query Understanding Service")
+	} else {
+		if cacheProvider != nil {
+			quService.SetCache(cacheProvider)
+		}
+		facilityService.SetQueryUnderstanding(quService)
+		log.Info().Msg("Query Understanding Service initialized successfully")
+	}
+
+	rankingService := services.NewSearchRankingService()
+	facilityService.SetSearchRanking(rankingService)
+	log.Info().Msg("Search Ranking Service initialized successfully")
+
+	// Initialize Feature Flags
+	featureFlags := services.NewFeatureFlags()
+	facilityService.SetFeatureFlags(featureFlags)
+	log.Info().Msg("Feature Flags initialized successfully")
+
+	// Initialize Search Analytics
+	analyticsAdapter := database.NewSearchAnalyticsAdapter(pgClient)
+	analyticsService := services.NewSearchAnalyticsService(analyticsAdapter)
+	facilityService.SetAnalytics(analyticsService)
+	log.Info().Msg("Search Analytics Service initialized successfully")
+
+	// Set metrics for observability
+	if metrics != nil {
+		facilityService.SetMetrics(metrics)
+	}
+
 	// Set event bus for real-time updates
 	if eventBus != nil {
 		facilityService.SetEventBus(eventBus)

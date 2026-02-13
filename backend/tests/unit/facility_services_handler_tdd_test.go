@@ -1,7 +1,6 @@
 package handlers_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,33 +13,16 @@ import (
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/api/handlers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/tests/mocks"
 )
-
-// Mock for FacilityProcedureService
-type MockFacilityProcedureService struct {
-	mock.Mock
-}
-
-func (m *MockFacilityProcedureService) ListByFacilityWithCount(
-	ctx context.Context,
-	facilityID string,
-	filter repositories.FacilityProcedureFilter,
-) ([]*entities.FacilityProcedure, int, error) {
-	args := m.Called(ctx, facilityID, filter)
-	return args.Get(0).([]*entities.FacilityProcedure), args.Int(1), args.Error(2)
-}
-
-func (m *MockFacilityProcedureService) GetByID(ctx context.Context, id string) (*entities.FacilityProcedure, error) {
-	args := m.Called(ctx, id)
-	return args.Get(0).(*entities.FacilityProcedure), args.Error(1)
-}
 
 // TDD Test: Verify that facility services endpoint implements search-across-all-data
 func TestFacilityHandler_GetFacilityServices_TDD_SearchAcrossAllData(t *testing.T) {
-	mockFacilityService := new(MockFacilityService)
-	mockProcedureService := new(MockFacilityProcedureService)
+	mockFacilityService := new(mocks.MockFacilityService)
+	mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 	handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
+	mockFacilityService.On("ExpandQuery", "MRI").Return([]string{"MRI"})
 
 	facilityID := "fac-123"
 
@@ -124,10 +106,11 @@ func TestFacilityHandler_GetFacilityServices_TDD_SearchAcrossAllData(t *testing.
 }
 
 func TestFacilityHandler_GetFacilityServices_TDD_ComplexFiltering(t *testing.T) {
-	mockFacilityService := new(MockFacilityService)
-	mockProcedureService := new(MockFacilityProcedureService)
+	mockFacilityService := new(mocks.MockFacilityService)
+	mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 	handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
+	mockFacilityService.On("ExpandQuery", "therapy").Return([]string{"therapy"})
 
 	facilityID := "fac-456"
 
@@ -185,10 +168,11 @@ func TestFacilityHandler_GetFacilityServices_TDD_ComplexFiltering(t *testing.T) 
 }
 
 func TestFacilityHandler_GetFacilityServices_TDD_PaginationConsistency(t *testing.T) {
-	mockFacilityService := new(MockFacilityService)
-	mockProcedureService := new(MockFacilityProcedureService)
+	mockFacilityService := new(mocks.MockFacilityService)
+	mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 	handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
+	mockFacilityService.On("ExpandQuery", "scan").Return([]string{"scan"})
 
 	facilityID := "fac-789"
 	totalMatchingProcedures := 47 // Total procedures matching search
@@ -283,8 +267,8 @@ func TestFacilityHandler_GetFacilityServices_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockFacilityService := new(MockFacilityService)
-			mockProcedureService := new(MockFacilityProcedureService)
+			mockFacilityService := new(mocks.MockFacilityService)
+			mockProcedureService := new(mocks.MockFacilityProcedureService)
 
 			handler := handlers.NewFacilityHandlerWithServices(mockFacilityService, mockProcedureService)
 

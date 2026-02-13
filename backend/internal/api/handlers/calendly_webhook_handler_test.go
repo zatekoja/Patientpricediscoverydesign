@@ -51,9 +51,6 @@ func (m *mockNotificationService) SendReminder(ctx context.Context, appointment 
 }
 
 func TestCalendlyWebhookHandler_HandleWebhook(t *testing.T) {
-	db, mock := setupMockDB(t)
-	defer db.Close()
-
 	tests := []struct {
 		name               string
 		eventPayload       CalendlyWebhookEvent
@@ -117,12 +114,15 @@ func TestCalendlyWebhookHandler_HandleWebhook(t *testing.T) {
 				m.ExpectQuery("SELECT \\* FROM facilities").
 					WithArgs("facility_123").
 					WillReturnRows(sqlmock.NewRows([]string{
-						"id", "name", "address", "latitude", "longitude",
-						"phone", "email", "website", "rating", "created_at", "updated_at",
+						"id", "name", "phone_number", "whatsapp_number", "email", "website",
+						"description", "facility_type", "scheduling_external_id", "rating",
+						"review_count", "capacity_status", "ward_statuses", "avg_wait_minutes",
+						"urgent_care_available", "is_active", "created_at", "updated_at",
 					}).AddRow(
-						"facility_123", "Test Hospital", "123 Main St",
-						6.5244, 3.3792, "+234800", "info@test.com", "test.com",
-						4.5, time.Now(), time.Now(),
+						"facility_123", "Test Hospital", "+2348001234567", "+2348001234567", "info@test.com", "test.com",
+						"", "general", "", 4.5,
+						0, nil, []byte(`{}`), nil,
+						nil, true, time.Now(), time.Now(),
 					))
 
 				// Get procedure
@@ -221,12 +221,15 @@ func TestCalendlyWebhookHandler_HandleWebhook(t *testing.T) {
 				m.ExpectQuery("SELECT \\* FROM facilities").
 					WithArgs("facility_123").
 					WillReturnRows(sqlmock.NewRows([]string{
-						"id", "name", "address", "latitude", "longitude",
-						"phone", "email", "website", "rating", "created_at", "updated_at",
+						"id", "name", "phone_number", "whatsapp_number", "email", "website",
+						"description", "facility_type", "scheduling_external_id", "rating",
+						"review_count", "capacity_status", "ward_statuses", "avg_wait_minutes",
+						"urgent_care_available", "is_active", "created_at", "updated_at",
 					}).AddRow(
-						"facility_123", "Test Hospital", "123 Main St",
-						6.5244, 3.3792, "+234800", "info@test.com", "test.com",
-						4.5, time.Now(), time.Now(),
+						"facility_123", "Test Hospital", "+2348001234567", "+2348001234567", "info@test.com", "test.com",
+						"", "general", "", 4.5,
+						0, nil, []byte(`{}`), nil,
+						nil, true, time.Now(), time.Now(),
 					))
 
 				// Get procedure

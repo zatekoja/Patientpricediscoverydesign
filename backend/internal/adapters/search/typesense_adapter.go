@@ -59,6 +59,10 @@ func (a *TypesenseAdapter) InitSchema(ctx context.Context) error {
 			{Name: "insurance", Type: "string[]", Facet: pointer.True(), Optional: pointer.True()},
 			{Name: "tags", Type: "string[]", Optional: pointer.True()},
 			{Name: "procedures", Type: "string[]", Optional: pointer.True()},
+			{Name: "concepts", Type: "string[]", Optional: pointer.True()},
+			{Name: "conditions", Type: "string[]", Optional: pointer.True()},
+			{Name: "symptoms", Type: "string[]", Optional: pointer.True()},
+			{Name: "specialties", Type: "string[]", Facet: pointer.True(), Optional: pointer.True()},
 		},
 		DefaultSortingField: pointer.String("created_at"),
 	}
@@ -151,14 +155,22 @@ func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositor
 	if params.MaxPrice != nil {
 		filter = fmt.Sprintf("%s && price:<=%f", filter, *params.MaxPrice)
 	}
+	if len(params.Specialties) > 0 {
+		filter = fmt.Sprintf("%s && specialties:=[%s]", filter, strings.Join(escapeList(params.Specialties), ","))
+	}
+	if len(params.FacilityTypes) > 0 {
+		filter = fmt.Sprintf("%s && facility_type:=[%s]", filter, strings.Join(escapeList(params.FacilityTypes), ","))
+	}
 
 	searchParams := &api.SearchCollectionParams{
-		Q:        pointer.String(query),
-		QueryBy:  pointer.String("name,facility_type,tags,insurance,procedures"),
-		FilterBy: pointer.String(filter),
-		Page:     pointer.Int(params.Offset/limit + 1),
-		PerPage:  pointer.Int(limit),
-		NumTypos: pointer.String("2"),
+		Q:                   pointer.String(query),
+		QueryBy:             pointer.String("name,facility_type,tags,insurance,procedures,concepts,conditions,symptoms,specialties"),
+		QueryByWeights:      pointer.String("2,1,1,1,1,1,2,2,2"),
+		FilterBy:            pointer.String(filter),
+		Page:                pointer.Int(params.Offset/limit + 1),
+		PerPage:             pointer.Int(limit),
+		NumTypos:            pointer.String("2"),
+		DropTokensThreshold: pointer.Int(10),
 	}
 	if params.Query != "" {
 		searchParams.MinLen1typo = pointer.Int(4)
@@ -362,4 +374,12 @@ func escapeFilterValue(value string) string {
 	}
 	escaped := strings.ReplaceAll(trimmed, "\"", "\\\"")
 	return fmt.Sprintf("\"%s\"", escaped)
+}
+
+func escapeList(values []string) []string {
+	escaped := make([]string, len(values))
+	for i, v := range values {
+		escaped[i] = escapeFilterValue(v)
+	}
+	return escaped
 }

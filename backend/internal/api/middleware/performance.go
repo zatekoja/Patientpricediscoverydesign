@@ -106,13 +106,17 @@ func ETag(next http.Handler) http.Handler {
 			if rec.statusCode > 0 {
 				w.WriteHeader(rec.statusCode)
 			}
-			w.Write(rec.buffer.Bytes())
+			if _, err := w.Write(rec.buffer.Bytes()); err != nil {
+				return
+			}
 		} else {
 			// Non-OK status, just write the buffered response
 			if rec.statusCode > 0 {
 				w.WriteHeader(rec.statusCode)
 			}
-			w.Write(rec.buffer.Bytes())
+			if _, err := w.Write(rec.buffer.Bytes()); err != nil {
+				return
+			}
 		}
 	})
 }

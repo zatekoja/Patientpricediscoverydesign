@@ -16,9 +16,9 @@ import (
 
 // ProviderIngestionHandler triggers provider -> core data sync.
 type ProviderIngestionHandler struct {
-	service         *services.ProviderIngestionService
-	redisClient     *redislib.Client
-	idempotencyTTL  time.Duration
+	service        *services.ProviderIngestionService
+	redisClient    *redislib.Client
+	idempotencyTTL time.Duration
 }
 
 func NewProviderIngestionHandler(
@@ -44,8 +44,8 @@ func (h *ProviderIngestionHandler) TriggerIngestion(w http.ResponseWriter, r *ht
 
 	if duplicate, key := h.isDuplicate(r.Context(), r); duplicate {
 		respondWithJSON(w, http.StatusOK, map[string]string{
-			"status":            "duplicate",
-			"idempotency_key":   key,
+			"status":          "duplicate",
+			"idempotency_key": key,
 		})
 		return
 	}

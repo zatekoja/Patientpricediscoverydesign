@@ -1,9 +1,11 @@
 package services
 
 import (
+	"context"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/evaluation"
 )
@@ -173,6 +175,21 @@ func TestMapTerms_UnknownTerm_PassThrough(t *testing.T) {
 	if !containsStr(result.SearchTerms, "xyzabc123") {
 		t.Errorf("expected unknown term to pass through, got %v", result.SearchTerms)
 	}
+	if !containsStr(result.UnmatchedTerms, "xyzabc123") {
+		t.Errorf("expected unknown term in unmatched terms, got %v", result.UnmatchedTerms)
+	}
+}
+
+func TestMapTerms_UnmatchedTerms_FilterCommonFillers(t *testing.T) {
+	svc := newTestQueryService(t)
+	result := svc.Interpret("hospital near me foobar")
+
+	if !containsStr(result.UnmatchedTerms, "foobar") {
+		t.Errorf("expected foobar in unmatched terms, got %v", result.UnmatchedTerms)
+	}
+	if containsStr(result.UnmatchedTerms, "near") || containsStr(result.UnmatchedTerms, "me") {
+		t.Errorf("expected filler words to be ignored, got %v", result.UnmatchedTerms)
+	}
 }
 
 // --- Full pipeline tests ---
@@ -245,4 +262,94 @@ func containsStr(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+type testCacheProvider struct {
+	data map[string][]byte
+}
+
+func newTestCacheProvider() *testCacheProvider {
+	return &testCacheProvider{data: make(map[string][]byte)}
+}
+
+func (m *testCacheProvider) Get(ctx context.Context, key string) ([]byte, error) {
+	val, ok := m.data[key]
+	if !ok {
+		return nil, nil
+	}
+	return val, nil
+}
+
+func (m *testCacheProvider) Set(ctx context.Context, key string, value []byte, expirationSeconds int) error {
+	m.data[key] = value
+	return nil
+}
+
+func (m *testCacheProvider) GetMulti(ctx context.Context, keys []string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(keys))
+	for _, key := range keys {
+		if val, ok := m.data[key]; ok {
+			out[key] = val
+		}
+	}
+	return out, nil
+}
+
+func (m *testCacheProvider) SetMulti(ctx context.Context, items map[string][]byte, expirationSeconds int) error {
+	for key, val := range items {
+		m.data[key] = val
+	}
+	return nil
+}
+
+func (m *testCacheProvider) Delete(ctx context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+
+func (m *testCacheProvider) Exists(ctx context.Context, key string) (bool, error) {
+	_, ok := m.data[key]
+	return ok, nil
+}
+
+func (m *testCacheProvider) DeletePattern(ctx context.Context, pattern string) error {
+	for key := range m.data {
+		delete(m.data, key)
+	}
+	return nil
+}
+
+func (m *testCacheProvider) TTL(ctx context.Context, key string) (time.Duration, error) {
+	if _, ok := m.data[key]; ok {
+		return time.Minute, nil
+	}
+	return 0, nil
+}
+
+func TestShouldCatalogMissingTerm_Threshold(t *testing.T) {
+	svc := newTestQueryService(t)
+	cache := newTestCacheProvider()
+	svc.SetCache(cache)
+
+	term := "radiolojy"
+	if svc.shouldCatalogMissingTerm(term) {
+		t.Fatal("expected first occurrence to be filtered")
+	}
+	if svc.shouldCatalogMissingTerm(term) {
+		t.Fatal("expected second occurrence to be filtered")
+	}
+	if !svc.shouldCatalogMissingTerm(term) {
+		t.Fatal("expected third occurrence to be catalogued")
+	}
+}
+
+func TestShouldCatalogMissingTerm_FiltersNoisyTerms(t *testing.T) {
+	svc := newTestQueryService(t)
+
+	noisy := []string{"zzzz", "xqzpt", "123456", "a", "near"}
+	for _, term := range noisy {
+		if svc.shouldCatalogMissingTerm(term) {
+			t.Fatalf("expected noisy term %q to be filtered", term)
+		}
+	}
 }

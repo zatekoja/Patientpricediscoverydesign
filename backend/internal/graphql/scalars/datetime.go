@@ -12,7 +12,9 @@ import (
 // MarshalDateTime marshals time.Time to GraphQL DateTime scalar
 func MarshalDateTime(t time.Time) graphql.Marshaler {
 	return graphql.WriterFunc(func(w io.Writer) {
-		io.WriteString(w, strconv.Quote(t.Format(time.RFC3339)))
+		if _, err := io.WriteString(w, strconv.Quote(t.Format(time.RFC3339))); err != nil {
+			return
+		}
 	})
 }
 

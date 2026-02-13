@@ -183,27 +183,27 @@ func TestListByFacilityWithCountTotalCountAccuracy(t *testing.T) {
 
 // DocumentedExpectations documents the behavior expected when no services are dropped
 var DocumentedExpectations = struct {
-	NoFilters           string
-	CategoryFilter      string
-	PriceRangeFilter    string
-	SearchFilter        string
-	AvailabilityFilter  string
-	CombinedFilters     string
-	SortingOrder        string
-	Pagination          string
-	AvailableNotHidden  string
-	TDDCompliance       string
-	LoggingAudit        string
+	NoFilters          string
+	CategoryFilter     string
+	PriceRangeFilter   string
+	SearchFilter       string
+	AvailabilityFilter string
+	CombinedFilters    string
+	SortingOrder       string
+	Pagination         string
+	AvailableNotHidden string
+	TDDCompliance      string
+	LoggingAudit       string
 }{
-	NoFilters:           "All services returned including unavailable (isAvailable=false)",
-	CategoryFilter:      "Only services matching category returned, none silently dropped",
-	PriceRangeFilter:    "Services in price range (inclusive boundaries) returned",
-	SearchFilter:        "Services matching search text returned (case-insensitive)",
-	AvailabilityFilter:  "If filter specified, only matching availability returned; otherwise all returned",
-	CombinedFilters:     "All filters applied in sequence, each narrows the dataset further",
-	SortingOrder:        "Services sorted by specified field, but all matching services included",
-	Pagination:          "Limit/Offset applied AFTER filtering; totalCount reflects all matches",
-	AvailableNotHidden:  "Services with isAvailable=false returned as 'grayed out', not hidden",
-	TDDCompliance:       "Search applied to entire dataset before pagination (critical for completeness)",
-	LoggingAudit:        "Filter operations logged showing why services included/excluded for debugging",
+	NoFilters:          "All services returned including unavailable (isAvailable=false)",
+	CategoryFilter:     "Only services matching category returned, none silently dropped",
+	PriceRangeFilter:   "Services in price range (inclusive boundaries) returned",
+	SearchFilter:       "Services matching search text returned (case-insensitive)",
+	AvailabilityFilter: "If filter specified, only matching availability returned; otherwise all returned",
+	CombinedFilters:    "All filters applied in sequence, each narrows the dataset further",
+	SortingOrder:       "Services sorted by specified field, but all matching services included",
+	Pagination:         "Limit/Offset applied AFTER filtering; totalCount reflects all matches",
+	AvailableNotHidden: "Services with isAvailable=false returned as 'grayed out', not hidden",
+	TDDCompliance:      "Search applied to entire dataset before pagination (critical for completeness)",
+	LoggingAudit:       "Filter operations logged showing why services included/excluded for debugging",
 }

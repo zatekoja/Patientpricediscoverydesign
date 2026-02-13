@@ -1,5 +1,5 @@
 {
-  "OPENAI_API_KEY": "",
+  "OPENAI_API_KEY": "placeholder",
   "GEOLOCATION_API_KEY": "placeholder",
   "TYPESENSE_API_KEY": "xyz",
   "CALENDLY_API_KEY": "",

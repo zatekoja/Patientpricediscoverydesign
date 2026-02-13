@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"sort"
@@ -40,7 +39,7 @@ type ServiceNameNormalizer struct {
 
 // NewServiceNameNormalizer creates and initializes a new normalizer
 func NewServiceNameNormalizer(configPath string) (*ServiceNameNormalizer, error) {
-	configFile, err := ioutil.ReadFile(configPath)
+	configFile, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
