@@ -163,13 +163,13 @@ func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositor
 	}
 
 	searchParams := &api.SearchCollectionParams{
-		Q:              pointer.String(query),
-		QueryBy:        pointer.String("name,facility_type,tags,insurance,procedures,concepts,conditions,symptoms,specialties"),
-		QueryByWeights: pointer.String("2,1,1,1,1,1,2,2,2"),
-		FilterBy:       pointer.String(filter),
-		Page:           pointer.Int(params.Offset/limit + 1),
-		PerPage:        pointer.Int(limit),
-		NumTypos:       pointer.String("2"),
+		Q:                   pointer.String(query),
+		QueryBy:             pointer.String("name,facility_type,tags,insurance,procedures,concepts,conditions,symptoms,specialties"),
+		QueryByWeights:      pointer.String("2,1,1,1,1,1,2,2,2"),
+		FilterBy:            pointer.String(filter),
+		Page:                pointer.Int(params.Offset/limit + 1),
+		PerPage:             pointer.Int(limit),
+		NumTypos:            pointer.String("2"),
 		DropTokensThreshold: pointer.Int(10),
 	}
 	if params.Query != "" {
