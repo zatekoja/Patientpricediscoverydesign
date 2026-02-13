@@ -539,8 +539,8 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 				result.Wards = make([]entities.WardCapacityResult, 0, len(wards))
 				for _, ward := range wards {
 					wardResult := entities.WardCapacityResult{
-						WardName:            ward.WardName,
-						LastUpdated:         ward.LastUpdated,
+						WardName:    ward.WardName,
+						LastUpdated: ward.LastUpdated,
 					}
 					if ward.WardType != nil {
 						wardResult.WardType = *ward.WardType

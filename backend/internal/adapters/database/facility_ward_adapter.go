@@ -61,15 +61,15 @@ func (a *FacilityWardAdapter) Create(ctx context.Context, ward *entities.Facilit
 	}
 
 	record := goqu.Record{
-		"id":                     ward.ID,
-		"facility_id":            ward.FacilityID,
-		"ward_name":              ward.WardName,
-		"ward_type":              sql.NullString{String: wardTypeStr, Valid: wardTypeValid},
-		"capacity_status":        sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid},
-		"avg_wait_minutes":       sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid},
-		"urgent_care_available":  sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid},
-		"last_updated":           ward.LastUpdated,
-		"created_at":             ward.CreatedAt,
+		"id":                    ward.ID,
+		"facility_id":           ward.FacilityID,
+		"ward_name":             ward.WardName,
+		"ward_type":             sql.NullString{String: wardTypeStr, Valid: wardTypeValid},
+		"capacity_status":       sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid},
+		"avg_wait_minutes":      sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid},
+		"urgent_care_available": sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid},
+		"last_updated":          ward.LastUpdated,
+		"created_at":            ward.CreatedAt,
 	}
 
 	query, args, err := a.db.Insert("facility_wards").Rows(record).ToSQL()
@@ -293,7 +293,7 @@ func (a *FacilityWardAdapter) GetByFacilityAndWard(ctx context.Context, facility
 	).From("facility_wards").
 		Where(goqu.Ex{
 			"facility_id": facilityID,
-			"ward_name":  wardName,
+			"ward_name":   wardName,
 		}).
 		ToSQL()
 
@@ -379,12 +379,12 @@ func (a *FacilityWardAdapter) Update(ctx context.Context, ward *entities.Facilit
 	}
 
 	record := goqu.Record{
-		"ward_name":              ward.WardName,
-		"ward_type":              sql.NullString{String: wardTypeStr, Valid: wardTypeValid},
-		"capacity_status":        sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid},
-		"avg_wait_minutes":       sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid},
-		"urgent_care_available":  sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid},
-		"last_updated":           ward.LastUpdated,
+		"ward_name":             ward.WardName,
+		"ward_type":             sql.NullString{String: wardTypeStr, Valid: wardTypeValid},
+		"capacity_status":       sql.NullString{String: capacityStatusStr, Valid: capacityStatusValid},
+		"avg_wait_minutes":      sql.NullInt64{Int64: avgWaitInt, Valid: avgWaitValid},
+		"urgent_care_available": sql.NullBool{Bool: urgentCareBool, Valid: urgentCareValid},
+		"last_updated":          ward.LastUpdated,
 	}
 
 	query, args, err := a.db.Update("facility_wards").
@@ -429,13 +429,13 @@ func (a *FacilityWardAdapter) Upsert(ctx context.Context, ward *entities.Facilit
 		normalizedWardName := strings.ToLower(strings.TrimSpace(ward.WardName))
 		combinedKey := fmt.Sprintf("%s:%s", ward.FacilityID, normalizedWardName)
 		fullHash := hashString(combinedKey)
-		
+
 		// Use a short readable prefix (first 20 chars) for debugging
 		facilityIDPrefix := ward.FacilityID
 		if len(ward.FacilityID) > 20 {
 			facilityIDPrefix = ward.FacilityID[:20]
 		}
-		
+
 		ward.ID = fmt.Sprintf("%s_%s", facilityIDPrefix, fullHash)
 	}
 
@@ -553,7 +553,7 @@ func (a *FacilityWardAdapter) DeleteByFacilityAndWard(ctx context.Context, facil
 	query, args, err := a.db.Delete("facility_wards").
 		Where(goqu.Ex{
 			"facility_id": facilityID,
-			"ward_name":  wardName,
+			"ward_name":   wardName,
 		}).
 		ToSQL()
 
