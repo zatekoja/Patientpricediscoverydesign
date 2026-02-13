@@ -22,6 +22,9 @@ type FacilityService struct {
 	insuranceRepo        repositories.InsuranceRepository
 	eventBus             providers.EventBus
 	termExpander         *TermExpansionService
+	queryUnderstanding   *QueryUnderstandingService
+	searchRanking        *SearchRankingService
+	featureFlags         *FeatureFlags
 }
 
 const maxSearchTags = 12
@@ -52,6 +55,21 @@ func (s *FacilityService) SetEventBus(eventBus providers.EventBus) {
 // SetTermExpander sets the term expansion service
 func (s *FacilityService) SetTermExpander(expander *TermExpansionService) {
 	s.termExpander = expander
+}
+
+// SetQueryUnderstanding sets the query understanding service
+func (s *FacilityService) SetQueryUnderstanding(svc *QueryUnderstandingService) {
+	s.queryUnderstanding = svc
+}
+
+// SetSearchRanking sets the search ranking service
+func (s *FacilityService) SetSearchRanking(svc *SearchRankingService) {
+	s.searchRanking = svc
+}
+
+// SetFeatureFlags sets the feature flags service
+func (s *FacilityService) SetFeatureFlags(ff *FeatureFlags) {
+	s.featureFlags = ff
 }
 
 // ExpandQuery expands a search query using the configured term expander
@@ -306,49 +324,91 @@ func (s *FacilityService) Search(ctx context.Context, params repositories.Search
 	return s.repo.Search(ctx, params)
 }
 
-func (s *FacilityService) searchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error) {
-	if s.searchRepo != nil {
-		if adapterWithCount, ok := s.searchRepo.(interface {
-			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
-		}); ok {
-			facilities, totalCount, err := adapterWithCount.SearchWithCount(ctx, params)
-			if err == nil {
-				return facilities, totalCount, nil
+func (s *FacilityService) searchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, *QueryInterpretation, error) {
+	var interpretation *QueryInterpretation
+	useContextual := s.featureFlags == nil || s.featureFlags.ContextualSearchEnabled()
+
+	if useContextual && s.queryUnderstanding != nil && params.Query != "" {
+		interpretation = s.queryUnderstanding.Interpret(params.Query)
+		if len(params.ExpandedTerms) == 0 {
+			params.ExpandedTerms = interpretation.SearchTerms
+		}
+		if params.DetectedIntent == "" {
+			params.DetectedIntent = string(interpretation.DetectedIntent)
+		}
+		if interpretation.MappedConcepts != nil {
+			params.ConceptTerms = interpretation.MappedConcepts.AllTerms()
+			if len(params.Specialties) == 0 {
+				params.Specialties = interpretation.MappedConcepts.Specialties
 			}
-			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
-		} else {
-			facilities, err := s.searchRepo.Search(ctx, params)
-			if err == nil {
-				return facilities, len(facilities), nil
+			if len(params.FacilityTypes) == 0 {
+				params.FacilityTypes = interpretation.MappedConcepts.FacilityTypes
 			}
-			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
 		}
 	}
 
-	if adapterWithCount, ok := s.repo.(interface {
-		SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
-	}); ok {
-		return adapterWithCount.SearchWithCount(ctx, params)
+	var facilities []*entities.Facility
+	var totalCount int
+	var err error
+	var usedSearchRepo bool
+
+	if s.searchRepo != nil {
+		usedSearchRepo = true
+		if adapterWithCount, ok := s.searchRepo.(interface {
+			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+		}); ok {
+			facilities, totalCount, err = adapterWithCount.SearchWithCount(ctx, params)
+		} else {
+			facilities, err = s.searchRepo.Search(ctx, params)
+			if err == nil {
+				totalCount = len(facilities)
+			}
+		}
 	}
 
-	facilities, err := s.repo.Search(ctx, params)
-	if err != nil {
-		return nil, 0, err
+	if !usedSearchRepo || err != nil {
+		if usedSearchRepo {
+			log.Printf("Warning: Typesense search failed, falling back to database: %v", err)
+		}
+
+		if adapterWithCount, ok := s.repo.(interface {
+			SearchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, error)
+		}); ok {
+			facilities, totalCount, err = adapterWithCount.SearchWithCount(ctx, params)
+		} else {
+			facilities, err = s.repo.Search(ctx, params)
+			if err == nil {
+				totalCount = len(facilities)
+			}
+		}
 	}
-	return facilities, len(facilities), nil
+
+	if err != nil {
+		return nil, 0, interpretation, err
+	}
+
+	if useContextual && s.searchRanking != nil && len(facilities) > 0 {
+		ranked := s.searchRanking.Rank(facilities, interpretation, params.Latitude, params.Longitude)
+		facilities = make([]*entities.Facility, len(ranked))
+		for i, r := range ranked {
+			facilities[i] = r.Facility
+		}
+	}
+
+	return facilities, totalCount, interpretation, nil
 }
 
 // SearchResults returns enriched facility search results for the UI.
 func (s *FacilityService) SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error) {
-	results, _, err := s.SearchResultsWithCount(ctx, params)
+	results, _, _, err := s.SearchResultsWithCount(ctx, params)
 	return results, err
 }
 
 // SearchResultsWithCount returns enriched facility search results and total count for pagination.
-func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error) {
-	facilities, totalCount, err := s.searchWithCount(ctx, params)
+func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, *QueryInterpretation, error) {
+	facilities, totalCount, interpretation, err := s.searchWithCount(ctx, params)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	results := make([]entities.FacilitySearchResult, 0, len(facilities))
@@ -429,7 +489,7 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 		results = append(results, result)
 	}
 
-	return results, totalCount, nil
+	return results, totalCount, interpretation, nil
 }
 
 // Suggest returns facility suggestions for a query.

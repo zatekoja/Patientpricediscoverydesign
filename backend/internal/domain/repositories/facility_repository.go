@@ -61,6 +61,10 @@ type FacilityFilter struct {
 type SearchParams struct {
 	Query             string
 	ExpandedTerms     []string
+	ConceptTerms      []string
+	DetectedIntent    string
+	Specialties       []string
+	FacilityTypes     []string
 	Latitude          float64
 	Longitude         float64
 	RadiusKm          float64

@@ -51,9 +51,6 @@ func (m *mockNotificationService) SendReminder(ctx context.Context, appointment 
 }
 
 func TestCalendlyWebhookHandler_HandleWebhook(t *testing.T) {
-	db, mock := setupMockDB(t)
-	defer db.Close()
-
 	tests := []struct {
 		name               string
 		eventPayload       CalendlyWebhookEvent

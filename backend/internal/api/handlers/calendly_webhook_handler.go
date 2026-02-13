@@ -16,19 +16,24 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 )
+
+// NotificationProvider defines the operations for sending notifications
+type NotificationProvider interface {
+	SendBookingConfirmation(ctx context.Context, appointment *entities.Appointment, facility *entities.Facility, procedure *entities.Procedure) error
+	SendCancellationNotice(ctx context.Context, appointment *entities.Appointment, facility *entities.Facility, procedure *entities.Procedure) error
+}
 
 // CalendlyWebhookHandler handles Calendly webhook events
 type CalendlyWebhookHandler struct {
 	db                  *sqlx.DB
-	notificationService *services.NotificationService
+	notificationService NotificationProvider
 	signingSecret       string
 }
 
 // NewCalendlyWebhookHandler creates a new webhook handler
-func NewCalendlyWebhookHandler(db *sqlx.DB, notificationService *services.NotificationService) *CalendlyWebhookHandler {
+func NewCalendlyWebhookHandler(db *sqlx.DB, notificationService NotificationProvider) *CalendlyWebhookHandler {
 	return &CalendlyWebhookHandler{
 		db:                  db,
 		notificationService: notificationService,

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/database"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/adapters/search"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/clients/postgres"
@@ -82,6 +83,7 @@ func indexOnce(ctx context.Context, reset bool) error {
 	facilityProcedureRepo := database.NewFacilityProcedureAdapter(pgClient)
 	procedureCatalogRepo := database.NewProcedureAdapter(pgClient)
 	insuranceRepo := database.NewInsuranceAdapter(pgClient)
+	enrichmentRepo := database.NewProcedureEnrichmentAdapter(pgClient)
 
 	tsClient, err := typesense.NewClient(&cfg.Typesense)
 	if err != nil {
@@ -189,6 +191,25 @@ func indexOnce(ctx context.Context, reset bool) error {
 			procedureNames = append(procedureNames, name)
 		}
 
+		uniqueProcIDs := make(map[string]struct{})
+		var enrichments []*entities.ProcedureEnrichment
+		for _, fp := range facilityProcedures {
+			if fp == nil {
+				continue
+			}
+			if _, seen := uniqueProcIDs[fp.ProcedureID]; seen {
+				continue
+			}
+			uniqueProcIDs[fp.ProcedureID] = struct{}{}
+
+			enrich, err := enrichmentRepo.GetByProcedureID(ctx, fp.ProcedureID)
+			if err == nil && enrich != nil {
+				enrichments = append(enrichments, enrich)
+			}
+		}
+
+		conceptFields := search.BuildConceptFields(enrichments)
+
 		doc := map[string]interface{}{
 			"id":            f.ID,
 			"name":          f.Name,
@@ -210,6 +231,19 @@ func indexOnce(ctx context.Context, reset bool) error {
 
 		if len(procedureNames) > 0 {
 			doc["procedures"] = procedureNames
+		}
+
+		if len(conceptFields.Concepts) > 0 {
+			doc["concepts"] = conceptFields.Concepts
+		}
+		if len(conceptFields.Conditions) > 0 {
+			doc["conditions"] = conceptFields.Conditions
+		}
+		if len(conceptFields.Symptoms) > 0 {
+			doc["symptoms"] = conceptFields.Symptoms
+		}
+		if len(conceptFields.Specialties) > 0 {
+			doc["specialties"] = conceptFields.Specialties
 		}
 
 		if tags := tagsBuilder.tags(); len(tags) > 0 {

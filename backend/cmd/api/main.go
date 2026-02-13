@@ -272,6 +272,29 @@ func main() {
 		facilityService.SetTermExpander(termExpansionService)
 	}
 
+	// Initialize Query Understanding and Search Ranking services
+	conceptDictPath := "config/concept_dictionary.json"
+	spellingPath := "config/spelling_corrections.json"
+	if _, err := os.Stat("backend/" + conceptDictPath); err == nil {
+		conceptDictPath = "backend/" + conceptDictPath
+		spellingPath = "backend/" + spellingPath
+	}
+
+	quService, err := services.NewQueryUnderstandingService(conceptDictPath, spellingPath)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize Query Understanding Service")
+	} else {
+		if cacheProvider != nil {
+			quService.SetCache(cacheProvider)
+		}
+		facilityService.SetQueryUnderstanding(quService)
+		log.Info().Msg("Query Understanding Service initialized successfully")
+	}
+
+	rankingService := services.NewSearchRankingService()
+	facilityService.SetSearchRanking(rankingService)
+	log.Info().Msg("Search Ranking Service initialized successfully")
+
 	// Set event bus for real-time updates
 	if eventBus != nil {
 		facilityService.SetEventBus(eventBus)

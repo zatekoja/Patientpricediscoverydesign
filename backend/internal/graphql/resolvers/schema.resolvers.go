@@ -8,6 +8,7 @@ package resolvers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -221,6 +222,100 @@ func (r *facilityResolver) Procedures(ctx context.Context, obj *entities.Facilit
 			HasPreviousPage: start > 0,
 		},
 		TotalCount: len(fps),
+	}, nil
+}
+
+// AvailableServices is the resolver for the availableServices field.
+func (r *facilityResolver) AvailableServices(ctx context.Context, obj *entities.Facility, filter *generated.ServiceFilter, limit *int, offset *int, sortBy *generated.ServiceSortField, sortOrder *generated.SortOrder) (*generated.ServiceConnection, error) {
+	repoFilter := repositories.FacilityProcedureFilter{
+		Limit:  20,
+		Offset: 0,
+	}
+
+	if limit != nil {
+		repoFilter.Limit = *limit
+	}
+	if offset != nil {
+		repoFilter.Offset = *offset
+	}
+	if sortBy != nil {
+		repoFilter.SortBy = strings.ToLower(string(*sortBy))
+	}
+	if sortOrder != nil {
+		repoFilter.SortOrder = strings.ToLower(string(*sortOrder))
+	}
+
+	if filter != nil {
+		if filter.Search != nil {
+			repoFilter.SearchQuery = *filter.Search
+		}
+		if filter.IsAvailable != nil {
+			repoFilter.IsAvailable = filter.IsAvailable
+		}
+		if filter.MinPrice != nil {
+			repoFilter.MinPrice = filter.MinPrice
+		}
+		if filter.MaxPrice != nil {
+			repoFilter.MaxPrice = filter.MaxPrice
+		}
+		if len(filter.Categories) > 0 {
+			repoFilter.Category = filter.Categories[0] // Simple mapping for now
+		}
+	}
+
+	services, totalCount, err := r.facilityProcedureRepo.ListByFacilityWithCount(ctx, obj.ID, repoFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch facility services: %w", err)
+	}
+
+	nodes := make([]*generated.FacilityService, len(services))
+	for i, s := range services {
+		duration := s.EstimatedDuration
+		nodes[i] = &generated.FacilityService{
+			ID:                s.ID,
+			Price:             s.Price,
+			Currency:          s.Currency,
+			IsAvailable:       s.IsAvailable,
+			EstimatedDuration: &duration,
+			LastUpdated:       s.UpdatedAt.Format(time.RFC3339),
+			// Procedure will be resolved by DataLoader or manually
+			Procedure: &entities.Procedure{ID: s.ProcedureID},
+		}
+	}
+
+	var minPrice, maxPrice float64
+	categories := make([]string, 0)
+	if len(services) > 0 {
+		minPrice = services[0].Price
+		maxPrice = services[0].Price
+		catMap := make(map[string]struct{})
+		for _, s := range services {
+			if s.Price < minPrice {
+				minPrice = s.Price
+			}
+			if s.Price > maxPrice {
+				maxPrice = s.Price
+			}
+			// In a real app we'd fetch procedure category here
+		}
+		for cat := range catMap {
+			categories = append(categories, cat)
+		}
+	}
+
+	return &generated.ServiceConnection{
+		Nodes: nodes,
+		PageInfo: &generated.PageInfo{
+			HasNextPage:     repoFilter.Offset+len(services) < totalCount,
+			HasPreviousPage: repoFilter.Offset > 0,
+		},
+		TotalCount: totalCount,
+		PriceRange: &generated.PriceRange{
+			Min: minPrice,
+			Max: maxPrice,
+			Avg: (minPrice + maxPrice) / 2,
+		},
+		Categories: categories,
 	}, nil
 }
 
@@ -815,18 +910,3 @@ type facilitySearchResultResolver struct{ *Resolver }
 type insuranceProviderResolver struct{ *Resolver }
 type procedureResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func (r *procedureResolver) Price(ctx context.Context, obj *entities.Procedure) (float64, error) {
-	return obj.Price, nil
-}
-func (r *procedureResolver) Duration(ctx context.Context, obj *entities.Procedure) (int, error) {
-	return obj.Duration, nil
-}
-*/

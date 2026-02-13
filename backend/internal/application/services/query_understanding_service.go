@@ -1,12 +1,14 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/evaluation"
 )
 
@@ -37,6 +39,7 @@ type QueryUnderstandingService struct {
 	conceptDict    map[string]*ConceptEntry // term → concept
 	spellingDict   map[string]string        // misspelling → correct
 	multiWordIndex map[string][]string      // first word → full multi-word keys
+	cache          providers.CacheProvider
 }
 
 var nonAlphaNumDash = regexp.MustCompile(`[^\p{L}\p{N}\s\-'/]`)
@@ -97,8 +100,28 @@ func (s *QueryUnderstandingService) loadSpellingDict(path string) error {
 	return nil
 }
 
+// SetCache sets the cache provider for interpretation results.
+func (s *QueryUnderstandingService) SetCache(cache providers.CacheProvider) {
+	s.cache = cache
+}
+
 // Interpret processes a raw search query through the full understanding pipeline.
 func (s *QueryUnderstandingService) Interpret(query string) *QueryInterpretation {
+	q := strings.TrimSpace(strings.ToLower(query))
+	if q == "" {
+		return &QueryInterpretation{OriginalQuery: query}
+	}
+
+	if s.cache != nil {
+		cacheKey := "query_interp:" + q
+		if data, err := s.cache.Get(context.Background(), cacheKey); err == nil {
+			var cached QueryInterpretation
+			if json.Unmarshal(data, &cached) == nil {
+				return &cached
+			}
+		}
+	}
+
 	result := &QueryInterpretation{
 		OriginalQuery: query,
 	}
@@ -127,6 +150,13 @@ func (s *QueryUnderstandingService) Interpret(query string) *QueryInterpretation
 	// Step 5: Build search terms (original + related + concept terms)
 	result.SearchTerms = s.buildSearchTerms(effectiveQuery, matchedEntries)
 	result.ExpandedTerms = result.SearchTerms
+
+	if s.cache != nil {
+		cacheKey := "query_interp:" + q
+		if data, err := json.Marshal(result); err == nil {
+			_ = s.cache.Set(context.Background(), cacheKey, data, 86400) // 24 hours
+		}
+	}
 
 	return result
 }

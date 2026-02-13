@@ -12,6 +12,7 @@ import (
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
 )
 
@@ -21,7 +22,7 @@ type FacilityService interface {
 	List(ctx context.Context, filter repositories.FacilityFilter) ([]*entities.Facility, error)
 	Search(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, error)
 	SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error)
-	SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, error)
+	SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, *services.QueryInterpretation, error)
 	Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error)
 	Update(ctx context.Context, facility *entities.Facility) error
 	UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error)
@@ -409,16 +410,22 @@ func (h *FacilityHandler) SearchFacilities(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Search facilities
-	facilities, totalCount, err := h.service.SearchResultsWithCount(r.Context(), params)
+	facilities, totalCount, interpretation, err := h.service.SearchResultsWithCount(r.Context(), params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "failed to search facilities")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"facilities": facilities,
 		"count":      totalCount,
-	})
+	}
+
+	if interpretation != nil {
+		response["query_interpretation"] = interpretation
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 // SuggestFacilities handles GET /api/facilities/suggest
