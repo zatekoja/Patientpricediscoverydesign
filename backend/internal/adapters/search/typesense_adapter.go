@@ -170,6 +170,7 @@ func (a *TypesenseAdapter) SearchWithCount(ctx context.Context, params repositor
 		Page:           pointer.Int(params.Offset/limit + 1),
 		PerPage:        pointer.Int(limit),
 		NumTypos:       pointer.String("2"),
+		DropTokensThreshold: pointer.Int(10),
 	}
 	if params.Query != "" {
 		searchParams.MinLen1typo = pointer.Int(4)

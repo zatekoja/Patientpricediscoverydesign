@@ -210,6 +210,19 @@ func indexOnce(ctx context.Context, reset bool) error {
 
 		conceptFields := search.BuildConceptFields(enrichments)
 
+		// Manual expansion for common specialties to bridge lay terms and medical jargon
+		for _, s := range conceptFields.Specialties {
+			if s == "pediatrics" || s == "paediatrics" {
+				conceptFields.Concepts = append(conceptFields.Concepts, "baby", "child", "infant", "newborn", "paediatric")
+			}
+			if s == "obstetrics" || s == "gynecology" || s == "obstetrics_gynaecology" {
+				conceptFields.Concepts = append(conceptFields.Concepts, "pregnancy", "maternity", "antenatal", "prenatal", "baby delivery")
+			}
+			if s == "dental" || s == "dentistry" {
+				conceptFields.Concepts = append(conceptFields.Concepts, "tooth", "teeth", "dentist", "mouth", "gum")
+			}
+		}
+
 		doc := map[string]interface{}{
 			"id":            f.ID,
 			"name":          f.Name,

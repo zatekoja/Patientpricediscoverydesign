@@ -331,7 +331,12 @@ func (s *FacilityService) searchWithCount(ctx context.Context, params repositori
 	if useContextual && s.queryUnderstanding != nil && params.Query != "" {
 		interpretation = s.queryUnderstanding.Interpret(params.Query)
 		if len(params.ExpandedTerms) == 0 {
-			params.ExpandedTerms = interpretation.SearchTerms
+			// Limit expansion terms to avoid overly restrictive AND behavior in Typesense
+			expanded := interpretation.SearchTerms
+			if len(expanded) > 5 {
+				expanded = expanded[:5]
+			}
+			params.ExpandedTerms = expanded
 		}
 		if params.DetectedIntent == "" {
 			params.DetectedIntent = string(interpretation.DetectedIntent)

@@ -1,12 +1,47 @@
 package notifications
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newMockClient(t *testing.T, statusCode int, response WhatsAppResponse, validate func(*http.Request, []byte)) *http.Client {
+	t.Helper()
+
+	return &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			requestBody, err := io.ReadAll(req.Body)
+			if err != nil {
+				return nil, err
+			}
+			if validate != nil {
+				validate(req, requestBody)
+			}
+
+			respBody, err := json.Marshal(response)
+			if err != nil {
+				return nil, err
+			}
+
+			return &http.Response{
+				StatusCode: statusCode,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+			}, nil
+		}),
+	}
+}
 
 func TestNewWhatsAppCloudSender(t *testing.T) {
 	tests := []struct {
@@ -112,8 +147,7 @@ func TestWhatsAppCloudSender_SendTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock server
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			client := newMockClient(t, tt.mockStatusCode, tt.mockResponse, func(r *http.Request, _ []byte) {
 				// Verify request method and headers
 				if r.Method != "POST" {
 					t.Errorf("Expected POST request, got %s", r.Method)
@@ -121,20 +155,13 @@ func TestWhatsAppCloudSender_SendTemplate(t *testing.T) {
 				if r.Header.Get("Content-Type") != "application/json" {
 					t.Errorf("Expected Content-Type: application/json, got %s", r.Header.Get("Content-Type"))
 				}
+			})
 
-				w.WriteHeader(tt.mockStatusCode)
-				if err := json.NewEncoder(w).Encode(tt.mockResponse); err != nil {
-					t.Errorf("failed to encode mock response: %v", err)
-				}
-			}))
-			defer server.Close()
-
-			// Create sender with mock server - override the base URL
 			sender := &WhatsAppCloudSender{
 				accessToken:   "test_token",
 				phoneNumberID: "123456789",
-				httpClient:    server.Client(),
-				baseURL:       server.URL, // Use mock server URL
+				httpClient:    client,
+				baseURL:       "https://mock.whatsapp.local",
 			}
 
 			messageID, err := sender.SendTemplate(tt.to, tt.templateName, tt.languageCode, tt.parameters)
@@ -200,19 +227,13 @@ func TestWhatsAppCloudSender_SendText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tt.mockStatusCode)
-				if err := json.NewEncoder(w).Encode(tt.mockResponse); err != nil {
-					t.Errorf("failed to encode mock response: %v", err)
-				}
-			}))
-			defer server.Close()
+			client := newMockClient(t, tt.mockStatusCode, tt.mockResponse, nil)
 
 			sender := &WhatsAppCloudSender{
 				accessToken:   "test_token",
 				phoneNumberID: "123456789",
-				httpClient:    server.Client(),
-				baseURL:       server.URL, // Use mock server URL
+				httpClient:    client,
+				baseURL:       "https://mock.whatsapp.local",
 			}
 
 			messageID, err := sender.SendText(tt.to, tt.body)
@@ -233,7 +254,12 @@ func TestWhatsAppCloudSender_SendMessage_NetworkError(t *testing.T) {
 	sender := &WhatsAppCloudSender{
 		accessToken:   "test_token",
 		phoneNumberID: "123456789",
-		httpClient:    &http.Client{},
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, errors.New("network error")
+			}),
+		},
+		baseURL: "https://mock.whatsapp.local",
 	}
 
 	// Use invalid URL to simulate network error
@@ -249,23 +275,17 @@ func TestWhatsAppCloudSender_SendMessage_NetworkError(t *testing.T) {
 }
 
 func TestWhatsAppResponse_NoMessageID(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(WhatsAppResponse{
-			Messages: []struct {
-				ID string `json:"id"`
-			}{}, // Empty messages array
-		}); err != nil {
-			t.Errorf("failed to encode mock response: %v", err)
-		}
-	}))
-	defer server.Close()
+	client := newMockClient(t, http.StatusOK, WhatsAppResponse{
+		Messages: []struct {
+			ID string `json:"id"`
+		}{}, // Empty messages array
+	}, nil)
 
 	sender := &WhatsAppCloudSender{
 		accessToken:   "test_token",
 		phoneNumberID: "123456789",
-		baseURL:       server.URL, // Use mock server URL
-		httpClient:    server.Client(),
+		baseURL:       "https://mock.whatsapp.local",
+		httpClient:    client,
 	}
 
 	_, err := sender.SendText("+2348001234567", "Test")
