@@ -5,7 +5,7 @@ import { FilePriceListProvider } from '../../providers/FilePriceListProvider';
 import { InMemoryDocumentStore } from '../../stores/InMemoryDocumentStore';
 import { PriceData } from '../../types/PriceData';
 
-const fixturesDir = path.resolve(__dirname, '..', '..', 'fixtures', 'price_lists');
+const fixturesDir = path.resolve(__dirname, '..', '..', 'internal', 'providers', 'data');
 const megalekCsv = path.join(fixturesDir, 'MEGALEK NEW PRICE LIST 2026.csv');
 const lasuthCsv = path.join(fixturesDir, 'NEW LASUTH PRICE LIST (SERVICES).csv');
 const randleCsv = path.join(fixturesDir, 'PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv');

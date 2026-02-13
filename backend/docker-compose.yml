@@ -217,7 +217,7 @@ services:
       - PROVIDER_MONGO_TTL_DAYS=30
       - PROVIDER_RUN_INITIAL_SYNC=true
       - PRICE_LIST_CURRENCY=NGN
-      - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
+      - "PRICE_LIST_FILES=/app/internal/providers/data/MEGALEK NEW PRICE LIST 2026.csv,/app/internal/providers/data/NEW LASUTH PRICE LIST (SERVICES).csv,/app/internal/providers/data/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/internal/providers/data/PRICE_LIST_FOR_OFFICE_USE[1].docx"
       - LLM_DOC_PARSER_ENABLED=${LLM_DOC_PARSER_ENABLED:-true}
       - VAULT_ENABLED=${VAULT_ENABLED:-false}
       - VAULT_ADDR=${VAULT_ADDR:-http://vault:8200}

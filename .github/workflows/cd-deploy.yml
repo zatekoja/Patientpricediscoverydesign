@@ -5,8 +5,23 @@ name: "CD - Deploy to GCP"
 # Supports deployment to dev, staging, and prod environments
 
 on:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'dev'
+        type: string
+      deployment-type:
+        description: 'Deployment type'
+        required: false
+        default: 'auto'
+        type: string
+      skip-approval:
+        description: 'Skip manual approval (dev only)'
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       environment:

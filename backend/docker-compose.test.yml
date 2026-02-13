@@ -116,7 +116,7 @@ services:
       - GOOGLE_PROJECT_ID=test-project
       - SPREADSHEET_IDS=test-sheet-id
       - PRICE_LIST_CURRENCY=NGN
-      - "PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/NEW LASUTH PRICE LIST (SERVICES).csv,/app/fixtures/price_lists/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx"
+      - "PRICE_LIST_FILES=/app/internal/providers/data/MEGALEK NEW PRICE LIST 2026.csv,/app/internal/providers/data/NEW LASUTH PRICE LIST (SERVICES).csv,/app/internal/providers/data/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv,/app/internal/providers/data/PRICE_LIST_FOR_OFFICE_USE[1].docx"
       - PROVIDER_MONGO_URI=mongodb://mongo-test:27017
       - PROVIDER_MONGO_DB=provider_test
       - PROVIDER_MONGO_COLLECTION=price_records
