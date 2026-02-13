@@ -3,8 +3,6 @@ name: Main CI/CD Pipeline
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       force-deploy:

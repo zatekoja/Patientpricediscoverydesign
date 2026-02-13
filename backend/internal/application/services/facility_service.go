@@ -472,7 +472,7 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 				}
 
 				if s.procedureCatalogRepo != nil {
-					result.ServicePrices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8, params.Query)
+					result.ServicePrices, result.MatchedServices = servicePricesFromProcedures(ctx, facilityProcedures, s.procedureCatalogRepo, 8, params.Query, interpretation)
 					result.Services = serviceNamesFromPrices(result.ServicePrices)
 				}
 			}
@@ -717,9 +717,10 @@ func servicePricesFromProcedures(
 	procedureRepo repositories.ProcedureRepository,
 	limit int,
 	query string,
-) []entities.ServicePrice {
+	interp *QueryInterpretation,
+) ([]entities.ServicePrice, []entities.ServicePrice) {
 	if limit <= 0 || len(items) == 0 {
-		return []entities.ServicePrice{}
+		return []entities.ServicePrice{}, []entities.ServicePrice{}
 	}
 
 	filtered := make([]*entities.FacilityProcedure, 0, len(items))
@@ -731,7 +732,7 @@ func servicePricesFromProcedures(
 	}
 
 	if len(filtered) == 0 {
-		return []entities.ServicePrice{}
+		return []entities.ServicePrice{}, []entities.ServicePrice{}
 	}
 
 	sort.Slice(filtered, func(i, j int) bool {
@@ -739,11 +740,35 @@ func servicePricesFromProcedures(
 	})
 
 	preferredQuery := strings.ToLower(strings.TrimSpace(query))
-
 	services := make([]entities.ServicePrice, 0, limit)
+	matchedServices := make([]entities.ServicePrice, 0, limit)
 	seen := make(map[string]struct{})
 
-	if preferredQuery != "" {
+	// 1. First pass: identify conceptual matches
+	if interp != nil && len(interp.SearchTerms) > 0 {
+		for _, item := range filtered {
+			if len(matchedServices) >= limit {
+				break
+			}
+			procedure, err := procedureRepo.GetByID(ctx, item.ProcedureID)
+			if err != nil || procedure == nil || procedure.Name == "" {
+				continue
+			}
+			if _, exists := seen[procedure.ID]; exists {
+				continue
+			}
+
+			if matchesConceptualProcedure(procedure, interp) {
+				seen[procedure.ID] = struct{}{}
+				sp := mapToServicePrice(item, procedure)
+				matchedServices = append(matchedServices, sp)
+				services = append(services, sp)
+			}
+		}
+	}
+
+	// 2. Second pass: identify exact lexical matches
+	if preferredQuery != "" && len(services) < limit {
 		for _, item := range filtered {
 			if len(services) >= limit {
 				break
@@ -752,34 +777,23 @@ func servicePricesFromProcedures(
 			if err != nil || procedure == nil || procedure.Name == "" {
 				continue
 			}
-			if !matchesProcedure(preferredQuery, procedure) {
-				continue
-			}
 			if _, exists := seen[procedure.ID]; exists {
 				continue
 			}
-			seen[procedure.ID] = struct{}{}
-			displayName := procedure.DisplayName
-			if displayName == "" {
-				displayName = procedure.Name
+
+			if matchesProcedure(preferredQuery, procedure) {
+				seen[procedure.ID] = struct{}{}
+				sp := mapToServicePrice(item, procedure)
+				services = append(services, sp)
+				// If it didn't match conceptually but matched lexical, maybe it's still relevant
+				if len(matchedServices) < 3 {
+					matchedServices = append(matchedServices, sp)
+				}
 			}
-			services = append(services, entities.ServicePrice{
-				ProcedureID:       item.ProcedureID,
-				Name:              procedure.Name,
-				DisplayName:       displayName,
-				Price:             item.Price,
-				Currency:          item.Currency,
-				Description:       procedure.Description,
-				Category:          procedure.Category,
-				Code:              procedure.Code,
-				EstimatedDuration: item.EstimatedDuration,
-				NormalizedTags:    procedure.NormalizedTags,
-				IsAvailable:       item.IsAvailable,
-			})
-			break
 		}
 	}
 
+	// 3. Third pass: fill remaining slots with cheapest available services
 	for _, item := range filtered {
 		if len(services) >= limit {
 			break
@@ -791,28 +805,83 @@ func servicePricesFromProcedures(
 		if _, exists := seen[procedure.ID]; exists {
 			continue
 		}
+
 		seen[procedure.ID] = struct{}{}
-		displayName := procedure.DisplayName
-		if displayName == "" {
-			displayName = procedure.Name
-		}
-		services = append(services, entities.ServicePrice{
-			ProcedureID:       item.ProcedureID,
-			Name:              procedure.Name,
-			DisplayName:       displayName,
-			Price:             item.Price,
-			Currency:          item.Currency,
-			Description:       procedure.Description,
-			Category:          procedure.Category,
-			Code:              procedure.Code,
-			EstimatedDuration: item.EstimatedDuration,
-			NormalizedTags:    procedure.NormalizedTags,
-			IsAvailable:       item.IsAvailable,
-		})
+		services = append(services, mapToServicePrice(item, procedure))
 	}
 
-	return services
+	return services, matchedServices
 }
+
+func matchesConceptualProcedure(procedure *entities.Procedure, interp *QueryInterpretation) bool {
+	if procedure == nil || interp == nil {
+		return false
+	}
+
+	name := strings.ToLower(procedure.Name)
+	displayName := strings.ToLower(procedure.DisplayName)
+	cat := strings.ToLower(procedure.Category)
+
+	// Match against expanded terms with word boundary logic for short terms
+	for _, term := range interp.SearchTerms {
+		if len(term) < 4 {
+			// Exact word match for short terms to avoid "ache" matching "tracheostomy"
+			if containsWord(name, term) || containsWord(displayName, term) || containsWord(cat, term) {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(name, term) || strings.Contains(displayName, term) || strings.Contains(cat, term) {
+			return true
+		}
+	}
+
+	// Match against mapped specialties/conditions
+	if interp.MappedConcepts != nil {
+		for _, spec := range interp.MappedConcepts.Specialties {
+			if strings.Contains(cat, spec) || strings.Contains(name, spec) {
+				return true
+			}
+		}
+		for _, cond := range interp.MappedConcepts.Conditions {
+			if strings.Contains(strings.ToLower(procedure.Description), cond) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func containsWord(s, word string) bool {
+	if s == word {
+		return true
+	}
+	// Simple word boundary check
+	return strings.Contains(s, " "+word+" ") || strings.HasPrefix(s, word+" ") || strings.HasSuffix(s, " "+word)
+}
+
+
+func mapToServicePrice(item *entities.FacilityProcedure, procedure *entities.Procedure) entities.ServicePrice {
+	displayName := procedure.DisplayName
+	if displayName == "" {
+		displayName = procedure.Name
+	}
+	return entities.ServicePrice{
+		ProcedureID:       item.ProcedureID,
+		Name:              procedure.Name,
+		DisplayName:       displayName,
+		Price:             item.Price,
+		Currency:          item.Currency,
+		Description:       procedure.Description,
+		Category:          procedure.Category,
+		Code:              procedure.Code,
+		EstimatedDuration: item.EstimatedDuration,
+		NormalizedTags:    procedure.NormalizedTags,
+		IsAvailable:       item.IsAvailable,
+	}
+}
+
 
 func matchesProcedure(query string, procedure *entities.Procedure) bool {
 	if procedure == nil {

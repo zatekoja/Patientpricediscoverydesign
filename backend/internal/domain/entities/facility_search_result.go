@@ -19,6 +19,7 @@ type FacilitySearchResult struct {
 	Price               *FacilityPriceRange `json:"price,omitempty"`
 	Services            []string            `json:"services"`
 	ServicePrices       []ServicePrice      `json:"service_prices"`
+	MatchedServices     []ServicePrice      `json:"matched_services,omitempty"`
 	Tags                []string            `json:"tags,omitempty"`
 	AcceptedInsurance   []string            `json:"accepted_insurance"`
 	NextAvailableAt     *time.Time          `json:"next_available_at,omitempty"`
