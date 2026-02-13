@@ -822,9 +822,23 @@ func matchesConceptualProcedure(procedure *entities.Procedure, interp *QueryInte
 	displayName := strings.ToLower(procedure.DisplayName)
 	cat := strings.ToLower(procedure.Category)
 
+	// Match against mapped specialties/conditions (Higher precision)
+	if interp.MappedConcepts != nil {
+		for _, spec := range interp.MappedConcepts.Specialties {
+			if strings.Contains(cat, spec) || strings.Contains(name, spec) {
+				return true
+			}
+		}
+		for _, cond := range interp.MappedConcepts.Conditions {
+			if strings.Contains(strings.ToLower(procedure.Description), cond) || strings.Contains(name, cond) {
+				return true
+			}
+		}
+	}
+
 	// Match against expanded terms with word boundary logic for short terms
 	for _, term := range interp.SearchTerms {
-		if len(term) < 4 {
+		if len(term) <= 5 {
 			// Exact word match for short terms to avoid "ache" matching "tracheostomy"
 			if containsWord(name, term) || containsWord(displayName, term) || containsWord(cat, term) {
 				return true
@@ -833,20 +847,6 @@ func matchesConceptualProcedure(procedure *entities.Procedure, interp *QueryInte
 		}
 		if strings.Contains(name, term) || strings.Contains(displayName, term) || strings.Contains(cat, term) {
 			return true
-		}
-	}
-
-	// Match against mapped specialties/conditions
-	if interp.MappedConcepts != nil {
-		for _, spec := range interp.MappedConcepts.Specialties {
-			if strings.Contains(cat, spec) || strings.Contains(name, spec) {
-				return true
-			}
-		}
-		for _, cond := range interp.MappedConcepts.Conditions {
-			if strings.Contains(strings.ToLower(procedure.Description), cond) {
-				return true
-			}
 		}
 	}
 
@@ -860,7 +860,6 @@ func containsWord(s, word string) bool {
 	// Simple word boundary check
 	return strings.Contains(s, " "+word+" ") || strings.HasPrefix(s, word+" ") || strings.HasSuffix(s, " "+word)
 }
-
 
 func mapToServicePrice(item *entities.FacilityProcedure, procedure *entities.Procedure) entities.ServicePrice {
 	displayName := procedure.DisplayName
@@ -881,7 +880,6 @@ func mapToServicePrice(item *entities.FacilityProcedure, procedure *entities.Pro
 		IsAvailable:       item.IsAvailable,
 	}
 }
-
 
 func matchesProcedure(query string, procedure *entities.Procedure) bool {
 	if procedure == nil {

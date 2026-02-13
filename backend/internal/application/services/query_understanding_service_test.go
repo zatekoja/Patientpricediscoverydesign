@@ -173,6 +173,21 @@ func TestMapTerms_UnknownTerm_PassThrough(t *testing.T) {
 	if !containsStr(result.SearchTerms, "xyzabc123") {
 		t.Errorf("expected unknown term to pass through, got %v", result.SearchTerms)
 	}
+	if !containsStr(result.UnmatchedTerms, "xyzabc123") {
+		t.Errorf("expected unknown term in unmatched terms, got %v", result.UnmatchedTerms)
+	}
+}
+
+func TestMapTerms_UnmatchedTerms_FilterCommonFillers(t *testing.T) {
+	svc := newTestQueryService(t)
+	result := svc.Interpret("hospital near me foobar")
+
+	if !containsStr(result.UnmatchedTerms, "foobar") {
+		t.Errorf("expected foobar in unmatched terms, got %v", result.UnmatchedTerms)
+	}
+	if containsStr(result.UnmatchedTerms, "near") || containsStr(result.UnmatchedTerms, "me") {
+		t.Errorf("expected filler words to be ignored, got %v", result.UnmatchedTerms)
+	}
 }
 
 // --- Full pipeline tests ---
