@@ -503,10 +503,10 @@ func (a *FacilityWardAdapter) Upsert(ctx context.Context, ward *entities.Facilit
 	}
 
 	// Use INSERT ... ON CONFLICT for atomic upsert
-	// For composite unique key (facility_id, ward_name), pass columns as a slice of identifiers
+	// For composite unique key (facility_id, ward_name), pass target as string (goqu.DoUpdate expects target string)
 	query, args, err := a.db.Insert("facility_wards").
 		Rows(record).
-		OnConflict(goqu.DoUpdate([]interface{}{goqu.I("facility_id"), goqu.I("ward_name")}, updateRecord)).
+		OnConflict(goqu.DoUpdate("facility_id, ward_name", updateRecord)).
 		ToSQL()
 
 	if err != nil {
