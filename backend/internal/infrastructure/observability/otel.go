@@ -27,13 +27,13 @@ import (
 
 // Metrics holds all application metrics
 type Metrics struct {
-	RequestCount         metric.Int64Counter
-	RequestDuration      metric.Float64Histogram
-	DBQueryDuration      metric.Float64Histogram
-	CacheHitCount        metric.Int64Counter
-	CacheMissCount       metric.Int64Counter
-	ActiveRequests       metric.Int64ObservableGauge
-	SSEActiveConnections metric.Int64ObservableGauge
+	RequestCount          metric.Int64Counter
+	RequestDuration       metric.Float64Histogram
+	DBQueryDuration       metric.Float64Histogram
+	CacheHitCount         metric.Int64Counter
+	CacheMissCount        metric.Int64Counter
+	ActiveRequests        metric.Int64ObservableGauge
+	SSEActiveConnections  metric.Int64ObservableGauge
 	ZeroResultSearchCount metric.Int64Counter
 }
 

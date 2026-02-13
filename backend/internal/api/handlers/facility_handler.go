@@ -731,7 +731,7 @@ func (h *FacilityHandler) GetFacilityServiceFees(w http.ResponseWriter, r *http.
 
 func (h *FacilityHandler) GetZeroResultQueries(w http.ResponseWriter, r *http.Request) {
 	limit := parseIntDefault(r.URL.Query().Get("limit"), 100)
-	
+
 	// We need access to the service's internal analytics service
 	// Since FacilityService interface doesn't have it, we might need a workaround or update the interface.
 	// For now, let's assume we can add it to the interface.
