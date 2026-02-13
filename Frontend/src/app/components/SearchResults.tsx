@@ -26,6 +26,34 @@ interface SearchResultsProps {
 
 type FacilityCategory = "all" | "hospitals" | "laboratories" | "pharmacies" | "sti_testing";
 
+const STI_KEYWORDS = ["sti", "std", "hiv", "sexual health", "vdrl", "syphilis", "gonorr", "chlamydia"];
+
+const includesSTIKeyword = (value?: string | null): boolean => {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return STI_KEYWORDS.some((keyword) => normalized.includes(keyword));
+};
+
+const hasSTIServices = (facility: UIFacility): boolean => {
+  if (facility.services.some((service) => includesSTIKeyword(service))) {
+    return true;
+  }
+
+  return facility.servicePrices.some((servicePrice) => {
+    if (servicePrice.category?.toLowerCase() === "sti_testing") {
+      return true;
+    }
+    if (servicePrice.normalizedTags?.some((tag) => tag.toLowerCase() === "sti_testing")) {
+      return true;
+    }
+    return (
+      includesSTIKeyword(servicePrice.name) ||
+      includesSTIKeyword(servicePrice.displayName) ||
+      includesSTIKeyword(servicePrice.description)
+    );
+  });
+};
+
 export function SearchResults({
   facilities,
   loading,
@@ -64,7 +92,7 @@ export function SearchResults({
         case "pharmacies":
           return type.includes("pharmacy") || services.some(s => s.includes("pharmacy") || s.includes("medication"));
         case "sti_testing":
-          return services.some(s => s.includes("sti") || s.includes("std") || s.includes("hiv") || s.includes("sexual health"));
+          return hasSTIServices(facility);
         default:
           return true;
       }

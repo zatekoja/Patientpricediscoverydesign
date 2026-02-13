@@ -178,6 +178,9 @@ func (r *Router) SetupRoutes() http.Handler {
 
 	r.mux.HandleFunc("POST /api/provider/ingest", r.providerIngestionHandler.TriggerIngestion)
 
+	// Analytics endpoints
+	r.mux.HandleFunc("GET /api/analytics/zero-result-queries", r.facilityHandler.GetZeroResultQueries)
+
 	// Fee waiver endpoints
 	if r.feeWaiverHandler != nil {
 		r.mux.HandleFunc("GET /api/facilities/{id}/fee-waiver", r.feeWaiverHandler.GetFacilityFeeWaiver)

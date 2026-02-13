@@ -53,18 +53,29 @@ interface FacilityModalProps {
   };
   onClose: () => void;
   preSelectedServiceName?: string;
+  preSelectedService?: {
+    procedureId?: string;
+    code?: string;
+    name: string;
+    displayName?: string;
+    price?: number;
+    currency?: string;
+  };
 }
 
 type ModalServiceItem = FacilityModalProps["facility"]["servicePrices"][number];
 
-export function FacilityModal({ facility, onClose, preSelectedServiceName }: FacilityModalProps) {
+export function FacilityModal({
+  facility,
+  onClose,
+  preSelectedServiceName,
+  preSelectedService,
+}: FacilityModalProps) {
   const [slots, setSlots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [booking, setBooking] = useState(false);
-  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(
-    preSelectedServiceName ? preSelectedServiceName : null
-  );
+  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
 
   // Selected services for cost breakdown (separate from expand/collapse).
   // Keyed by procedureId/code/name for stability.
@@ -198,17 +209,82 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
     fetchSlots();
   }, [facility.id]);
 
-  // Auto-scroll to pre-selected service
+  // Select and auto-scroll to the pre-selected service from suggestions.
   useEffect(() => {
-    if (preSelectedServiceName) {
-      setTimeout(() => {
-        const element = document.getElementById(`service-${preSelectedServiceName}`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-      }, 100);
+    const preferredName = (
+      preSelectedService?.displayName ||
+      preSelectedService?.name ||
+      preSelectedServiceName ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!preferredName && !preSelectedService?.procedureId && !preSelectedService?.code) {
+      return;
     }
-  }, [preSelectedServiceName]);
+
+    const getKey = (service: ModalServiceItem, index: number) =>
+      service.procedureId || service.code || service.name || String(index);
+
+    let matchedIndex = -1;
+    const matchedService = facility.servicePrices.find((service, index) => {
+      if (preSelectedService?.procedureId && service.procedureId === preSelectedService.procedureId) {
+        matchedIndex = index;
+        return true;
+      }
+
+      if (preSelectedService?.code && service.code === preSelectedService.code) {
+        matchedIndex = index;
+        return true;
+      }
+
+      const serviceName = (service.name || "").trim().toLowerCase();
+      const serviceDisplayName = (service.displayName || "").trim().toLowerCase();
+      if (preferredName && (serviceName === preferredName || serviceDisplayName === preferredName)) {
+        matchedIndex = index;
+        return true;
+      }
+
+      return false;
+    });
+
+    if (!matchedService || matchedIndex < 0) {
+      return;
+    }
+
+    const serviceKey = getKey(matchedService, matchedIndex);
+    setExpandedServiceId(serviceKey);
+    setSelectedServices({
+      [serviceKey]: {
+        name:
+          matchedService.displayName ||
+          matchedService.name ||
+          preSelectedService?.displayName ||
+          preSelectedService?.name ||
+          "",
+        price: matchedService.price ?? preSelectedService?.price ?? 0,
+        currency: matchedService.currency || preSelectedService?.currency || "NGN",
+      },
+    });
+
+    setTimeout(() => {
+      const element = document.getElementById(toServiceDomID(serviceKey));
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }, 100);
+  }, [
+    facility.id,
+    facility.servicePrices,
+    preSelectedServiceName,
+    preSelectedService?.procedureId,
+    preSelectedService?.code,
+    preSelectedService?.name,
+    preSelectedService?.displayName,
+    preSelectedService?.price,
+    preSelectedService?.currency,
+  ]);
 
   // Fetch paginated services for "All Services" modal
   useEffect(() => {
@@ -356,6 +432,7 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
 
   const getServiceKey = (service: ModalServiceItem, index: number) =>
     service.procedureId || service.code || service.name || String(index);
+  const toServiceDomID = (serviceKey: string) => `service-${serviceKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
   const toggleSelectedService = (key: string, service: { name: string; price: number; currency: string }) => {
     setSelectedServices((prev) => {
@@ -608,7 +685,7 @@ export function FacilityModal({ facility, onClose, preSelectedServiceName }: Fac
                        return (
                          <div
                            key={serviceKey}
-                           id={`service-${service.name}`}
+                           id={toServiceDomID(serviceKey)}
                            className={`bg-white scroll-mt-4 ${isSelected ? "ring-2 ring-blue-200" : ""}`}
                          >
                             <button 

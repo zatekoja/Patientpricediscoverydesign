@@ -91,6 +91,10 @@ func (m *MockFacilityService) ExpandQuery(query string) []string {
 	return args.Get(0).([]string)
 }
 
+func (m *MockFacilityService) GetZeroResultQueries(ctx context.Context, limit int) ([]*entities.SearchEvent, error) {
+	return []*entities.SearchEvent{}, nil
+}
+
 type searchFacilitiesResponse struct {
 	Facilities []entities.FacilitySearchResult `json:"facilities"`
 	Count      int                             `json:"count"`

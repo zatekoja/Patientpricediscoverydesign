@@ -13,6 +13,15 @@ import { FacilitySuggestion } from "../types/api";
 import { createRegionalSSEClient, FacilityUpdate, ConnectionStatus } from "../lib/sse-client";
 import logo from "../assets/logo.png";
 
+type PreSelectedService = {
+  procedureId?: string;
+  code?: string;
+  name: string;
+  displayName?: string;
+  price: number;
+  currency: string;
+};
+
 export default function App() {
   const suggestionListId = "facility-suggestions";
   const [searchQuery, setSearchQuery] = useState("");
@@ -20,7 +29,7 @@ export default function App() {
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [selectedFacility, setSelectedFacility] = useState<UIFacility | null>(null);
-  const [preSelectedService, setPreSelectedService] = useState<string | null>(null);
+  const [preSelectedService, setPreSelectedService] = useState<PreSelectedService | null>(null);
 
   // Data states
   const [facilities, setFacilities] = useState<UIFacility[]>([]);
@@ -413,6 +422,20 @@ export default function App() {
   };
 
   const handleServiceBookNow = (facility: FacilitySuggestion, service: any) => {
+    const matchedService = facility.matched_service_price || null;
+    const suggestionServicePrices = [...(facility.service_prices || [])];
+
+    if (
+      matchedService &&
+      !suggestionServicePrices.some((item) =>
+        matchedService.procedure_id
+          ? item.procedure_id === matchedService.procedure_id
+          : item.name === matchedService.name && item.code === matchedService.code
+      )
+    ) {
+      suggestionServicePrices.unshift(matchedService);
+    }
+
     // Map the suggestion facility to UIFacility for the modal
     const uiFacility = mapFacilitySearchResultToUI(
       {
@@ -425,15 +448,22 @@ export default function App() {
         review_count: 0,
         distance_km: 0,
         price: facility.price,
-        services: (facility.service_prices || []).map(sp => sp.name),
-        service_prices: facility.service_prices || [facility.matched_service_price].filter(Boolean),
+        services: suggestionServicePrices.map((sp) => sp.display_name || sp.name),
+        service_prices: suggestionServicePrices,
         accepted_insurance: [],
         updated_at: new Date().toISOString(),
       } as any,
       center
     );
-    
-    setPreSelectedService(service.name);
+
+    setPreSelectedService({
+      procedureId: matchedService?.procedure_id || service.procedureId,
+      code: matchedService?.code || service.code,
+      name: matchedService?.name || service.name,
+      displayName: matchedService?.display_name || service.displayName || service.name,
+      price: matchedService?.price ?? 0,
+      currency: matchedService?.currency || "NGN",
+    });
     setSelectedFacility(uiFacility);
     setShowSuggestions(false);
   };
@@ -964,7 +994,8 @@ export default function App() {
             setSelectedFacility(null);
             setPreSelectedService(null);
           }}
-          preSelectedServiceName={preSelectedService || undefined}
+          preSelectedService={preSelectedService || undefined}
+          preSelectedServiceName={preSelectedService?.displayName || preSelectedService?.name}
         />
       )}
 

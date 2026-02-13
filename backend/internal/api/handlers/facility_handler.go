@@ -24,6 +24,7 @@ type FacilityService interface {
 	SearchResults(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, error)
 	SearchResultsWithCount(ctx context.Context, params repositories.SearchParams) ([]entities.FacilitySearchResult, int, *services.QueryInterpretation, error)
 	Suggest(ctx context.Context, query string, lat, lon float64, limit int) ([]*entities.Facility, error)
+	GetZeroResultQueries(ctx context.Context, limit int) ([]*entities.SearchEvent, error)
 	Update(ctx context.Context, facility *entities.Facility) error
 	UpdateServiceAvailability(ctx context.Context, facilityID, procedureID string, isAvailable bool) (*entities.FacilityProcedure, error)
 	ExpandQuery(query string) []string
@@ -725,6 +726,24 @@ func (h *FacilityHandler) GetFacilityServiceFees(w http.ResponseWriter, r *http.
 		"fees":     fees,
 		"total":    total,
 		"currency": currency,
+	})
+}
+
+func (h *FacilityHandler) GetZeroResultQueries(w http.ResponseWriter, r *http.Request) {
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 100)
+	
+	// We need access to the service's internal analytics service
+	// Since FacilityService interface doesn't have it, we might need a workaround or update the interface.
+	// For now, let's assume we can add it to the interface.
+	events, err := h.service.GetZeroResultQueries(r.Context(), limit)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to fetch analytics")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"queries": events,
+		"count":   len(events),
 	})
 }
 

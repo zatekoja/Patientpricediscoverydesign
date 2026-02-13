@@ -300,6 +300,17 @@ func main() {
 	facilityService.SetFeatureFlags(featureFlags)
 	log.Info().Msg("Feature Flags initialized successfully")
 
+	// Initialize Search Analytics
+	analyticsAdapter := database.NewSearchAnalyticsAdapter(pgClient)
+	analyticsService := services.NewSearchAnalyticsService(analyticsAdapter)
+	facilityService.SetAnalytics(analyticsService)
+	log.Info().Msg("Search Analytics Service initialized successfully")
+
+	// Set metrics for observability
+	if metrics != nil {
+		facilityService.SetMetrics(metrics)
+	}
+
 	// Set event bus for real-time updates
 	if eventBus != nil {
 		facilityService.SetEventBus(eventBus)

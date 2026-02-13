@@ -7,10 +7,12 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/providers"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/infrastructure/observability"
 )
 
 // FacilityService handles business logic for facilities
@@ -25,6 +27,8 @@ type FacilityService struct {
 	queryUnderstanding   *QueryUnderstandingService
 	searchRanking        *SearchRankingService
 	featureFlags         *FeatureFlags
+	analytics            *SearchAnalyticsService
+	metrics              *observability.Metrics
 }
 
 const maxSearchTags = 12
@@ -70,6 +74,16 @@ func (s *FacilityService) SetSearchRanking(svc *SearchRankingService) {
 // SetFeatureFlags sets the feature flags service
 func (s *FacilityService) SetFeatureFlags(ff *FeatureFlags) {
 	s.featureFlags = ff
+}
+
+// SetAnalytics sets the search analytics service
+func (s *FacilityService) SetAnalytics(svc *SearchAnalyticsService) {
+	s.analytics = svc
+}
+
+// SetMetrics sets the observability metrics service
+func (s *FacilityService) SetMetrics(m *observability.Metrics) {
+	s.metrics = m
 }
 
 // ExpandQuery expands a search query using the configured term expander
@@ -325,6 +339,7 @@ func (s *FacilityService) Search(ctx context.Context, params repositories.Search
 }
 
 func (s *FacilityService) searchWithCount(ctx context.Context, params repositories.SearchParams) ([]*entities.Facility, int, *QueryInterpretation, error) {
+	start := time.Now()
 	var interpretation *QueryInterpretation
 	useContextual := s.featureFlags == nil || s.featureFlags.ContextualSearchEnabled()
 
@@ -398,6 +413,34 @@ func (s *FacilityService) searchWithCount(ctx context.Context, params repositori
 		}
 	}
 
+	// Track search event for analytics
+	if params.Query != "" {
+		if s.analytics != nil {
+			event := &entities.SearchEvent{
+				Query:         params.Query,
+				ResultCount:   totalCount,
+				LatencyMs:     int(time.Since(start).Milliseconds()),
+				UserLatitude:  params.Latitude,
+				UserLongitude: params.Longitude,
+			}
+			if interpretation != nil {
+				event.NormalizedQuery = interpretation.NormalizedQuery
+				event.DetectedIntent = string(interpretation.DetectedIntent)
+				event.IntentConfidence = interpretation.IntentConfidence
+			}
+			s.analytics.TrackSearch(ctx, event)
+		}
+
+		// Record zero result metric for SigNoz
+		if totalCount == 0 && s.metrics != nil {
+			intent := "unknown"
+			if interpretation != nil {
+				intent = string(interpretation.DetectedIntent)
+			}
+			observability.RecordZeroResultSearch(ctx, s.metrics, intent)
+		}
+	}
+
 	return facilities, totalCount, interpretation, nil
 }
 
@@ -414,7 +457,7 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 		return nil, 0, nil, err
 	}
 
-	results := make([]entities.FacilitySearchResult, 0, len(facilities))
+	searchResultsEnriched := make([]entities.FacilitySearchResult, 0, len(facilities))
 	for _, facility := range facilities {
 		if facility == nil {
 			continue
@@ -489,10 +532,18 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 			}
 		}
 
-		results = append(results, result)
+		searchResultsEnriched = append(searchResultsEnriched, result)
 	}
 
-	return results, totalCount, interpretation, nil
+	return searchResultsEnriched, totalCount, interpretation, nil
+}
+
+// GetZeroResultQueries retrieves recent searches that yielded no results.
+func (s *FacilityService) GetZeroResultQueries(ctx context.Context, limit int) ([]*entities.SearchEvent, error) {
+	if s.analytics == nil {
+		return []*entities.SearchEvent{}, nil
+	}
+	return s.analytics.GetZeroResultQueries(ctx, limit)
 }
 
 // Suggest returns facility suggestions for a query.
