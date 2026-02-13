@@ -982,31 +982,31 @@ func (s *ProviderIngestionService) syncWardCapacity(ctx context.Context, facilit
 		// This ensures uniqueness regardless of facility ID length and avoids collisions
 		// Format: <short_facilityID_prefix>_<hash_of_full_facilityID_and_ward_name>
 		normalizedWardName := strings.ToLower(strings.TrimSpace(ward.WardName))
-		
+
 		// Hash the combination of full facilityID + normalized ward name for uniqueness
 		combinedKey := fmt.Sprintf("%s:%s", facilityID, normalizedWardName)
 		fullHash := hashString(combinedKey)
-		
+
 		// Use a short readable prefix (first 20 chars) for debugging, but ID is based on full hash
 		// This keeps IDs under 255 chars while ensuring uniqueness
 		facilityIDPrefix := facilityID
 		if len(facilityID) > 20 {
 			facilityIDPrefix = facilityID[:20]
 		}
-		
+
 		wardID := fmt.Sprintf("%s_%s", facilityIDPrefix, fullHash)
-		
+
 		// Convert providerapi.WardCapacity to entities.FacilityWard
 		facilityWard := &entities.FacilityWard{
-			ID:                   wardID,
-			FacilityID:           facilityID,
-			WardName:             ward.WardName,
-			WardType:             ward.WardType,
-			CapacityStatus:       ward.CapacityStatus,
-			AvgWaitMinutes:       ward.AvgWaitMinutes,
-			UrgentCareAvailable:  ward.UrgentCareAvailable,
-			LastUpdated:          ward.LastUpdated,
-			CreatedAt:            time.Now(), // Will be preserved by Upsert if already exists
+			ID:                  wardID,
+			FacilityID:          facilityID,
+			WardName:            ward.WardName,
+			WardType:            ward.WardType,
+			CapacityStatus:      ward.CapacityStatus,
+			AvgWaitMinutes:      ward.AvgWaitMinutes,
+			UrgentCareAvailable: ward.UrgentCareAvailable,
+			LastUpdated:         ward.LastUpdated,
+			CreatedAt:           time.Now(), // Will be preserved by Upsert if already exists
 		}
 
 		// Use Upsert to create or update the ward
