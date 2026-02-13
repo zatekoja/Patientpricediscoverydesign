@@ -10,19 +10,19 @@ type ErrorType string
 const (
 	// ErrorTypeNotFound indicates a resource was not found
 	ErrorTypeNotFound ErrorType = "NOT_FOUND"
-	
+
 	// ErrorTypeValidation indicates a validation error
 	ErrorTypeValidation ErrorType = "VALIDATION"
-	
+
 	// ErrorTypeConflict indicates a conflict with existing data
 	ErrorTypeConflict ErrorType = "CONFLICT"
-	
+
 	// ErrorTypeUnauthorized indicates unauthorized access
 	ErrorTypeUnauthorized ErrorType = "UNAUTHORIZED"
-	
+
 	// ErrorTypeInternal indicates an internal server error
 	ErrorTypeInternal ErrorType = "INTERNAL"
-	
+
 	// ErrorTypeExternal indicates an error from external service
 	ErrorTypeExternal ErrorType = "EXTERNAL"
 )

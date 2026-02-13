@@ -14,14 +14,14 @@ import (
 
 // QueryInterpretation holds the result of interpreting a user search query.
 type QueryInterpretation struct {
-	OriginalQuery    string                  `json:"original_query"`
-	NormalizedQuery  string                  `json:"normalized_query"`
-	CorrectedQuery   string                  `json:"corrected_query,omitempty"`
-	DetectedIntent   evaluation.Intent       `json:"detected_intent"`
-	IntentConfidence float64                 `json:"intent_confidence"`
+	OriginalQuery    string                   `json:"original_query"`
+	NormalizedQuery  string                   `json:"normalized_query"`
+	CorrectedQuery   string                   `json:"corrected_query,omitempty"`
+	DetectedIntent   evaluation.Intent        `json:"detected_intent"`
+	IntentConfidence float64                  `json:"intent_confidence"`
 	MappedConcepts   *entities.SearchConcepts `json:"mapped_concepts,omitempty"`
-	ExpandedTerms    []string                `json:"expanded_terms,omitempty"`
-	SearchTerms      []string                `json:"search_terms"`
+	ExpandedTerms    []string                 `json:"expanded_terms,omitempty"`
+	SearchTerms      []string                 `json:"search_terms"`
 }
 
 // ConceptEntry represents a single entry in the concept dictionary.

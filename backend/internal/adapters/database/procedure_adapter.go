@@ -495,16 +495,16 @@ func (a *FacilityProcedureAdapter) ListByFacilityWithCount(
 	// CRITICAL: Search query applied to ENTIRE dataset first
 	if filter.SearchQuery != "" {
 		searchPattern := fmt.Sprintf("%%%s%%", filter.SearchQuery)
-		
+
 		orConditions := []goqu.Expression{
 			goqu.I("procedure_name").ILike(searchPattern),
 			goqu.I("description").ILike(searchPattern),
 		}
-		
+
 		if len(filter.SearchTerms) > 0 {
 			orConditions = append(orConditions, goqu.L("procedure_normalized_tags && ?", pq.Array(filter.SearchTerms)))
 		}
-		
+
 		filteredQuery = filteredQuery.Where(goqu.Or(orConditions...))
 	}
 

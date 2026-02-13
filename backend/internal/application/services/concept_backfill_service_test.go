@@ -135,7 +135,7 @@ func TestBackfillAll_EnrichesUnenriched(t *testing.T) {
 		SearchConcepts: &entities.SearchConcepts{Conditions: []string{"test"}},
 	}
 	mockProvider.On("EnrichProcedure", mock.Anything, procedure).Return(enriched, nil)
-	
+
 	// Expect Upsert with status "completed"
 	mockEnrichRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(e *entities.ProcedureEnrichment) bool {
 		return e.ProcedureID == procID && e.EnrichmentStatus == "completed" && e.EnrichmentVersion == 1
@@ -147,7 +147,7 @@ func TestBackfillAll_EnrichesUnenriched(t *testing.T) {
 	assert.Equal(t, 1, summary.TotalProcessed)
 	assert.Equal(t, 1, summary.SuccessCount)
 	assert.Equal(t, 0, summary.FailureCount)
-	
+
 	mockProcRepo.AssertExpectations(t)
 	mockEnrichRepo.AssertExpectations(t)
 	mockProvider.AssertExpectations(t)
@@ -162,7 +162,7 @@ func TestBackfillSingle_Success(t *testing.T) {
 
 	procID := "proc-1"
 	procedure := &entities.Procedure{ID: procID, Name: "Test Procedure"}
-	
+
 	mockProcRepo.On("GetByID", mock.Anything, procID).Return(procedure, nil)
 
 	enriched := &entities.ProcedureEnrichment{
@@ -192,7 +192,7 @@ func TestBackfillSingle_ProviderError(t *testing.T) {
 
 	procID := "proc-1"
 	procedure := &entities.Procedure{ID: procID, Name: "Test Procedure"}
-	
+
 	mockProcRepo.On("GetByID", mock.Anything, procID).Return(procedure, nil)
 
 	mockProvider.On("EnrichProcedure", mock.Anything, procedure).Return(nil, errors.New("provider error"))

@@ -24,10 +24,10 @@ import (
 
 type ProcedureAdapterIntegrationTestSuite struct {
 	suite.Suite
-	client        *postgres.Client
-	procAdapter   repositories.ProcedureRepository
-	fpAdapter     repositories.FacilityProcedureRepository
-	db            *sql.DB
+	client      *postgres.Client
+	procAdapter repositories.ProcedureRepository
+	fpAdapter   repositories.FacilityProcedureRepository
+	db          *sql.DB
 }
 
 func (suite *ProcedureAdapterIntegrationTestSuite) SetupSuite() {
@@ -119,7 +119,7 @@ func (suite *ProcedureAdapterIntegrationTestSuite) TestProcedureCRUD() {
 	proc.Name = "Updated Procedure"
 	err = suite.procAdapter.Update(ctx, proc)
 	require.NoError(suite.T(), err)
-	
+
 	gotUpdated, err := suite.procAdapter.GetByID(ctx, proc.ID)
 	require.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "Updated Procedure", gotUpdated.Name)
@@ -132,15 +132,15 @@ func (suite *ProcedureAdapterIntegrationTestSuite) TestProcedureCRUD() {
 	// Delete
 	err = suite.procAdapter.Delete(ctx, proc.ID)
 	require.NoError(suite.T(), err)
-	
-	// Should be soft deleted (not found by ID if GetByID filters active? 
-	// Wait, GetByID in adapter usually filters by ID only unless specified. 
-	// Let's check adapter implementation. It filters by ID only. 
-	// But Delete sets is_active=false. 
+
+	// Should be soft deleted (not found by ID if GetByID filters active?
+	// Wait, GetByID in adapter usually filters by ID only unless specified.
+	// Let's check adapter implementation. It filters by ID only.
+	// But Delete sets is_active=false.
 	// Let's check if GetByID returns inactive.
 	// The implementation of GetByID uses `Where(goqu.Ex{field: value})` - no active check.
 	// So it should still return it but with IsActive=false.
-	
+
 	deleted, err := suite.procAdapter.GetByID(ctx, proc.ID)
 	require.NoError(suite.T(), err)
 	assert.False(suite.T(), deleted.IsActive)
@@ -152,10 +152,10 @@ func (suite *ProcedureAdapterIntegrationTestSuite) TestFacilityProcedureCRUD() {
 	// Setup: Need Facility and Procedure
 	facID := "fac-fp-test"
 	procID := "proc-fp-test"
-	
+
 	_, err := suite.db.Exec("INSERT INTO facilities (id, name, created_at, updated_at) VALUES ($1, 'Test Fac', NOW(), NOW())", facID)
 	require.NoError(suite.T(), err)
-	
+
 	_, err = suite.db.Exec("INSERT INTO procedures (id, name, display_name, code, created_at, updated_at) VALUES ($1, 'Test Proc', 'Test Proc', 'TP002', NOW(), NOW())", procID)
 	require.NoError(suite.T(), err)
 

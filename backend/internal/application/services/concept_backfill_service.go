@@ -136,7 +136,7 @@ func (s *ConceptBackfillService) BackfillSingle(ctx context.Context, procedureID
 	// Adapter: if enrichment.ID == "", generate new UUID.
 	// But if it exists, we want to update it.
 	// Adapter uses ON CONFLICT (procedure_id), so ID isn't strictly needed for update logic, but good for consistency.
-	
+
 	enrichment.ProcedureID = procedureID
 	enrichment.EnrichmentStatus = "completed"
 	enrichment.EnrichmentVersion = TargetEnrichmentVersion
@@ -171,7 +171,7 @@ func (s *ConceptBackfillService) handleEnrichmentFailure(ctx context.Context, pr
 		if s.maxRetries > 0 && enrichment.RetryCount >= s.maxRetries {
 			enrichment.EnrichmentStatus = "abandoned"
 		}
-		
+
 		if upsertErr := s.enrichmentRepo.Upsert(ctx, enrichment); upsertErr != nil {
 			return fmt.Errorf("failed to record failure for %s: %w", procedureID, upsertErr)
 		}

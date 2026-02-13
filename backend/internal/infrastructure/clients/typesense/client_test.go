@@ -43,11 +43,11 @@ func TestClient_Integration(t *testing.T) {
 	}
 	err = client.IndexFacility(ctx, doc)
 	assert.NoError(t, err)
-	
+
 	// Allow some time for indexing
 	time.Sleep(1 * time.Second)
 
 	// Test Search (optional validation)
-	// We'd need to import the api package to construct search params, 
+	// We'd need to import the api package to construct search params,
 	// or expose a simplified Search method.
 }

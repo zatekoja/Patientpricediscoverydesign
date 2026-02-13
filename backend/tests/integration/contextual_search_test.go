@@ -51,16 +51,16 @@ func (suite *ContextualSearchTestSuite) SetupSuite() {
 	content := `{"baby": ["maternity", "delivery"]}`
 	tmpFile, err := os.CreateTemp("", "terms.json")
 	require.NoError(suite.T(), err)
-	
+
 	_, err = tmpFile.WriteString(content)
 	require.NoError(suite.T(), err)
 	tmpFile.Close()
 
 	suite.termService, err = services.NewTermExpansionService(tmpFile.Name())
 	require.NoError(suite.T(), err)
-	
+
 	os.Remove(tmpFile.Name()) // Clean up file
-	
+
 	// Drop tables to ensure clean slate for migrations
 	_, err = suite.client.DB().Exec("DROP TABLE IF EXISTS facility_procedures CASCADE")
 	require.NoError(suite.T(), err)
@@ -80,21 +80,21 @@ func (suite *ContextualSearchTestSuite) SetupSuite() {
 	require.NoError(suite.T(), err)
 	_, err = suite.client.DB().Exec("DROP TABLE IF EXISTS reviews CASCADE")
 	require.NoError(suite.T(), err)
-	
+
 	suite.runMigrations()
 }
 
 func (suite *ContextualSearchTestSuite) runMigrations() {
 	files, err := os.ReadDir("../../migrations")
 	require.NoError(suite.T(), err)
-	
+
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".sql") {
 			// Skip seed data as it might conflict with tests
 			if strings.Contains(file.Name(), "seed") {
 				continue
 			}
-			
+
 			migrationSQL, err := os.ReadFile("../../migrations/" + file.Name())
 			require.NoError(suite.T(), err)
 			_, err = suite.client.DB().Exec(string(migrationSQL))
@@ -160,7 +160,7 @@ func (suite *ContextualSearchTestSuite) TestContextualSearch() {
 	// "baby" expands to ["baby", "maternity", "delivery"]
 	query := "baby"
 	expanded := suite.termService.Expand(query)
-	
+
 	// Verify expansion works
 	assert.Contains(suite.T(), expanded, "maternity")
 

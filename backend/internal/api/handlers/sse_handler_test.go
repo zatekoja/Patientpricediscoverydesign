@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 // MockEventBus for testing
 type MockEventBus struct {
+	mu          sync.RWMutex
 	subscribers map[string][]chan *entities.FacilityEvent
 	published   []*entities.FacilityEvent
 }
@@ -26,31 +28,41 @@ func NewMockEventBus() *MockEventBus {
 }
 
 func (m *MockEventBus) Publish(ctx context.Context, channel string, event *entities.FacilityEvent) error {
+	m.mu.Lock()
 	m.published = append(m.published, event)
-	if channels, ok := m.subscribers[channel]; ok {
-		for _, ch := range channels {
-			select {
-			case ch <- event:
-			default:
-			}
+	channels := append([]chan *entities.FacilityEvent(nil), m.subscribers[channel]...)
+	m.mu.Unlock()
+
+	for _, ch := range channels {
+		select {
+		case ch <- event:
+		default:
 		}
 	}
 	return nil
 }
 
 func (m *MockEventBus) Subscribe(ctx context.Context, channel string) (<-chan *entities.FacilityEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	ch := make(chan *entities.FacilityEvent, 10)
 	m.subscribers[channel] = append(m.subscribers[channel], ch)
 	return ch, nil
 }
 
 func (m *MockEventBus) Unsubscribe(ctx context.Context, channel string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.subscribers, channel)
 	return nil
 }
 
 func (m *MockEventBus) Close() error {
-	for _, channels := range m.subscribers {
+	m.mu.Lock()
+	subs := m.subscribers
+	m.subscribers = make(map[string][]chan *entities.FacilityEvent)
+	m.mu.Unlock()
+	for _, channels := range subs {
 		for _, ch := range channels {
 			close(ch)
 		}
@@ -58,26 +70,41 @@ func (m *MockEventBus) Close() error {
 	return nil
 }
 
+func (m *MockEventBus) PublishedCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.published)
+}
+
 func TestSSEHandler_StreamFacilityUpdates(t *testing.T) {
 	eventBus := NewMockEventBus()
 	handler := handlers.NewSSEHandler(eventBus)
 
 	t.Run("should establish SSE connection", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		req := httptest.NewRequest("GET", "/api/stream/facilities/fac_001", nil)
 		req.SetPathValue("id", "fac_001")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
-		// Run handler in goroutine
-		done := make(chan bool)
+		done := make(chan struct{})
 		go func() {
 			handler.StreamFacilityUpdates(w, req)
-			done <- true
+			close(done)
 		}()
 
 		// Wait a bit for connection to establish
 		time.Sleep(100 * time.Millisecond)
 
-		// Check headers
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not exit after cancel")
+		}
+
 		result := w.Result()
 		if result.Header.Get("Content-Type") != "text/event-stream" {
 			t.Errorf("Expected Content-Type text/event-stream, got %s", result.Header.Get("Content-Type"))
@@ -86,17 +113,22 @@ func TestSSEHandler_StreamFacilityUpdates(t *testing.T) {
 			t.Errorf("Expected Cache-Control no-cache, got %s", result.Header.Get("Cache-Control"))
 		}
 
-		// Clean up
-		req.Context().Done()
 	})
 
 	t.Run("should receive facility events", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		req := httptest.NewRequest("GET", "/api/stream/facilities/fac_002", nil)
 		req.SetPathValue("id", "fac_002")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
-		// Run handler in goroutine
-		go handler.StreamFacilityUpdates(w, req)
+		done := make(chan struct{})
+		go func() {
+			handler.StreamFacilityUpdates(w, req)
+			close(done)
+		}()
 
 		// Wait for connection
 		time.Sleep(100 * time.Millisecond)
@@ -115,8 +147,14 @@ func TestSSEHandler_StreamFacilityUpdates(t *testing.T) {
 		// Wait for event to be sent
 		time.Sleep(200 * time.Millisecond)
 
-		// Check if event was published
-		if len(eventBus.published) == 0 {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not exit after cancel")
+		}
+
+		if eventBus.PublishedCount() == 0 {
 			t.Error("Expected event to be published")
 		}
 	})
@@ -139,11 +177,26 @@ func TestSSEHandler_StreamRegionalUpdates(t *testing.T) {
 	handler := handlers.NewSSEHandler(eventBus)
 
 	t.Run("should establish regional SSE connection", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		req := httptest.NewRequest("GET", "/api/stream/facilities/region?lat=6.5244&lon=3.3792&radius=25", nil)
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
-		go handler.StreamRegionalUpdates(w, req)
+		done := make(chan struct{})
+		go func() {
+			handler.StreamRegionalUpdates(w, req)
+			close(done)
+		}()
 		time.Sleep(100 * time.Millisecond)
+
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not exit after cancel")
+		}
 
 		result := w.Result()
 		if result.Header.Get("Content-Type") != "text/event-stream" {
@@ -152,10 +205,18 @@ func TestSSEHandler_StreamRegionalUpdates(t *testing.T) {
 	})
 
 	t.Run("should filter events by region", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		req := httptest.NewRequest("GET", "/api/stream/facilities/region?lat=6.5244&lon=3.3792&radius=10", nil)
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
-		go handler.StreamRegionalUpdates(w, req)
+		done := make(chan struct{})
+		go func() {
+			handler.StreamRegionalUpdates(w, req)
+			close(done)
+		}()
 		time.Sleep(100 * time.Millisecond)
 
 		// Publish event within region
@@ -179,9 +240,15 @@ func TestSSEHandler_StreamRegionalUpdates(t *testing.T) {
 
 		time.Sleep(200 * time.Millisecond)
 
-		// Both events should be published, but filtering happens in handler
-		if len(eventBus.published) != 2 {
-			t.Errorf("Expected 2 events published, got %d", len(eventBus.published))
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not exit after cancel")
+		}
+
+		if eventBus.PublishedCount() != 2 {
+			t.Errorf("Expected 2 events published, got %d", eventBus.PublishedCount())
 		}
 	})
 

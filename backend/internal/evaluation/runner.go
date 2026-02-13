@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
@@ -42,17 +43,18 @@ func (r *Runner) Run(ctx context.Context, queries []GoldenQuery) (*EvalSummary, 
 			continue
 		}
 
-		resIDs := make([]string, len(results))
-		resTags := make([]string, 0)
+		resMatchTerms := make([][]string, len(results))
 		for i, res := range results {
-			resIDs[i] = res.ID
-			resTags = append(resTags, res.Tags...)
+			// Collect all terms that could satisfy a match
+			terms := append([]string{}, res.Tags...)
+			terms = append(terms, res.Services...)
+			terms = append(terms, strings.ToLower(res.FacilityType))
+			resMatchTerms[i] = terms
 		}
 
-		// Use tags as "relevance" if facility IDs aren't provided in golden queries
-		// (Plan said ExpectedTags)
-		recall := RecallAtK(gq.ExpectedTags, resTags, 10)
-		mrr := MRRAtK(gq.ExpectedTags, resTags, 10)
+		// Calculate Recall and MRR
+		recall := recallMulti(gq.ExpectedTags, resMatchTerms, 10)
+		mrr := mrrMulti(gq.ExpectedTags, resMatchTerms, 10)
 
 		result := EvalResult{
 			QueryID:       gq.ID,
@@ -61,7 +63,7 @@ func (r *Runner) Run(ctx context.Context, queries []GoldenQuery) (*EvalSummary, 
 			RecallAt10:    recall,
 			MRRAt10:       mrr,
 			ResultCount:   count,
-			RetrievedTags: resTags,
+			RetrievedTags: flatten(resMatchTerms),
 			Latency:       duration,
 		}
 
@@ -70,6 +72,55 @@ func (r *Runner) Run(ctx context.Context, queries []GoldenQuery) (*EvalSummary, 
 
 	r.finalizeSummary(summary)
 	return summary, nil
+}
+
+func recallMulti(expected []string, retrievedTerms [][]string, k int) float64 {
+	if len(expected) == 0 {
+		return 0.0
+	}
+	foundCount := 0
+	for _, exp := range expected {
+		match := false
+		for i := 0; i < len(retrievedTerms) && i < k; i++ {
+			for _, term := range retrievedTerms[i] {
+				if strings.Contains(strings.ToLower(term), strings.ToLower(exp)) {
+					match = true
+					break
+				}
+			}
+			if match {
+				break
+			}
+		}
+		if match {
+			foundCount++
+		}
+	}
+	return float64(foundCount) / float64(len(expected))
+}
+
+func mrrMulti(expected []string, retrievedTerms [][]string, k int) float64 {
+	if len(expected) == 0 || len(retrievedTerms) == 0 {
+		return 0.0
+	}
+	for i := 0; i < len(retrievedTerms) && i < k; i++ {
+		for _, term := range retrievedTerms[i] {
+			for _, exp := range expected {
+				if strings.Contains(strings.ToLower(term), strings.ToLower(exp)) {
+					return 1.0 / float64(i+1)
+				}
+			}
+		}
+	}
+	return 0.0
+}
+
+func flatten(slices [][]string) []string {
+	var result []string
+	for _, s := range slices {
+		result = append(result, s...)
+	}
+	return result
 }
 
 func (r *Runner) updateSummary(s *EvalSummary, res EvalResult) {

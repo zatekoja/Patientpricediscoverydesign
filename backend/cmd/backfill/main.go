@@ -69,7 +69,7 @@ func main() {
 		if err != nil {
 			log.Printf("Backfill failed: %v", err)
 		}
-		
+
 		if summary != nil {
 			log.Printf("Backfill complete in %s", time.Since(start))
 			log.Printf("Total processed: %d", summary.TotalProcessed)

@@ -84,14 +84,14 @@ func TestAggregate_MultipleProcedures(t *testing.T) {
 	e1 := &entities.ProcedureEnrichment{
 		ProcedureID: "p1",
 		SearchConcepts: &entities.SearchConcepts{
-			Conditions: []string{"malaria"},
+			Conditions:  []string{"malaria"},
 			Specialties: []string{"general_practice"},
 		},
 	}
 	e2 := &entities.ProcedureEnrichment{
 		ProcedureID: "p2",
 		SearchConcepts: &entities.SearchConcepts{
-			Conditions: []string{"typhoid"},
+			Conditions:  []string{"typhoid"},
 			Specialties: []string{"general_practice"},
 		},
 	}

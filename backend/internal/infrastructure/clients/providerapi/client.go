@@ -68,14 +68,14 @@ type PriceRecord struct {
 }
 
 type FacilityProfile struct {
-	ID                  string   `json:"id"`
-	Name                string   `json:"name"`
-	FacilityType        string   `json:"facilityType"`
-	Description         string   `json:"description"`
-	Tags                []string `json:"tags"`
-	CapacityStatus      *string  `json:"capacityStatus"`
-	AvgWaitMinutes      *int     `json:"avgWaitMinutes"`
-	UrgentCareAvailable *bool    `json:"urgentCareAvailable"`
+	ID                  string          `json:"id"`
+	Name                string          `json:"name"`
+	FacilityType        string          `json:"facilityType"`
+	Description         string          `json:"description"`
+	Tags                []string        `json:"tags"`
+	CapacityStatus      *string         `json:"capacityStatus"`
+	AvgWaitMinutes      *int            `json:"avgWaitMinutes"`
+	UrgentCareAvailable *bool           `json:"urgentCareAvailable"`
 	WardStatuses        json.RawMessage `json:"wardStatuses"`
 	Address             struct {
 		Street  string `json:"street"`

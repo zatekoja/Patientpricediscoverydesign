@@ -1007,19 +1007,30 @@ func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *s
 		return result
 	}
 
-	// Check which procedures need enrichment
-	var proceduresToEnrich []*entities.Procedure
-	for _, proc := range procedures {
-		existing, err := s.enrichmentRepo.GetByProcedureID(ctx, proc.ID)
-		if err == nil && existing != nil {
-			continue
-		}
-		proceduresToEnrich = append(proceduresToEnrich, proc)
+	// Use repository logic to find procedures needing enrichment
+	targetVersion := 1 // Should match concept backfill version
+	ids, err := s.enrichmentRepo.ListProcedureIDsNeedingEnrichment(ctx, targetVersion, 1000)
+	if err != nil {
+		log.Printf("failed to list procedures needing enrichment: %v", err)
+		return result
 	}
 
-	if len(proceduresToEnrich) == 0 {
+	if len(ids) == 0 {
 		log.Println("all procedures already enriched, nothing to do")
 		return result
+	}
+
+	// Map IDs back to procedure entities
+	idMap := make(map[string]*entities.Procedure)
+	for _, p := range procedures {
+		idMap[p.ID] = p
+	}
+
+	var proceduresToEnrich []*entities.Procedure
+	for _, id := range ids {
+		if p, ok := idMap[id]; ok {
+			proceduresToEnrich = append(proceduresToEnrich, p)
+		}
 	}
 
 	log.Printf("enriching %d procedures with %d workers...", len(proceduresToEnrich), enrichWorkerCount)
@@ -1082,6 +1093,9 @@ func (s *ProviderIngestionService) enrichProceduresBatch(ctx context.Context) *s
 				if enriched.Description == "" {
 					enriched.Description = proc.Description
 				}
+
+				enriched.EnrichmentStatus = "completed"
+				enriched.EnrichmentVersion = targetVersion
 
 				if err := s.enrichmentRepo.Upsert(ctx, enriched); err != nil {
 					log.Printf("failed to store enrichment for procedure %s: %v", proc.ID, err)

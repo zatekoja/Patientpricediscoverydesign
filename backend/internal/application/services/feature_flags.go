@@ -12,7 +12,7 @@ type FeatureFlags struct {
 func NewFeatureFlags() *FeatureFlags {
 	enabled := os.Getenv("FEATURE_CONTEXTUAL_SEARCH") == "true"
 	shadow := os.Getenv("FEATURE_CONTEXTUAL_SEARCH_SHADOW") == "true"
-	
+
 	return &FeatureFlags{
 		contextualSearchEnabled: enabled,
 		shadowModeEnabled:       shadow,

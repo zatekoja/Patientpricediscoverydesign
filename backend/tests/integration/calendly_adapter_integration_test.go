@@ -98,13 +98,13 @@ func TestCalendlyAdapterIntegration(t *testing.T) {
 		err := adapter.CancelAppointment(ctx, "ext-event-1", "Changed mind")
 		require.NoError(t, err)
 	})
-	
+
 	t.Run("AuthenticationError", func(t *testing.T) {
 		// Test with wrong key
 		badAdapter := scheduling.NewCalendlyAdapter("wrong-key", scheduling.WithBaseURL(server.URL))
 		from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
-		
+
 		_, err := badAdapter.GetAvailableSlots(ctx, "uuid", from, to)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "401")

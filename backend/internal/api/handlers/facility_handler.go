@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/entities"
 	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/domain/repositories"
-	"github.com/zatekoja/Patientpricediscoverydesign/backend/internal/application/services"
 	apperrors "github.com/zatekoja/Patientpricediscoverydesign/backend/pkg/errors"
 )
 
