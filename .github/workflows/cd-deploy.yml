@@ -201,6 +201,7 @@ jobs:
         working-directory: infrastructure/pulumi
         env:
           PULUMI_BACKEND_URL: s3://${{ steps.pulumi-state.outputs.bucket }}
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
         run: |
           echo "🏗️ Deploying infrastructure to ${{ needs.plan-deployment.outputs.environment }}..."
           npm ci

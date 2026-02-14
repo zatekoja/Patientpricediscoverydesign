@@ -1,4 +1,4 @@
-// Pulumi S3 backend - state stored in s3://ohi-pulumi-state-<account-id>
+// Pulumi S3 backend - state in s3://ohi-pulumi-state-<account-id>, encrypted with PULUMI_CONFIG_PASSPHRASE
 /**
  * Open Health Initiative - AWS Infrastructure
  * Main Pulumi Program Entry Point
