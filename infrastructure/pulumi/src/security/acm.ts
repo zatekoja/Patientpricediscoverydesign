@@ -103,13 +103,19 @@ export function createCertificateValidation(
   region?: string,
   suffix: string = ''
 ): aws.acm.CertificateValidation {
+  const opts: pulumi.CustomResourceOptions = {
+    customTimeouts: { create: '30m', update: '30m' },
+  };
+  if (region) {
+    opts.provider = getAwsProvider(region);
+  }
   return new aws.acm.CertificateValidation(
     `ohi-${environment}-cert-validation${suffix}`,
     {
       certificateArn: certificate.arn,
       validationRecordFqdns: [validationRecord.fqdn],
     },
-    region ? { provider: getAwsProvider(region) } : undefined
+    opts
   );
 }
 
@@ -154,12 +160,13 @@ export function getExistingCertificateArn(
 /**
  * Create ACM infrastructure for ALB and CloudFront.
  *
- * When a Route 53 hosted zone ID is supplied the function creates DNS
- * validation records and CertificateValidation resources that wait for
- * the certificates to become ISSUED before returning the ARNs.
+ * Creates certificates, DNS validation records, and CertificateValidation
+ * resources. The CertificateValidation resources wait for the certs to
+ * become ISSUED before returning the ARNs (required by ALB/CloudFront).
  *
- * When no zone ID is supplied the raw (unvalidated) ARNs are returned
- * — useful for testing only.
+ * IMPORTANT: DNS delegation must be in place at the parent zone registrar
+ * before this will succeed. Add NS records for the subdomain zone at your
+ * registrar pointing to the Route 53 name servers.
  */
 export interface CertificateOutputs {
   albCertificateArn: pulumi.Output<string>;

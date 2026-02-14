@@ -396,6 +396,8 @@ export const privateSubnetIdsOutput = privateSubnets.map(s => s.id);
 // DNS
 export const hostedZoneId = dns.hostedZoneId;
 export const nameServers = dns.nameServers;
+export const dnsZone = dnsZoneDomain;
+export const nsDelegationRequired = pulumi.interpolate`Add NS records for "${dnsZoneDomain}" at your registrar (ohealth-ng.com) pointing to the nameServers above`;
 
 // ALB
 export const albDnsName = alb.albDnsName;
