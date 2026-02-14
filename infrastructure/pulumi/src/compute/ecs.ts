@@ -332,7 +332,7 @@ export function createTaskDefinition(
 ): aws.ecs.TaskDefinition {
   const resources = SERVICE_RESOURCES[config.environment][serviceName];
   const accountId = aws.getCallerIdentityOutput().accountId;
-  const imageUri = pulumi.interpolate`${accountId}.dkr.ecr.eu-west-1.amazonaws.com/ohi-${serviceName}:${config.environment}`;
+  const imageUri = pulumi.interpolate`${accountId}.dkr.ecr.eu-west-1.amazonaws.com/ohi-${config.environment}-${serviceName}:latest`;
 
   const portMappings: { containerPort: number; protocol: string }[] = containerPort
     ? [

@@ -251,6 +251,11 @@ export class DataProviderAPI {
 
     this.app.use('/api/v1', router);
 
+    // Root-level health check for ALB target group health probes
+    this.app.get('/health', (req, res) => {
+      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+
     // Error handling middleware
     this.app.use(this.errorHandler.bind(this));
   }

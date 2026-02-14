@@ -296,6 +296,15 @@ jobs:
           [ -f "Dockerfile.sse-server" ] && build_and_push "sse" "Dockerfile.sse-server"
           [ -f "Dockerfile.indexer" ] && build_and_push "reindexer" "Dockerfile.indexer"
           [ -f "blnk.Dockerfile" ] && build_and_push "blnk-api" "blnk.Dockerfile"
+          # blnk-worker uses same image as blnk-api
+          if [ -f "blnk.Dockerfile" ]; then
+            WORKER_REPO="ohi-${ENVIRONMENT}-blnk-worker"
+            docker tag "$ECR_REGISTRY/ohi-${ENVIRONMENT}-blnk-api:$IMAGE_TAG" "$ECR_REGISTRY/$WORKER_REPO:$IMAGE_TAG"
+            docker tag "$ECR_REGISTRY/ohi-${ENVIRONMENT}-blnk-api:$IMAGE_TAG" "$ECR_REGISTRY/$WORKER_REPO:latest"
+            docker push "$ECR_REGISTRY/$WORKER_REPO:$IMAGE_TAG"
+            docker push "$ECR_REGISTRY/$WORKER_REPO:latest"
+            echo "✅ Pushed blnk-worker (same image as blnk-api)"
+          fi
           
           echo "✅ All backend images built and pushed"
 
@@ -315,7 +324,7 @@ jobs:
           chmod +x ./scripts/deploy-ecs.sh
           
           # Deploy each service
-          for service in api graphql sse provider-api reindexer; do
+          for service in api graphql sse provider-api reindexer blnk-api blnk-worker; do
             echo "Deploying $service..."
             ./scripts/deploy-ecs.sh $ENVIRONMENT $service $IMAGE_TAG
           done
