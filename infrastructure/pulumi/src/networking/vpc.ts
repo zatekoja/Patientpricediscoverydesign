@@ -60,6 +60,7 @@ export const REQUIRED_INTERFACE_ENDPOINTS = [
   'ecr.api',
   'ecr.dkr',
   'secretsmanager',
+  'logs',
 ];
 
 // Environment Isolation
@@ -445,12 +446,14 @@ export function createS3Endpoint(
 export function createInterfaceEndpoints(
   environment: string,
   vpcId: pulumi.Input<string>,
-  subnetIds: pulumi.Input<string>[]
+  subnetIds: pulumi.Input<string>[],
+  securityGroupIds: pulumi.Input<string>[]
 ): aws.ec2.VpcEndpoint[] {
   const services = [
     'com.amazonaws.eu-west-1.ecr.api',
     'com.amazonaws.eu-west-1.ecr.dkr',
     'com.amazonaws.eu-west-1.secretsmanager',
+    'com.amazonaws.eu-west-1.logs',
   ];
 
   return services.map((serviceName) => {
@@ -462,6 +465,7 @@ export function createInterfaceEndpoints(
       serviceName,
       vpcEndpointType: 'Interface',
       subnetIds,
+      securityGroupIds,
       privateDnsEnabled: true,
       tags: getResourceTags(environment, name, {
         Name: name,

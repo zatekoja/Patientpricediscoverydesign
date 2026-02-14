@@ -160,7 +160,8 @@ createS3Endpoint(
 createInterfaceEndpoints(
   config.environment,
   vpc.id,
-  privateSubnetIds
+  privateSubnetIds,
+  [vpcEndpointsSg.id]
 );
 
 // =============================================================================
