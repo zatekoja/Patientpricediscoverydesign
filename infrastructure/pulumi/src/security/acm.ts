@@ -24,6 +24,21 @@ export interface AcmOutputs {
   >;
 }
 
+// ---------------------------------------------------------------------------
+// Provider cache — prevents duplicate Pulumi resource names when the same
+// region is referenced more than once (cert + validation both need us-east-1).
+// ---------------------------------------------------------------------------
+const providerCache: Record<string, aws.Provider> = {};
+
+function getAwsProvider(region: string): aws.Provider {
+  if (!providerCache[region]) {
+    providerCache[region] = new aws.Provider(`provider-${region}`, {
+      region: region as aws.Region,
+    });
+  }
+  return providerCache[region];
+}
+
 /**
  * Request ACM certificate
  */
@@ -43,54 +58,59 @@ export function requestCertificate(config: AcmConfig): aws.acm.Certificate {
 }
 
 /**
- * Create DNS validation records in Route 53
+ * Create DNS validation record in Route 53.
+ *
+ * For a wildcard cert with SAN (e.g. *.ohealth-ng.com + ohealth-ng.com)
+ * AWS returns ONE validation record (both names share the same CNAME).
+ * We only use the first entry to avoid duplicate Route 53 records.
  */
 export function createValidationRecords(
-  config: AcmConfig,
-  certificate: aws.acm.Certificate
-): aws.route53.Record[] {
-  if (!config.hostedZoneId) {
-    throw new Error('Hosted zone ID required for automatic DNS validation');
-  }
+  environment: string,
+  certificate: aws.acm.Certificate,
+  hostedZoneId: pulumi.Output<string>,
+  suffix: string = ''
+): aws.route53.Record {
+  const validationRecord = new aws.route53.Record(
+    `ohi-${environment}-cert-validation-record${suffix}`,
+    {
+      zoneId: hostedZoneId,
+      name: certificate.domainValidationOptions.apply(
+        (opts) => opts[0].resourceRecordName
+      ),
+      type: certificate.domainValidationOptions.apply(
+        (opts) => opts[0].resourceRecordType
+      ),
+      records: [
+        certificate.domainValidationOptions.apply(
+          (opts) => opts[0].resourceRecordValue
+        ),
+      ],
+      ttl: 60,
+      allowOverwrite: true,
+    },
+  );
 
-  // Get validation options from certificate
-  const validationOptions = certificate.domainValidationOptions;
-
-  const records: aws.route53.Record[] = [];
-
-  // Create validation records for each domain
-  // Note: This is tricky with Pulumi because domainValidationOptions is an Output<array>
-  // In practice, you'd iterate over the validation options
-  // For now, we'll create a helper function
-
-  return records;
+  return validationRecord;
 }
 
 /**
- * Create certificate validation
+ * Create certificate validation (waits for cert to become ISSUED)
  */
 export function createCertificateValidation(
-  config: AcmConfig,
+  environment: string,
   certificate: aws.acm.Certificate,
-  validationRecords: aws.route53.Record[]
+  validationRecord: aws.route53.Record,
+  region?: string,
+  suffix: string = ''
 ): aws.acm.CertificateValidation {
   return new aws.acm.CertificateValidation(
-    `ohi-${config.environment}-cert-validation${config.region === 'us-east-1' ? '-cloudfront' : ''}`,
+    `ohi-${environment}-cert-validation${suffix}`,
     {
       certificateArn: certificate.arn,
-      validationRecordFqdns: validationRecords.map((record) => record.fqdn),
+      validationRecordFqdns: [validationRecord.fqdn],
     },
-    config.region ? { provider: getAwsProvider(config.region) } : undefined
+    region ? { provider: getAwsProvider(region) } : undefined
   );
-}
-
-/**
- * Get AWS provider for specific region
- */
-function getAwsProvider(region: string): aws.Provider {
-  return new aws.Provider(`provider-${region}`, {
-    region: region as aws.Region,
-  });
 }
 
 /**
@@ -132,7 +152,14 @@ export function getExistingCertificateArn(
 }
 
 /**
- * Create ACM infrastructure for ALB and CloudFront
+ * Create ACM infrastructure for ALB and CloudFront.
+ *
+ * When a Route 53 hosted zone ID is supplied the function creates DNS
+ * validation records and CertificateValidation resources that wait for
+ * the certificates to become ISSUED before returning the ARNs.
+ *
+ * When no zone ID is supplied the raw (unvalidated) ARNs are returned
+ * — useful for testing only.
  */
 export interface CertificateOutputs {
   albCertificateArn: pulumi.Output<string>;
@@ -141,14 +168,39 @@ export interface CertificateOutputs {
 
 export function createAcmInfrastructure(
   environment: string,
-  domain: string
+  domain: string,
+  hostedZoneId?: pulumi.Output<string>
 ): CertificateOutputs {
   // Request certificate for ALB (eu-west-1)
   const albCert = requestWildcardCertificate(environment, domain, 'eu-west-1');
 
-  // Request certificate for CloudFront (us-east-1 - required by CloudFront)
+  // Request certificate for CloudFront (us-east-1 — required by CloudFront)
   const cloudfrontCert = requestWildcardCertificate(environment, domain, 'us-east-1');
 
+  if (hostedZoneId) {
+    // --- ALB cert DNS validation (eu-west-1) --------------------------------
+    const albValidationRecord = createValidationRecords(
+      environment, albCert, hostedZoneId, ''
+    );
+    const albCertValidation = createCertificateValidation(
+      environment, albCert, albValidationRecord, 'eu-west-1', ''
+    );
+
+    // --- CloudFront cert DNS validation (us-east-1) -------------------------
+    const cfValidationRecord = createValidationRecords(
+      environment, cloudfrontCert, hostedZoneId, '-cloudfront'
+    );
+    const cfCertValidation = createCertificateValidation(
+      environment, cloudfrontCert, cfValidationRecord, 'us-east-1', '-cloudfront'
+    );
+
+    return {
+      albCertificateArn: albCertValidation.certificateArn,
+      cloudfrontCertificateArn: cfCertValidation.certificateArn,
+    };
+  }
+
+  // No hosted zone — return raw ARNs (unvalidated, for testing only)
   return {
     albCertificateArn: albCert.arn,
     cloudfrontCertificateArn: cloudfrontCert.arn,
@@ -178,7 +230,7 @@ Domain ${index + 1}: ${option.domainName}
       .join('\n');
 
     return `
-Add these CNAME records to your DNS provider (Squarespace):
+Add these CNAME records to your DNS provider:
 ${instructions}
 Note: It may take up to 30 minutes for validation to complete after adding records.
 `;
@@ -188,7 +240,9 @@ Note: It may take up to 30 minutes for validation to complete after adding recor
 /**
  * Check if certificate is issued
  */
-export function isCertificateIssued(certificate: aws.acm.Certificate): pulumi.Output<boolean> {
+export function isCertificateIssued(
+  certificate: aws.acm.Certificate
+): pulumi.Output<boolean> {
   return certificate.status.apply((status) => status === 'ISSUED');
 }
 
@@ -205,12 +259,13 @@ export interface CertificateDetails {
   renewalEligibility?: pulumi.Output<string>;
 }
 
-export function getCertificateDetails(certificate: aws.acm.Certificate): CertificateDetails {
+export function getCertificateDetails(
+  certificate: aws.acm.Certificate
+): CertificateDetails {
   return {
     arn: certificate.arn,
     domain: certificate.domainName,
     status: certificate.status,
-    // Additional fields would come from aws.acm.getCertificate if needed
   };
 }
 
@@ -247,7 +302,7 @@ export function getCertificateConfig(environment: string): {
     albCertDomain: `*.${baseDomain}`,
     cloudfrontCertDomain: `*.${baseDomain}`,
     albRegion: 'eu-west-1',
-    cloudfrontRegion: 'us-east-1', // CloudFront requires us-east-1
+    cloudfrontRegion: 'us-east-1',
   };
 }
 

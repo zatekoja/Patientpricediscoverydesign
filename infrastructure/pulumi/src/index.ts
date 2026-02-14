@@ -62,7 +62,12 @@ import {
   createVpcEndpointsSecurityGroup,
 } from './networking/security-groups';
 
-import { createRoute53Infrastructure } from './networking/route53';
+import {
+  createRoute53Infrastructure,
+  getOrCreateHostedZone,
+  createAlbAliasRecord,
+  createCloudFrontAliasRecord,
+} from './networking/route53';
 
 // ─── Security ────────────────────────────────────────────────────────────────
 import { createAcmInfrastructure } from './security/acm';
@@ -189,9 +194,26 @@ const signozFrontendSg = createSigNozFrontendSecurityGroup(config.environment, v
 const signozQuerySg = createSigNozQuerySecurityGroup(config.environment, vpc.id, signozFrontendSg.id);
 
 // =============================================================================
-// 3. ACM Certificates
+// 3. Route 53 Hosted Zone (created early so ACM can use it for DNS validation)
 // =============================================================================
-const certs = createAcmInfrastructure(config.environment, config.domainName);
+const dnsZoneDomain = config.environment === 'prod'
+  ? config.domainName
+  : `${config.environment}.${config.domainName}`;
+
+const hostedZone = getOrCreateHostedZone({
+  environment: config.environment,
+  domain: dnsZoneDomain,
+  createHostedZone: config.environment !== 'prod',
+});
+
+// =============================================================================
+// 4. ACM Certificates (validated via Route 53 DNS)
+// =============================================================================
+const certs = createAcmInfrastructure(
+  config.environment,
+  config.domainName,
+  hostedZone.zoneId,
+);
 
 // =============================================================================
 // 4. Credentials & Secrets Generation
@@ -310,19 +332,31 @@ const cloudfront = createCloudFrontInfrastructure({
 });
 
 // =============================================================================
-// 11. Route 53 DNS
+// 11. Route 53 DNS Records (zone already created in step 3)
 // =============================================================================
-const dns = createRoute53Infrastructure({
+const dnsConfig = {
   environment: config.environment,
-  domain: config.environment === 'prod'
-    ? config.domainName
-    : `${config.environment}.${config.domainName}`,
-  createHostedZone: config.environment !== 'prod', // Prod uses existing zone
+  domain: dnsZoneDomain,
+  createHostedZone: false, // already created
   albDnsName: alb.albDnsName,
   albZoneId: alb.albZoneId,
   cloudfrontDnsName: cloudfront.distributionDomainName,
   cloudfrontZoneId: cloudfront.distributionHostedZoneId,
-});
+};
+
+// CloudFront alias for frontend
+createCloudFrontAliasRecord(dnsConfig, hostedZone, '');
+
+// ALB aliases for API services
+createAlbAliasRecord(dnsConfig, hostedZone, 'api');
+createAlbAliasRecord(dnsConfig, hostedZone, 'graphql');
+createAlbAliasRecord(dnsConfig, hostedZone, 'sse');
+createAlbAliasRecord(dnsConfig, hostedZone, 'provider');
+
+const dns = {
+  hostedZoneId: hostedZone.zoneId,
+  nameServers: hostedZone.nameServers,
+};
 
 // =============================================================================
 // 12. Observability (ClickHouse EC2, Zookeeper ECS, SigNoz, OTEL)
