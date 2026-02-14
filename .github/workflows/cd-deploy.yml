@@ -217,6 +217,9 @@ jobs:
             pulumi stack init "$ENV"
           fi
 
+          # Cancel any stale locks from interrupted deployments
+          pulumi cancel --yes 2>/dev/null || true
+
           pulumi up --yes --skip-preview
           echo "✅ Infrastructure deployment completed"
 
