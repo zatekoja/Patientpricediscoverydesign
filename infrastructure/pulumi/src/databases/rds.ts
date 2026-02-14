@@ -42,22 +42,27 @@ export const RDS_PARAMETERS = [
   {
     name: 'max_connections',
     value: '200',
+    applyMethod: 'pending-reboot', // static parameter
   },
   {
     name: 'shared_buffers',
     value: '{DBInstanceClassMemory/32768}', // 25% of RAM
+    applyMethod: 'pending-reboot', // static parameter
   },
   {
     name: 'effective_cache_size',
     value: '{DBInstanceClassMemory/16384}', // 75% of RAM
+    applyMethod: 'immediate',
   },
   {
     name: 'log_statement',
     value: 'ddl', // Log all DDL statements
+    applyMethod: 'immediate',
   },
   {
     name: 'log_min_duration_statement',
     value: '1000', // Log queries slower than 1 second
+    applyMethod: 'immediate',
   },
 ];
 

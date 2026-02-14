@@ -151,40 +151,40 @@ export function createEcrAccessPolicy(
 
   const repositoryArns = Object.values(repositories).map(repo => repo.arn);
 
-  const policyDocument = {
-    Version: '2012-10-17',
-    Statement: [
-      {
-        Sid: 'AllowPushPull',
-        Effect: 'Allow',
-        Action: [
-          'ecr:GetDownloadUrlForLayer',
-          'ecr:BatchGetImage',
-          'ecr:BatchCheckLayerAvailability',
-          'ecr:PutImage',
-          'ecr:InitiateLayerUpload',
-          'ecr:UploadLayerPart',
-          'ecr:CompleteLayerUpload',
-        ],
-        Resource: repositoryArns,
-      },
-      {
-        Sid: 'AllowGetAuthToken',
-        Effect: 'Allow',
-        Action: [
-          'ecr:GetAuthorizationToken',
-        ],
-        Resource: '*',
-      },
-    ],
-  };
-
   const policy = new aws.iam.Policy(
     `ohi-${environment}-ecr-access-policy`,
     {
       name: `ohi-${environment}-ecr-access`,
       description: `ECR access policy for ${environment} environment`,
-      policy: JSON.stringify(policyDocument),
+      policy: pulumi.all(repositoryArns).apply(arns =>
+        JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Sid: 'AllowPushPull',
+              Effect: 'Allow',
+              Action: [
+                'ecr:GetDownloadUrlForLayer',
+                'ecr:BatchGetImage',
+                'ecr:BatchCheckLayerAvailability',
+                'ecr:PutImage',
+                'ecr:InitiateLayerUpload',
+                'ecr:UploadLayerPart',
+                'ecr:CompleteLayerUpload',
+              ],
+              Resource: arns,
+            },
+            {
+              Sid: 'AllowGetAuthToken',
+              Effect: 'Allow',
+              Action: [
+                'ecr:GetAuthorizationToken',
+              ],
+              Resource: '*',
+            },
+          ],
+        })
+      ),
       tags: getResourceTags(environment, 'ecr'),
     }
   );

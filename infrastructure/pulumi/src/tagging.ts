@@ -129,11 +129,15 @@ export function applyDefaultTags(
   // AWS resource types that do NOT support a top-level 'tags' property
   const untaggableTypes = new Set([
     'aws:cloudfront/originAccessIdentity:OriginAccessIdentity',
+    'aws:ecr/lifecyclePolicy:LifecyclePolicy',
+    'aws:ecr/repositoryPolicy:RepositoryPolicy',
+    'aws:ecr/replicationConfiguration:ReplicationConfiguration',
     'aws:iam/rolePolicyAttachment:RolePolicyAttachment',
     'aws:iam/instanceProfile:InstanceProfile',
     'aws:ec2/routeTableAssociation:RouteTableAssociation',
     'aws:ec2/route:Route',
     'aws:ec2/securityGroupRule:SecurityGroupRule',
+    'aws:ec2/vpcEndpointRouteTableAssociation:VpcEndpointRouteTableAssociation',
     'aws:ecs/clusterCapacityProviders:ClusterCapacityProviders',
     'aws:rds/parameterGroup:ParameterGroup',
     'aws:elasticache/parameterGroup:ParameterGroup',
@@ -141,9 +145,15 @@ export function applyDefaultTags(
     'aws:route53/record:Record',
     'aws:lb/listener:Listener',
     'aws:lb/listenerRule:ListenerRule',
+    'aws:lb/targetGroupAttachment:TargetGroupAttachment',
     'aws:appautoscaling/target:Target',
     'aws:appautoscaling/policy:Policy',
     'aws:servicediscovery/service:Service',
+    'aws:cloudwatch/logResourcePolicy:LogResourcePolicy',
+    'aws:s3/bucketPolicy:BucketPolicy',
+    'aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock',
+    'aws:s3/bucketVersioningV2:BucketVersioningV2',
+    'aws:s3/bucketServerSideEncryptionConfigurationV2:BucketServerSideEncryptionConfigurationV2',
   ]);
 
   return (args: pulumi.ResourceTransformationArgs): pulumi.ResourceTransformationResult => {
