@@ -1,5 +1,6 @@
 name: ohi-infrastructure
 description: Open Health Initiative AWS Infrastructure
+main: src/index.ts
 runtime:
   name: nodejs
   options:
