@@ -166,6 +166,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 7200
 
       - name: Install Pulumi
         uses: pulumi/actions@v4
@@ -219,6 +220,9 @@ jobs:
 
           # Cancel any stale locks from interrupted deployments
           pulumi cancel --yes 2>/dev/null || true
+
+          # Refresh state to clear pending operations from interrupted deploys
+          pulumi refresh --yes --skip-preview 2>/dev/null || true
 
           pulumi up --yes --skip-preview
           echo "✅ Infrastructure deployment completed"

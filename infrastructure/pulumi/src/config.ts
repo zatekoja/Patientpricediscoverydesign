@@ -55,7 +55,7 @@ export function getConfig(): StackConfig {
     ecsTaskCpu: config.get('ecsTaskCpu') || '256',
     ecsTaskMemory: config.get('ecsTaskMemory') || '512',
     enableSpotInstances: config.getBoolean('enableSpotInstances') || false,
-    domainName: config.get('domainName') || 'dev.ohealth-ng.com',
+    domainName: config.get('domainName') || 'ohealth-ng.com',
   };
 }
 

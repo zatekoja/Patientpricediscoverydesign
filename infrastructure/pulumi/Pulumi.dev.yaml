@@ -10,4 +10,4 @@ config:
   ohi:ecsTaskCpu: "256"
   ohi:ecsTaskMemory: "512"
   ohi:enableSpotInstances: true
-  ohi:domainName: dev.ohealth-ng.com
+  ohi:domainName: ohealth-ng.com
