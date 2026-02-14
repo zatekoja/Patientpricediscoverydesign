@@ -211,7 +211,7 @@ const hostedZone = getOrCreateHostedZone({
 // =============================================================================
 const certs = createAcmInfrastructure(
   config.environment,
-  config.domainName,
+  dnsZoneDomain, // dev.ohealth-ng.com → cert for *.dev.ohealth-ng.com
   hostedZone.zoneId,
 );
 
