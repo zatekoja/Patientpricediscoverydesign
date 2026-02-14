@@ -18,6 +18,7 @@ import (
 // FacilityService handles business logic for facilities
 type FacilityService struct {
 	repo                 repositories.FacilityRepository
+	facilityWardRepo     repositories.FacilityWardRepository
 	searchRepo           repositories.FacilitySearchRepository
 	procedureRepo        repositories.FacilityProcedureRepository
 	procedureCatalogRepo repositories.ProcedureRepository
@@ -43,12 +44,18 @@ func NewFacilityService(
 ) *FacilityService {
 	return &FacilityService{
 		repo:                 repo,
+		facilityWardRepo:     nil, // Optional - injected separately if needed
 		searchRepo:           searchRepo,
 		procedureRepo:        procedureRepo,
 		procedureCatalogRepo: procedureCatalogRepo,
 		insuranceRepo:        insuranceRepo,
 		eventBus:             nil, // Injected separately to avoid breaking existing code
 	}
+}
+
+// SetFacilityWardRepository sets the facility ward repository (optional)
+func (s *FacilityService) SetFacilityWardRepository(repo repositories.FacilityWardRepository) {
+	s.facilityWardRepo = repo
 }
 
 // SetEventBus sets the event bus for publishing real-time updates
@@ -457,7 +464,26 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 		return nil, 0, nil, err
 	}
 
-	searchResultsEnriched := make([]entities.FacilitySearchResult, 0, len(facilities))
+	// Batch load wards for all facilities to avoid N+1 queries
+	var wardsByFacility map[string][]*entities.FacilityWard
+	if s.facilityWardRepo != nil && len(facilities) > 0 {
+		facilityIDs := make([]string, 0, len(facilities))
+		for _, facility := range facilities {
+			if facility != nil {
+				facilityIDs = append(facilityIDs, facility.ID)
+			}
+		}
+		if len(facilityIDs) > 0 {
+			wardsByFacility, err = s.facilityWardRepo.GetByFacilityIDs(ctx, facilityIDs)
+			if err != nil {
+				// Log error but don't fail the request
+				log.Printf("Error loading wards for facilities %v: %v", facilityIDs, err)
+				wardsByFacility = make(map[string][]*entities.FacilityWard)
+			}
+		}
+	}
+
+	results := make([]entities.FacilitySearchResult, 0, len(facilities))
 	for _, facility := range facilities {
 		if facility == nil {
 			continue
@@ -507,6 +533,32 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 			result.UrgentCareAvailable = facility.UrgentCareAvailable
 		}
 
+		// Load ward capacity from the batched results
+		if wardsByFacility != nil {
+			if wards, ok := wardsByFacility[facility.ID]; ok && len(wards) > 0 {
+				result.Wards = make([]entities.WardCapacityResult, 0, len(wards))
+				for _, ward := range wards {
+					wardResult := entities.WardCapacityResult{
+						WardName:    ward.WardName,
+						LastUpdated: ward.LastUpdated,
+					}
+					if ward.WardType != nil {
+						wardResult.WardType = *ward.WardType
+					}
+					if ward.CapacityStatus != nil {
+						wardResult.CapacityStatus = *ward.CapacityStatus
+					}
+					if ward.AvgWaitMinutes != nil {
+						wardResult.AvgWaitMinutes = ward.AvgWaitMinutes
+					}
+					if ward.UrgentCareAvailable != nil {
+						wardResult.UrgentCareAvailable = ward.UrgentCareAvailable
+					}
+					result.Wards = append(result.Wards, wardResult)
+				}
+			}
+		}
+
 		if s.procedureRepo != nil {
 			if facilityProcedures, err := s.procedureRepo.ListByFacility(ctx, facility.ID); err == nil {
 				price := priceRangeFromProcedures(facilityProcedures)
@@ -532,10 +584,10 @@ func (s *FacilityService) SearchResultsWithCount(ctx context.Context, params rep
 			}
 		}
 
-		searchResultsEnriched = append(searchResultsEnriched, result)
+		results = append(results, result)
 	}
 
-	return searchResultsEnriched, totalCount, interpretation, nil
+	return results, totalCount, interpretation, nil
 }
 
 // GetZeroResultQueries retrieves recent searches that yielded no results.

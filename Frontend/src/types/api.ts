@@ -103,6 +103,15 @@ export interface ServiceSearchResponse {
   };
 }
 
+export interface WardCapacity {
+  ward_name: string;
+  ward_type?: string;
+  capacity_status?: string;
+  avg_wait_minutes?: number;
+  urgent_care_available?: boolean;
+  last_updated: string;
+}
+
 export interface FacilitySearchResult {
   id: string;
   name: string;
@@ -130,6 +139,7 @@ export interface FacilitySearchResult {
     last_updated: string;
   }>;
   urgent_care_available?: boolean;
+  wards?: WardCapacity[];
   updated_at: string;
 }
 

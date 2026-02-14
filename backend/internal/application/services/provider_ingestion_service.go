@@ -38,6 +38,7 @@ type ProviderIngestionSummary struct {
 type ProviderIngestionService struct {
 	client                providerapi.Client
 	facilityRepo          repositories.FacilityRepository
+	facilityWardRepo      repositories.FacilityWardRepository
 	facilityService       *FacilityService
 	procedureRepo         repositories.ProcedureRepository
 	facilityProcedureRepo repositories.FacilityProcedureRepository
@@ -53,6 +54,7 @@ type ProviderIngestionService struct {
 func NewProviderIngestionService(
 	client providerapi.Client,
 	facilityRepo repositories.FacilityRepository,
+	facilityWardRepo repositories.FacilityWardRepository,
 	facilityService *FacilityService,
 	procedureRepo repositories.ProcedureRepository,
 	facilityProcedureRepo repositories.FacilityProcedureRepository,
@@ -80,6 +82,7 @@ func NewProviderIngestionService(
 	return &ProviderIngestionService{
 		client:                client,
 		facilityRepo:          facilityRepo,
+		facilityWardRepo:      facilityWardRepo,
 		facilityService:       facilityService,
 		procedureRepo:         procedureRepo,
 		facilityProcedureRepo: facilityProcedureRepo,
@@ -180,6 +183,13 @@ func (s *ProviderIngestionService) SyncCurrentData(ctx context.Context, provider
 			if profile != nil {
 				if applyProfileStatus(facility, profile) {
 					facilityNeedsUpdate[facilityID] = true
+				}
+				// Sync ward capacity if available
+				if len(profile.Wards) > 0 {
+					if err := s.syncWardCapacity(ctx, facilityID, profile.Wards); err != nil {
+						log.Printf("failed to sync ward capacity for facility %s: %v", facilityID, err)
+						// Continue processing other facilities even if ward sync fails
+					}
 				}
 			}
 
@@ -958,6 +968,54 @@ func applyProfileStatus(facility *entities.Facility, profile *providerapi.Facili
 	}
 
 	return changed
+}
+
+// syncWardCapacity syncs ward capacity data from MongoDB (via Provider API) to PostgreSQL
+func (s *ProviderIngestionService) syncWardCapacity(ctx context.Context, facilityID string, wards []providerapi.WardCapacity) error {
+	if s.facilityWardRepo == nil {
+		// Ward repository not configured, skip ward sync
+		return nil
+	}
+
+	for _, ward := range wards {
+		// Generate ward ID using hash of full facilityID + normalized ward name
+		// This ensures uniqueness regardless of facility ID length and avoids collisions
+		// Format: <short_facilityID_prefix>_<hash_of_full_facilityID_and_ward_name>
+		normalizedWardName := strings.ToLower(strings.TrimSpace(ward.WardName))
+
+		// Hash the combination of full facilityID + normalized ward name for uniqueness
+		combinedKey := fmt.Sprintf("%s:%s", facilityID, normalizedWardName)
+		fullHash := hashString(combinedKey)
+
+		// Use a short readable prefix (first 20 chars) for debugging, but ID is based on full hash
+		// This keeps IDs under 255 chars while ensuring uniqueness
+		facilityIDPrefix := facilityID
+		if len(facilityID) > 20 {
+			facilityIDPrefix = facilityID[:20]
+		}
+
+		wardID := fmt.Sprintf("%s_%s", facilityIDPrefix, fullHash)
+
+		// Convert providerapi.WardCapacity to entities.FacilityWard
+		facilityWard := &entities.FacilityWard{
+			ID:                  wardID,
+			FacilityID:          facilityID,
+			WardName:            ward.WardName,
+			WardType:            ward.WardType,
+			CapacityStatus:      ward.CapacityStatus,
+			AvgWaitMinutes:      ward.AvgWaitMinutes,
+			UrgentCareAvailable: ward.UrgentCareAvailable,
+			LastUpdated:         ward.LastUpdated,
+			CreatedAt:           time.Now(), // Will be preserved by Upsert if already exists
+		}
+
+		// Use Upsert to create or update the ward
+		if err := s.facilityWardRepo.Upsert(ctx, facilityWard); err != nil {
+			return fmt.Errorf("failed to upsert ward %s for facility %s: %w", ward.WardName, facilityID, err)
+		}
+	}
+
+	return nil
 }
 
 // enrichProceduresBatch enriches all procedures that don't have enrichment data yet.

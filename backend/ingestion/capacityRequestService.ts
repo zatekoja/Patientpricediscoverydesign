@@ -14,6 +14,7 @@ export type CapacityChannel = 'email' | 'whatsapp';
 export interface CapacityRequestToken {
   id: string;
   facilityId: string;
+  wardName?: string; // Optional: if specified, token is for ward-specific update
   channel: CapacityChannel;
   recipient: string;
   createdAt: string;
@@ -33,9 +34,10 @@ export interface CapacityRequestServiceOptions {
   facilityProfileService: FacilityProfileService;
   tokenStore: IDocumentStore<CapacityRequestToken>;
   publicBaseUrl: string;
-  tokenTTLMinutes?: number;
+  tokenTTLMinutes?: number; // Default: 120 minutes, can be overridden per facility
   emailSender?: EmailSender;
   whatsappSender?: WhatsAppSender;
+  emailTemplate?: (facilityName: string, link: string) => string; // Custom email template
 }
 
 export class CapacityRequestService {
@@ -88,7 +90,7 @@ export class CapacityRequestService {
     }
   }
 
-  async consumeToken(rawToken: string): Promise<CapacityRequestToken> {
+  async validateToken(rawToken: string): Promise<CapacityRequestToken> {
     const tokenHash = hashToken(rawToken);
     const record = await this.options.tokenStore.get(tokenHash);
     if (!record) {
@@ -101,14 +103,21 @@ export class CapacityRequestService {
     if (new Date(record.expiresAt).getTime() < now.getTime()) {
       throw new Error('Token expired');
     }
+    return record;
+  }
 
+  async consumeToken(rawToken: string): Promise<CapacityRequestToken> {
+    const record = await this.validateToken(rawToken);
+    const tokenHash = hashToken(rawToken);
+    const now = new Date();
+    
     record.usedAt = now.toISOString();
     await this.options.tokenStore.put(tokenHash, record, { usedAt: record.usedAt });
     recordCapacityTokenConsumed(record.channel);
     return record;
   }
 
-  async sendSingleRequest(facilityId: string, channel?: CapacityChannel): Promise<void> {
+  async sendSingleRequest(facilityId: string, channel?: CapacityChannel, wardName?: string): Promise<void> {
     const facility = await this.options.facilityProfileService.getProfile(facilityId);
     if (!facility) {
       throw new Error('Facility not found');
@@ -119,29 +128,29 @@ export class CapacityRequestService {
         if (!emailRecipient || !this.options.emailSender) {
           throw new Error('Email sender not configured or facility email missing');
         }
-        await this.sendRequest(facility, 'email', emailRecipient);
+        await this.sendRequest(facility, 'email', emailRecipient, wardName);
         return;
       }
       const phoneRecipient = facility.phoneNumber?.trim();
       if (!phoneRecipient || !this.options.whatsappSender) {
         throw new Error('WhatsApp sender not configured or facility phone missing');
       }
-      await this.sendRequest(facility, 'whatsapp', phoneRecipient);
+      await this.sendRequest(facility, 'whatsapp', phoneRecipient, wardName);
       return;
     }
 
-    await this.requestForFacility(facility);
+    await this.requestForFacility(facility, wardName);
   }
 
-  private async requestForFacility(facility: FacilityProfile): Promise<void> {
+  private async requestForFacility(facility: FacilityProfile, wardName?: string): Promise<void> {
     const emailRecipient = facility.email?.trim();
     const phoneRecipient = facility.phoneNumber?.trim();
 
     if (emailRecipient && this.options.emailSender) {
-      await this.sendRequest(facility, 'email', emailRecipient);
+      await this.sendRequest(facility, 'email', emailRecipient, wardName);
     }
     if (phoneRecipient && this.options.whatsappSender) {
-      await this.sendRequest(facility, 'whatsapp', phoneRecipient);
+      await this.sendRequest(facility, 'whatsapp', phoneRecipient, wardName);
     }
   }
 
@@ -149,17 +158,23 @@ export class CapacityRequestService {
     facility: FacilityProfile,
     channel: CapacityChannel,
     recipient: string,
+    wardName?: string,
   ): Promise<void> {
-    const active = await this.findActiveToken(facility.id, channel, recipient);
+    const active = await this.findActiveToken(facility.id, channel, recipient, wardName);
     if (active) {
       return;
     }
+
+    // Get TTL from facility metadata or use default
+    const facilityTTL = facility.metadata?.capacityTokenTTLMinutes;
+    const tokenTTL = facilityTTL ?? this.options.tokenTTLMinutes ?? 120;
 
     const { rawToken, tokenRecord } = createTokenRecord(
       facility.id,
       channel,
       recipient,
-      this.options.tokenTTLMinutes || 120
+      tokenTTL,
+      wardName
     );
     await this.options.tokenStore.put(tokenRecord.id, tokenRecord, {
       facilityId: facility.id,
@@ -172,7 +187,10 @@ export class CapacityRequestService {
     if (channel === 'email' && this.options.emailSender) {
       try {
         const subject = `Update ${facility.name} capacity status`;
-        const body = buildEmailBody(facility.name, link);
+        // Use custom template if provided, otherwise use default
+        const body = this.options.emailTemplate
+          ? this.options.emailTemplate(facility.name, link)
+          : buildEmailBody(facility.name, link);
         await this.options.emailSender.send(recipient, subject, body, stripHtml(body));
         recordCapacityRequest({ channel, success: true });
       } catch (error) {
@@ -218,15 +236,26 @@ export class CapacityRequestService {
   private async findActiveToken(
     facilityId: string,
     channel: CapacityChannel,
-    recipient: string
+    recipient: string,
+    wardName?: string
   ): Promise<CapacityRequestToken | null> {
     const tokens = await this.options.tokenStore.query(
       { facilityId, channel, recipient },
       { limit: 10, sortBy: 'createdAt', sortOrder: 'desc' }
     );
     const now = Date.now();
+    // Normalize the incoming ward name for comparison
+    const normalizedWardName = wardName ? wardName.trim().toLowerCase() : undefined;
+    
     for (const token of tokens) {
       if (token.usedAt) {
+        continue;
+      }
+      // Normalize token ward name for comparison
+      const tokenNormalizedWardName = token.wardName ? token.wardName.trim().toLowerCase() : undefined;
+      
+      // Match ward name if specified (both must be undefined or both must match after normalization)
+      if (normalizedWardName !== tokenNormalizedWardName) {
         continue;
       }
       if (new Date(token.expiresAt).getTime() < now) {
@@ -319,7 +348,8 @@ function createTokenRecord(
   facilityId: string,
   channel: CapacityChannel,
   recipient: string,
-  ttlMinutes: number
+  ttlMinutes: number,
+  wardName?: string
 ): { rawToken: string; tokenRecord: CapacityRequestToken } {
   const rawToken = crypto.randomBytes(32).toString('base64url');
   const tokenHash = hashToken(rawToken);
@@ -328,6 +358,7 @@ function createTokenRecord(
   const tokenRecord: CapacityRequestToken = {
     id: tokenHash,
     facilityId,
+    wardName,
     channel,
     recipient,
     createdAt: now.toISOString(),

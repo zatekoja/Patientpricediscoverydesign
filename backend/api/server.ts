@@ -24,38 +24,264 @@ class ProviderNotFoundError extends Error {
   }
 }
 
-function buildCapacityForm(token: string): string {
+// Predefined ward types for common hospital departments
+const PREDEFINED_WARD_TYPES = [
+  { value: 'maternity', label: 'Maternity' },
+  { value: 'pharmacy', label: 'Pharmacy' },
+  { value: 'inpatient', label: 'Inpatient' },
+  { value: 'outpatient', label: 'Outpatient' },
+  { value: 'emergency', label: 'Emergency' },
+  { value: 'surgery', label: 'Surgery' },
+  { value: 'icu', label: 'ICU' },
+  { value: 'pediatrics', label: 'Pediatrics' },
+  { value: 'radiology', label: 'Radiology' },
+  { value: 'laboratory', label: 'Laboratory' },
+  { value: 'other', label: 'Other (Custom)' },
+];
+
+/**
+ * Escape HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(unsafe: string): string {
+  if (!unsafe) return '';
+  return String(unsafe)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function buildCapacityForm(
+  token: string,
+  facilityName: string,
+  availableWards?: string[],
+  preselectedWard?: string,
+  errorMessage?: string
+): string {
+  // Escape all user-controlled values to prevent XSS
+  const escapedFacilityName = escapeHtml(facilityName);
+  const escapedErrorMessage = errorMessage ? escapeHtml(errorMessage) : '';
+  const escapedToken = escapeHtml(token);
+  
+  // Get available wards from facility metadata or use predefined list
+  const wardOptions = availableWards && availableWards.length > 0
+    ? availableWards.map(ward => {
+        const predefined = PREDEFINED_WARD_TYPES.find(w => w.value === ward.toLowerCase());
+        return {
+          value: ward,
+          label: predefined ? predefined.label : ward.charAt(0).toUpperCase() + ward.slice(1)
+        };
+      })
+    : PREDEFINED_WARD_TYPES;
+
+  const wardSelectOptions = wardOptions
+    .map(w => {
+      const escapedValue = escapeHtml(w.value);
+      const escapedLabel = escapeHtml(w.label);
+      const isSelected = w.value === preselectedWard ? 'selected' : '';
+      return `<option value="${escapedValue}" ${isSelected}>${escapedLabel}</option>`;
+    })
+    .join('');
+
   return `
-    <html>
+    <!DOCTYPE html>
+    <html lang="en">
       <head>
-        <title>Update Capacity</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Update Capacity - ${escapedFacilityName}</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f3f3f5;
+            color: #030213;
+            line-height: 1.5;
+            padding: 24px;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 0.625rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 32px;
+          }
+          h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #030213;
+          }
+          .subtitle {
+            color: #717182;
+            font-size: 0.875rem;
+            margin-bottom: 24px;
+          }
+          .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 0.5rem;
+            margin-bottom: 20px;
+            font-size: 0.875rem;
+          }
+          .form-group {
+            margin-bottom: 20px;
+          }
+          label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #030213;
+          }
+          select, input[type="number"], input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 0.875rem;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 0.625rem;
+            background: #f3f3f5;
+            color: #030213;
+            transition: all 0.2s;
+          }
+          select:focus, input[type="number"]:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #030213;
+            box-shadow: 0 0 0 3px rgba(3, 2, 19, 0.1);
+          }
+          .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+          input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+          }
+          .checkbox-label {
+            font-weight: 400;
+            margin: 0;
+            cursor: pointer;
+          }
+          button[type="submit"] {
+            width: 100%;
+            padding: 10px 16px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            background: #030213;
+            color: #ffffff;
+            border: none;
+            border-radius: 0.625rem;
+            cursor: pointer;
+            transition: background 0.2s;
+          }
+          button[type="submit"]:hover {
+            background: rgba(3, 2, 19, 0.9);
+          }
+          button[type="submit"]:active {
+            transform: scale(0.98);
+          }
+          .help-text {
+            font-size: 0.75rem;
+            color: #717182;
+            margin-top: 4px;
+          }
+          #customWardInput {
+            margin-top: 8px;
+            display: none;
+          }
+          #customWardInput.show {
+            display: block;
+          }
+          @media (max-width: 640px) {
+            .container {
+              padding: 24px;
+            }
+            h1 {
+              font-size: 1.25rem;
+            }
+          }
+        </style>
       </head>
-      <body style="font-family: Arial, sans-serif; padding: 24px;">
-        <h2>Facility Capacity Update</h2>
-        <form method="POST" action="/api/v1/capacity/submit">
-          <input type="hidden" name="token" value="${token}" />
-          <div style="margin-bottom: 12px;">
-            <label>Capacity Status</label><br />
-            <select name="capacityStatus">
-              <option value="available">Available</option>
-              <option value="busy">Busy</option>
-              <option value="full">Full</option>
-              <option value="closed">Closed</option>
-            </select>
-          </div>
-          <div style="margin-bottom: 12px;">
-            <label>Average Wait (minutes)</label><br />
-            <input type="number" name="avgWaitMinutes" min="0" />
-          </div>
-          <div style="margin-bottom: 12px;">
-            <label>
-              <input type="checkbox" name="urgentCareAvailable" value="true" />
-              Urgent care available
-            </label>
-          </div>
-          <button type="submit">Submit Update</button>
-        </form>
+      <body>
+        <div class="container">
+          <h1>Update Capacity - ${escapedFacilityName}</h1>
+          <p class="subtitle">Please update your current capacity and wait time information</p>
+          ${escapedErrorMessage ? `<div class="error-message">${escapedErrorMessage}</div>` : ''}
+          <form method="POST" action="/api/v1/capacity/submit" id="capacityForm">
+            <input type="hidden" name="token" value="${escapedToken}" />
+            <div class="form-group">
+              <label for="wardName">Ward/Department</label>
+              <select name="wardName" id="wardName">
+                <option value="">Facility-wide (all departments)</option>
+                ${wardSelectOptions}
+              </select>
+              <p class="help-text">Select a specific ward/department or leave blank for facility-wide update</p>
+              <input type="text" name="customWardName" id="customWardInput" placeholder="Enter custom ward name" />
+            </div>
+            <div class="form-group">
+              <label for="capacityStatus">Capacity Status *</label>
+              <select name="capacityStatus" id="capacityStatus" required>
+                <option value="">Select status...</option>
+                <option value="available">Available</option>
+                <option value="busy">Busy</option>
+                <option value="full">Full</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="avgWaitMinutes">Average Wait Time (minutes)</label>
+              <input type="number" name="avgWaitMinutes" id="avgWaitMinutes" min="0" placeholder="e.g., 30" />
+              <p class="help-text">Optional: Estimated average wait time in minutes</p>
+            </div>
+            <div class="form-group">
+              <div class="checkbox-group">
+                <input type="checkbox" name="urgentCareAvailable" id="urgentCareAvailable" value="true" />
+                <label for="urgentCareAvailable" class="checkbox-label">Urgent care available</label>
+              </div>
+            </div>
+            <button type="submit">Submit Update</button>
+          </form>
+        </div>
+        <script>
+          // Show custom ward input when "Other" is selected
+          const wardSelect = document.getElementById('wardName');
+          const customWardInput = document.getElementById('customWardInput');
+          const customWardNameInput = document.getElementById('customWardInput');
+          
+          wardSelect.addEventListener('change', function() {
+            if (this.value === 'other') {
+              customWardInput.classList.add('show');
+              customWardNameInput.setAttribute('required', 'required');
+            } else {
+              customWardInput.classList.remove('show');
+              customWardNameInput.removeAttribute('required');
+              customWardNameInput.value = '';
+            }
+          });
+
+          // Handle form submission - use custom ward name if "other" selected
+          document.getElementById('capacityForm').addEventListener('submit', function(e) {
+            if (wardSelect.value === 'other' && customWardNameInput.value.trim()) {
+              // Create a hidden input with the custom ward name
+              const hiddenInput = document.createElement('input');
+              hiddenInput.type = 'hidden';
+              hiddenInput.name = 'wardName';
+              hiddenInput.value = customWardNameInput.value.trim();
+              this.appendChild(hiddenInput);
+              // Clear the original wardName select
+              wardSelect.removeAttribute('name');
+            }
+          });
+        </script>
       </body>
     </html>
   `;
@@ -581,13 +807,32 @@ export class DataProviderAPI {
    * GET /api/v1/capacity/form/:token
    */
   private async handleCapacityForm(req: Request, res: Response): Promise<void> {
-    if (!this.capacityRequestService) {
+    if (!this.capacityRequestService || !this.facilityProfileService) {
       res.status(503).send('Capacity service not configured');
       return;
     }
     const token = req.params.token;
-    res.setHeader('Content-Type', 'text/html');
-    res.send(buildCapacityForm(token));
+    
+    try {
+      // Validate token using the public method
+      const record = await this.capacityRequestService.validateToken(token);
+
+      // Get facility profile to show name and available wards
+      const facility = await this.facilityProfileService.getProfile(record.facilityId);
+      const facilityName = facility?.name || 'Facility';
+      const availableWards = facility?.metadata?.availableWards;
+      const preselectedWard = record.wardName;
+
+      res.setHeader('Content-Type', 'text/html');
+      res.send(buildCapacityForm(token, facilityName, availableWards, preselectedWard));
+    } catch (error: any) {
+      // Handle specific error messages from validateToken
+      if (error.message === 'Invalid token' || error.message === 'Token already used' || error.message === 'Token expired') {
+        res.status(400).send(error.message);
+      } else {
+        res.status(500).send(`Error loading form: ${error.message}`);
+      }
+    }
   }
 
   /**
@@ -605,8 +850,56 @@ export class DataProviderAPI {
         return;
       }
 
-      const record = await this.capacityRequestService.consumeToken(token);
-      const capacityStatus = req.body?.capacityStatus ? String(req.body.capacityStatus) : undefined;
+      // Step 1: Validate token WITHOUT consuming it
+      let record;
+      try {
+        record = await this.capacityRequestService.validateToken(token);
+      } catch (error: any) {
+        // Handle token errors with proper status codes
+        if (error.message === 'Invalid token' || error.message === 'Token expired' || error.message === 'Token already used') {
+          res.status(400).send(`
+            <html>
+              <body style="font-family: Arial, sans-serif; padding: 24px;">
+                <h2>Token Error</h2>
+                <p>${error.message}</p>
+                <p>Please request a new capacity update link.</p>
+              </body>
+            </html>
+          `);
+          return;
+        }
+        throw error; // Re-throw other errors
+      }
+      
+      // Step 2: Validate all form inputs before consuming the token
+      const capacityStatusRaw = req.body?.capacityStatus ? String(req.body.capacityStatus).toLowerCase().trim() : undefined;
+      const validCapacityStatuses = ['available', 'busy', 'full', 'closed'];
+      
+      if (!capacityStatusRaw) {
+        res.status(400).send(`
+          <html>
+            <body style="font-family: Arial, sans-serif; padding: 24px;">
+              <h2>Missing Capacity Status</h2>
+              <p>Capacity status is required and must be provided.</p>
+              <p><a href="/api/v1/capacity/form/${encodeURIComponent(token)}">Go back to form</a></p>
+            </body>
+          </html>
+        `);
+        return;
+      } else if (!validCapacityStatuses.includes(capacityStatusRaw)) {
+        res.status(400).send(`
+          <html>
+            <body style="font-family: Arial, sans-serif; padding: 24px;">
+              <h2>Invalid Capacity Status</h2>
+              <p>Capacity status must be one of: ${validCapacityStatuses.join(', ')}</p>
+              <p><a href="/api/v1/capacity/form/${encodeURIComponent(token)}">Go back to form</a></p>
+            </body>
+          </html>
+        `);
+        return;
+      }
+      const capacityStatus = capacityStatusRaw;
+      
       const avgWaitMinutes = req.body?.avgWaitMinutes
         ? parseInt(req.body.avgWaitMinutes, 10)
         : undefined;
@@ -615,9 +908,33 @@ export class DataProviderAPI {
           ? req.body.urgentCareAvailable === 'true'
           : req.body?.urgentCareAvailable === true;
 
+      // Get ward name from form (or from token if specified)
+      // Distinguish between:
+      //  - field absent: fall back to record.wardName
+      //  - field present but empty: explicit facility-wide selection
+      let wardName: string | undefined;
+      const hasWardNameField =
+        req.body && Object.prototype.hasOwnProperty.call(req.body, 'wardName');
+
+      if (hasWardNameField) {
+        const rawWardName = req.body.wardName;
+        const trimmedWardName =
+          rawWardName === undefined || rawWardName === null
+            ? ''
+            : String(rawWardName).trim();
+        // Empty string means explicit facility-wide selection
+        wardName = trimmedWardName === '' ? undefined : trimmedWardName;
+      } else {
+        wardName = record.wardName || undefined;
+      }
+
+      // Step 3: All validations passed - now consume the token
+      await this.capacityRequestService.consumeToken(token);
+
       await this.facilityProfileService.updateStatus(
         record.facilityId,
         {
+          wardName, // Pass ward name for ward-specific update
           capacityStatus,
           avgWaitMinutes: Number.isFinite(avgWaitMinutes) ? avgWaitMinutes : undefined,
           urgentCareAvailable,
@@ -628,7 +945,63 @@ export class DataProviderAPI {
       await this.triggerIngestionWebhook(record.facilityId, record.id);
 
       res.setHeader('Content-Type', 'text/html');
-      res.send('<p>Thank you. Your capacity update has been recorded.</p>');
+      res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Update Submitted - Patient Price Discovery</title>
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                background: #f3f3f5;
+                color: #030213;
+                line-height: 1.5;
+                padding: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+              }
+              .container {
+                max-width: 500px;
+                background: #ffffff;
+                border-radius: 0.625rem;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                padding: 32px;
+                text-align: center;
+              }
+              h2 {
+                font-size: 1.5rem;
+                font-weight: 500;
+                margin-bottom: 16px;
+                color: #030213;
+              }
+              p {
+                color: #717182;
+                font-size: 0.875rem;
+              }
+              .success-icon {
+                font-size: 3rem;
+                margin-bottom: 16px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="success-icon">✓</div>
+              <h2>Thank You</h2>
+              <p>Your capacity update has been recorded successfully.</p>
+            </div>
+          </body>
+        </html>
+      `);
     } catch (error) {
       next(error);
     }
@@ -647,7 +1020,11 @@ export class DataProviderAPI {
       }
       const channelRaw = (req.body?.channel || req.query?.channel || '').toString().trim().toLowerCase();
       const channel = channelRaw === 'email' || channelRaw === 'whatsapp' ? channelRaw : undefined;
-      await this.capacityRequestService.sendSingleRequest(facilityId, channel);
+      const rawWardName = req.body?.wardName;
+      const wardNameTrimmed = rawWardName === undefined || rawWardName === null
+        ? '' : String(rawWardName).trim();
+      const wardName = wardNameTrimmed === '' ? undefined : wardNameTrimmed;
+      await this.capacityRequestService.sendSingleRequest(facilityId, channel, wardName);
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -744,32 +1121,89 @@ export class DataProviderAPI {
     if (!webhookUrl) {
       return;
     }
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (eventId) {
-        headers['Idempotency-Key'] = eventId;
-      }
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          eventId,
-          facilityId,
-          source: 'capacity_update',
-          timestamp: new Date().toISOString(),
-        }),
-      });
-      if (!response.ok) {
+
+    const maxRetries = parseInt(process.env.PROVIDER_WEBHOOK_MAX_RETRIES || '3', 10);
+    const retryDelayMs = parseInt(process.env.PROVIDER_WEBHOOK_RETRY_DELAY_MS || '1000', 10);
+    const useExponentialBackoff = process.env.PROVIDER_WEBHOOK_EXPONENTIAL_BACKOFF !== 'false';
+
+    let lastError: Error | null = null;
+    let lastResponse: globalThis.Response | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (eventId) {
+          headers['Idempotency-Key'] = eventId;
+        }
+        
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            eventId,
+            facilityId,
+            source: 'capacity_update',
+            timestamp: new Date().toISOString(),
+          }),
+        });
+
+        if (response.ok) {
+          recordCapacityWebhook({ success: true });
+          return; // Success, exit retry loop
+        }
+
+        lastResponse = response;
         const text = await response.text();
-        console.error(`Ingestion webhook failed (${response.status}): ${text}`);
-        recordCapacityWebhook({ success: false });
-      } else {
-        recordCapacityWebhook({ success: true });
+        lastError = new Error(`Webhook failed with status ${response.status}: ${text}`);
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          console.error(`Ingestion webhook failed (${response.status}): ${text}`);
+          recordCapacityWebhook({ success: false });
+          return; // Don't retry client errors
+        }
+
+        // If this was the last attempt, break
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Calculate delay with exponential backoff
+        const delay = useExponentialBackoff
+          ? retryDelayMs * Math.pow(2, attempt)
+          : retryDelayMs;
+
+        console.warn(
+          `Webhook attempt ${attempt + 1}/${maxRetries + 1} failed, retrying in ${delay}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // If this was the last attempt, break
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Calculate delay with exponential backoff
+        const delay = useExponentialBackoff
+          ? retryDelayMs * Math.pow(2, attempt)
+          : retryDelayMs;
+
+        console.warn(
+          `Webhook attempt ${attempt + 1}/${maxRetries + 1} error, retrying in ${delay}ms...`,
+          error
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-    } catch (error) {
-      console.error('Ingestion webhook error:', error);
-      recordCapacityWebhook({ success: false });
     }
+
+    // All retries exhausted
+    const errorMsg = lastError?.message || 'Unknown error';
+    const statusMsg = lastResponse ? ` (status: ${lastResponse.status})` : '';
+    console.error(`Ingestion webhook failed after ${maxRetries + 1} attempts: ${errorMsg}${statusMsg}`);
+    recordCapacityWebhook({ success: false });
   }
 
   private async enrichFacilities(provider: IExternalDataProvider, providerId?: string): Promise<void> {

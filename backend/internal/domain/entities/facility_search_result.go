@@ -2,32 +2,43 @@ package entities
 
 import "time"
 
+// WardCapacityResult represents ward capacity data in search results
+type WardCapacityResult struct {
+	WardName            string    `json:"ward_name"`
+	WardType            string    `json:"ward_type,omitempty"`
+	CapacityStatus      string    `json:"capacity_status,omitempty"`
+	AvgWaitMinutes      *int      `json:"avg_wait_minutes,omitempty"`
+	UrgentCareAvailable *bool     `json:"urgent_care_available,omitempty"`
+	LastUpdated         time.Time `json:"last_updated"`
+}
+
 // FacilitySearchResult represents the enriched search payload returned to the UI.
 type FacilitySearchResult struct {
-	ID                  string              `json:"id"`
-	Name                string              `json:"name"`
-	FacilityType        string              `json:"facility_type"`
-	Address             Address             `json:"address"`
-	Location            Location            `json:"location"`
-	PhoneNumber         string              `json:"phone_number,omitempty"`
-	WhatsAppNumber      string              `json:"whatsapp_number,omitempty"`
-	Email               string              `json:"email,omitempty"`
-	Website             string              `json:"website,omitempty"`
-	Rating              float64             `json:"rating"`
-	ReviewCount         int                 `json:"review_count"`
-	DistanceKm          float64             `json:"distance_km"`
-	Price               *FacilityPriceRange `json:"price,omitempty"`
-	Services            []string            `json:"services"`
-	ServicePrices       []ServicePrice      `json:"service_prices"`
-	MatchedServices     []ServicePrice      `json:"matched_services,omitempty"`
-	Tags                []string            `json:"tags,omitempty"`
-	AcceptedInsurance   []string            `json:"accepted_insurance"`
-	NextAvailableAt     *time.Time          `json:"next_available_at,omitempty"`
-	AvgWaitMinutes      *int                `json:"avg_wait_minutes,omitempty"`
-	CapacityStatus      string              `json:"capacity_status,omitempty"`
-	WardStatuses        interface{}         `json:"ward_statuses,omitempty"`
-	UrgentCareAvailable *bool               `json:"urgent_care_available,omitempty"`
-	UpdatedAt           time.Time           `json:"updated_at"`
+	ID                  string               `json:"id"`
+	Name                string               `json:"name"`
+	FacilityType        string               `json:"facility_type"`
+	Address             Address              `json:"address"`
+	Location            Location             `json:"location"`
+	PhoneNumber         string               `json:"phone_number,omitempty"`
+	WhatsAppNumber      string               `json:"whatsapp_number,omitempty"`
+	Email               string               `json:"email,omitempty"`
+	Website             string               `json:"website,omitempty"`
+	Rating              float64              `json:"rating"`
+	ReviewCount         int                  `json:"review_count"`
+	DistanceKm          float64              `json:"distance_km"`
+	Price               *FacilityPriceRange  `json:"price,omitempty"`
+	Services            []string             `json:"services"`
+	ServicePrices       []ServicePrice       `json:"service_prices"`
+	MatchedServices     []ServicePrice       `json:"matched_services,omitempty"`
+	Tags                []string             `json:"tags,omitempty"`
+	AcceptedInsurance   []string             `json:"accepted_insurance"`
+	NextAvailableAt     *time.Time           `json:"next_available_at,omitempty"`
+	AvgWaitMinutes      *int                 `json:"avg_wait_minutes,omitempty"`
+	CapacityStatus      string               `json:"capacity_status,omitempty"`
+	WardStatuses        interface{}          `json:"ward_statuses,omitempty"`
+	UrgentCareAvailable *bool                `json:"urgent_care_available,omitempty"`
+	Wards               []WardCapacityResult `json:"wards,omitempty"`
+	UpdatedAt           time.Time            `json:"updated_at"`
 }
 
 // FacilityPriceRange summarizes price ranges for a facility.
