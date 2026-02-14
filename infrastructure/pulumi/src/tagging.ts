@@ -126,9 +126,29 @@ export function applyDefaultTags(
   environment: string,
   service?: string
 ): pulumi.ResourceTransformation {
+  // AWS resource types that do NOT support a top-level 'tags' property
+  const untaggableTypes = new Set([
+    'aws:cloudfront/originAccessIdentity:OriginAccessIdentity',
+    'aws:iam/rolePolicyAttachment:RolePolicyAttachment',
+    'aws:iam/instanceProfile:InstanceProfile',
+    'aws:ec2/routeTableAssociation:RouteTableAssociation',
+    'aws:ec2/route:Route',
+    'aws:ec2/securityGroupRule:SecurityGroupRule',
+    'aws:ecs/clusterCapacityProviders:ClusterCapacityProviders',
+    'aws:rds/parameterGroup:ParameterGroup',
+    'aws:elasticache/parameterGroup:ParameterGroup',
+    'aws:acm/certificateValidation:CertificateValidation',
+    'aws:route53/record:Record',
+    'aws:lb/listener:Listener',
+    'aws:lb/listenerRule:ListenerRule',
+    'aws:appautoscaling/target:Target',
+    'aws:appautoscaling/policy:Policy',
+    'aws:servicediscovery/service:Service',
+  ]);
+
   return (args: pulumi.ResourceTransformationArgs): pulumi.ResourceTransformationResult => {
-    // Skip provider resources — they don't accept top-level tags
-    if (args.type.startsWith('pulumi:providers:')) {
+    // Only tag AWS resources (skip providers, Pulumi internals, etc.)
+    if (!args.type.startsWith('aws:') || untaggableTypes.has(args.type)) {
       return { props: args.props, opts: args.opts };
     }
 
