@@ -1,4 +1,5 @@
 // Pulumi S3 backend - state in s3://ohi-pulumi-state-<account-id>, encrypted with PULUMI_CONFIG_PASSPHRASE
+// ACM certificates validated — re-deploy to complete CertificateValidation resources
 /**
  * Open Health Initiative - AWS Infrastructure
  * Main Pulumi Program Entry Point
