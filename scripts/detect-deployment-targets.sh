@@ -35,22 +35,23 @@ deploy_frontend="false"
 if [ "$DEPLOY_TYPE" = "auto" ]; then
     CHANGED_FILES="$(changed_files)"
 
-    # Pulumi changes take precedence and force infra-only deployment.
+    # Check each component independently
     if echo "$CHANGED_FILES" | grep -q '^infrastructure/pulumi/'; then
         deploy_infrastructure="true"
-        deploy_backend="false"
-        deploy_frontend="false"
-        echo "Pulumi changes detected. Running infrastructure-only deployment."
-    else
-        deploy_infrastructure="false"
+    fi
 
-        if echo "$CHANGED_FILES" | grep -q '^backend/'; then
-            deploy_backend="true"
-        fi
+    if echo "$CHANGED_FILES" | grep -q '^backend/'; then
+        deploy_backend="true"
+    fi
 
-        if echo "$CHANGED_FILES" | grep -q '^Frontend/\|^package\.json\|^tsconfig\.json'; then
-            deploy_frontend="true"
-        fi
+    if echo "$CHANGED_FILES" | grep -q '^Frontend/\|^package\.json\|^tsconfig\.json'; then
+        deploy_frontend="true"
+    fi
+
+    # Workflow file changes should trigger backend + frontend deploy
+    if echo "$CHANGED_FILES" | grep -q '^\.github/workflows/cd-deploy\.yml'; then
+        deploy_backend="true"
+        deploy_frontend="true"
     fi
 else
     case "$DEPLOY_TYPE" in
