@@ -53,7 +53,7 @@ on:
 # Prevent concurrent deployments to same environment
 concurrency:
   group: cd-${{ inputs.environment || 'dev' }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
