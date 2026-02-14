@@ -63,7 +63,8 @@ export function createEcrRepository(
 
   // Determine scanning and mutability based on environment
   const enableScanning = config.enableImageScanning ?? (environment === 'prod');
-  const tagMutability = config.enableTagMutability ? 'MUTABLE' : 'IMMUTABLE';
+  // Dev/staging need mutable tags for :latest overwrites; prod uses immutable
+  const tagMutability = config.enableTagMutability ?? (environment !== 'prod') ? 'MUTABLE' : 'IMMUTABLE';
 
   const repository = new aws.ecr.Repository(
     `${repoName}-repo`,
