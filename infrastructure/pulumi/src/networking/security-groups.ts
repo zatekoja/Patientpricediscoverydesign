@@ -36,6 +36,11 @@ export const DATABASE_PORTS = {
 
 export const OBSERVABILITY_PORTS = {
   clickhouse: 9000,
+  clickhouseHttp: 8123,
+  clickhouseInterserver: 9009,
+  zookeeperClient: 2181,
+  zookeeperFollower: 2888,
+  zookeeperElection: 3888,
   otlpGrpc: 4317,
   otlpHttp: 4318,
   signozQuery: 8080,
@@ -372,7 +377,21 @@ export function createClickHouseSecurityGroup(
         toPort: OBSERVABILITY_PORTS.clickhouse,
         protocol: 'tcp',
         securityGroups: sourceSecurityGroupIds,
-        description: 'Allow ClickHouse from observability services',
+        description: 'Allow ClickHouse native TCP from observability services',
+      },
+      {
+        fromPort: OBSERVABILITY_PORTS.clickhouseHttp,
+        toPort: OBSERVABILITY_PORTS.clickhouseHttp,
+        protocol: 'tcp',
+        securityGroups: sourceSecurityGroupIds,
+        description: 'Allow ClickHouse HTTP API from observability services',
+      },
+      {
+        fromPort: OBSERVABILITY_PORTS.clickhouseInterserver,
+        toPort: OBSERVABILITY_PORTS.clickhouseInterserver,
+        protocol: 'tcp',
+        securityGroups: sourceSecurityGroupIds,
+        description: 'Allow ClickHouse inter-server replication',
       },
     ],
     egress: ALLOW_ALL_EGRESS,
@@ -380,6 +399,52 @@ export function createClickHouseSecurityGroup(
       Name: name,
     }),
   });
+}
+
+/**
+ * Create Zookeeper Security Group
+ * Allows client (2181) from ClickHouse, follower (2888) and election (3888) inter-cluster
+ */
+export function createZookeeperSecurityGroup(
+  environment: string,
+  vpcId: pulumi.Input<string>,
+  clickhouseSecurityGroupId: pulumi.Input<string>
+): aws.ec2.SecurityGroup {
+  const name = getSecurityGroupName(environment, 'zookeeper');
+
+  const sg = new aws.ec2.SecurityGroup(name, {
+    vpcId,
+    description: 'Security group for Zookeeper (ClickHouse coordination)',
+    ingress: [
+      {
+        fromPort: OBSERVABILITY_PORTS.zookeeperClient,
+        toPort: OBSERVABILITY_PORTS.zookeeperClient,
+        protocol: 'tcp',
+        securityGroups: [clickhouseSecurityGroupId],
+        description: 'Allow Zookeeper client connections from ClickHouse',
+      },
+      {
+        fromPort: OBSERVABILITY_PORTS.zookeeperFollower,
+        toPort: OBSERVABILITY_PORTS.zookeeperFollower,
+        protocol: 'tcp',
+        self: true,
+        description: 'Allow Zookeeper follower replication (inter-cluster)',
+      },
+      {
+        fromPort: OBSERVABILITY_PORTS.zookeeperElection,
+        toPort: OBSERVABILITY_PORTS.zookeeperElection,
+        protocol: 'tcp',
+        self: true,
+        description: 'Allow Zookeeper leader election (inter-cluster)',
+      },
+    ],
+    egress: ALLOW_ALL_EGRESS,
+    tags: getResourceTags(environment, 'zookeeper', {
+      Name: name,
+    }),
+  });
+
+  return sg;
 }
 
 /**

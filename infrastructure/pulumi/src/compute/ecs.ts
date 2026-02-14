@@ -54,9 +54,9 @@ const SERVICE_RESOURCES: Record<string, Record<string, ServiceResources>> = {
     reindexer: { cpu: 512, memory: 1024 },
     blnkApi: { cpu: 512, memory: 1024 },
     blnkWorker: { cpu: 256, memory: 512 },
-    clickhouse: { cpu: 2048, memory: 4096 },
+    // ClickHouse runs on EC2, not ECS Fargate (see clickhouse.ts)
     otel: { cpu: 512, memory: 1024 },
-    signozQuery: { cpu: 1024, memory: 2048 },
+    signozQuery: { cpu: 512, memory: 1024 },
     signozFrontend: { cpu: 256, memory: 512 },
   },
   staging: {
@@ -67,7 +67,6 @@ const SERVICE_RESOURCES: Record<string, Record<string, ServiceResources>> = {
     reindexer: { cpu: 256, memory: 512 },
     blnkApi: { cpu: 256, memory: 512 },
     blnkWorker: { cpu: 256, memory: 512 },
-    clickhouse: { cpu: 1024, memory: 2048 },
     otel: { cpu: 256, memory: 512 },
     signozQuery: { cpu: 512, memory: 1024 },
     signozFrontend: { cpu: 256, memory: 512 },
@@ -80,7 +79,6 @@ const SERVICE_RESOURCES: Record<string, Record<string, ServiceResources>> = {
     reindexer: { cpu: 256, memory: 512 },
     blnkApi: { cpu: 256, memory: 512 },
     blnkWorker: { cpu: 256, memory: 512 },
-    clickhouse: { cpu: 512, memory: 1024 },
     otel: { cpu: 256, memory: 512 },
     signozQuery: { cpu: 256, memory: 512 },
     signozFrontend: { cpu: 256, memory: 512 },
@@ -96,7 +94,7 @@ const DESIRED_COUNTS: Record<string, Record<string, number>> = {
     reindexer: 1,
     blnkApi: 2,
     blnkWorker: 1,
-    clickhouse: 1,
+    // ClickHouse runs on EC2, not ECS Fargate
     otel: 2,
     signozQuery: 1,
     signozFrontend: 1,
@@ -109,7 +107,6 @@ const DESIRED_COUNTS: Record<string, Record<string, number>> = {
     reindexer: 1,
     blnkApi: 1,
     blnkWorker: 1,
-    clickhouse: 1,
     otel: 1,
     signozQuery: 1,
     signozFrontend: 1,
@@ -122,7 +119,6 @@ const DESIRED_COUNTS: Record<string, Record<string, number>> = {
     reindexer: 1,
     blnkApi: 1,
     blnkWorker: 1,
-    clickhouse: 1,
     otel: 1,
     signozQuery: 1,
     signozFrontend: 1,
@@ -667,4 +663,143 @@ export function createEcsInfrastructure(config: EcsConfig): EcsOutputs {
     },
     serviceDiscoveryNamespaceId: namespace.id,
   };
+}
+
+/**
+ * Create Zookeeper task definition for ClickHouse coordination
+ */
+export function createZookeeperTaskDefinition(
+  environment: string,
+  taskExecutionRoleArn: pulumi.Input<string>,
+  zookeeperIndex: number
+): aws.ecs.TaskDefinition {
+  const taskDef = new aws.ecs.TaskDefinition(
+    `ohi-${environment}-zookeeper-${zookeeperIndex}`,
+    {
+      family: `ohi-${environment}-zookeeper-${zookeeperIndex}`,
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      cpu: '256',
+      memory: '512',
+      executionRoleArn: taskExecutionRoleArn,
+      containerDefinitions: JSON.stringify([
+        {
+          name: 'zookeeper',
+          image: 'zookeeper:3.8.4',
+          essential: true,
+          environment: [
+            { name: 'ZOO_MY_ID', value: String(zookeeperIndex + 1) },
+            { name: 'ZOO_SERVERS', value: `server.1=zookeeper-1.ohi-${environment}.local:2888:3888 server.2=zookeeper-2.ohi-${environment}.local:2888:3888 server.3=zookeeper-3.ohi-${environment}.local:2888:3888` },
+            { name: 'ZOO_4LW_COMMANDS_WHITELIST', value: 'srvr,mntr,ruok' },
+            { name: 'ZOO_CFG_EXTRA', value: 'metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider metricsProvider.httpPort=7000' },
+          ],
+          portMappings: [
+            { containerPort: 2181, protocol: 'tcp' }, // Client port
+            { containerPort: 2888, protocol: 'tcp' }, // Follower port
+            { containerPort: 3888, protocol: 'tcp' }, // Election port
+            { containerPort: 7000, protocol: 'tcp' }, // Metrics port
+          ],
+          logConfiguration: {
+            logDriver: 'awslogs',
+            options: {
+              'awslogs-group': `/ecs/ohi-${environment}-zookeeper`,
+              'awslogs-region': 'eu-west-1',
+              'awslogs-stream-prefix': 'zookeeper',
+            },
+          },
+          healthCheck: {
+            command: ['CMD-SHELL', 'echo ruok | nc localhost 2181 | grep imok || exit 1'],
+            interval: 30,
+            timeout: 5,
+            retries: 3,
+            startPeriod: 60,
+          },
+        },
+      ]),
+      tags: {
+        ...getResourceTags(environment as any, 'zookeeper'),
+        Name: `ohi-${environment}-zookeeper-${zookeeperIndex}`,
+        Service: 'zookeeper',
+        Component: 'observability',
+      },
+    }
+  );
+
+  return taskDef;
+}
+
+/**
+ * Create Zookeeper ECS service for ClickHouse coordination
+ */
+export function createZookeeperService(
+  environment: string,
+  clusterId: pulumi.Input<string>,
+  taskDefinitionArn: pulumi.Input<string>,
+  privateSubnetIds: pulumi.Input<string>[],
+  securityGroupId: pulumi.Input<string>,
+  namespaceId: pulumi.Input<string>,
+  zookeeperIndex: number
+): aws.ecs.Service {
+  // Create CloudWatch log group
+  const logGroup = new aws.cloudwatch.LogGroup(
+    `ohi-${environment}-zookeeper-logs`,
+    {
+      name: `/ecs/ohi-${environment}-zookeeper`,
+      retentionInDays: environment === 'prod' ? 30 : 7,
+      tags: {
+        ...getResourceTags(environment as any, 'zookeeper'),
+        Component: 'observability',
+      },
+    }
+  );
+
+  // Create service discovery
+  const serviceDiscovery = new aws.servicediscovery.Service(
+    `ohi-${environment}-zookeeper-${zookeeperIndex}-discovery`,
+    {
+      name: `zookeeper-${zookeeperIndex}`,
+      dnsConfig: {
+        namespaceId,
+        dnsRecords: [{ ttl: 10, type: 'A' }],
+        routingPolicy: 'MULTIVALUE',
+      },
+      healthCheckCustomConfig: {
+        failureThreshold: 1,
+      },
+      tags: {
+        ...getResourceTags(environment as any, 'zookeeper'),
+        Service: 'zookeeper',
+        Component: 'observability',
+      },
+    }
+  );
+
+  const serviceArgs: any = {
+    name: `ohi-${environment}-zookeeper-${zookeeperIndex}`,
+    cluster: clusterId,
+    taskDefinition: taskDefinitionArn,
+    desiredCount: 1, // Each service runs 1 instance
+    launchType: 'FARGATE',
+    networkConfiguration: {
+      subnets: privateSubnetIds,
+      securityGroups: [securityGroupId],
+      assignPublicIp: false,
+    },
+    serviceRegistries: [{ registryArn: serviceDiscovery.arn }],
+    enableExecuteCommand: environment !== 'prod',
+    tags: {
+      ...getResourceTags(environment as any, 'zookeeper'),
+      Name: `ohi-${environment}-zookeeper-${zookeeperIndex}`,
+      Service: 'zookeeper',
+      Component: 'observability',
+    },
+  };
+
+  const service = new aws.ecs.Service(
+    `ohi-${environment}-zookeeper-${zookeeperIndex}`,
+    serviceArgs,
+    { dependsOn: [logGroup] }
+  );
+
+  return service;
 }

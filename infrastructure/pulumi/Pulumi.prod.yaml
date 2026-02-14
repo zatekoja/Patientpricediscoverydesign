@@ -10,4 +10,4 @@ config:
   ohi:ecsTaskCpu: "512"
   ohi:ecsTaskMemory: "1024"
   ohi:enableSpotInstances: false
-  ohi:domainName: ohealth-ng.com
+  ohi:domainName: ateru.ng
