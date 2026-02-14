@@ -1,6 +1,6 @@
-name: "CD - Deploy to GCP"
+name: "CD - Deploy to AWS"
 
-# This workflow handles deployments to Google Cloud Platform
+# This workflow handles deployments to AWS
 # It runs AFTER CI passes on main branch merges or manual trigger
 # Supports deployment to dev, staging, and prod environments
 
@@ -58,8 +58,8 @@ concurrency:
 env:
   GO_VERSION: '1.25.0'
   NODE_VERSION: '18'
-  GCP_PROJECT_ID: 'open-health-index-dev'
-  DOMAIN: 'ohealth-ng.com'
+  AWS_REGION: 'eu-west-1'
+  DOMAIN: 'ateru.ng'
 
 jobs:
   # ==========================================
@@ -183,41 +183,37 @@ jobs:
     needs: [plan-deployment, approval]
     if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && needs.plan-deployment.outputs.deploy-infrastructure == 'true'
 
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          terraform_version: "1.5.0"
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy Terraform infrastructure
-        working-directory: infrastructure
+      - name: Install Pulumi
+        uses: pulumi/actions@v4
+        with:
+          pulumi-version: '^3.0.0'
+
+      - name: Deploy Pulumi infrastructure
+        working-directory: infrastructure/pulumi
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           echo "🏗️ Deploying infrastructure to ${{ needs.plan-deployment.outputs.environment }}..."
-          
-          # Initialize Terraform
-          terraform init
-          
-          # Select workspace for environment
-          terraform workspace select ${{ needs.plan-deployment.outputs.environment }} || terraform workspace new ${{ needs.plan-deployment.outputs.environment }}
-          
-          # Plan and apply
-          terraform plan -var="environment=${{ needs.plan-deployment.outputs.environment }}" -var="domain=${{ env.DOMAIN }}"
-          terraform apply -auto-approve -var="environment=${{ needs.plan-deployment.outputs.environment }}" -var="domain=${{ env.DOMAIN }}"
-          
+          npm ci
+          # Select stack based on environment
+          pulumi stack select ${{ needs.plan-deployment.outputs.environment }}
+          pulumi up --yes --skip-preview
           echo "✅ Infrastructure deployment completed"
 
   # ==========================================
@@ -229,10 +225,6 @@ jobs:
     needs: [plan-deployment, approval, deploy-infrastructure]
     if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && (needs.deploy-infrastructure.result == 'success' || needs.deploy-infrastructure.result == 'skipped') && needs.plan-deployment.outputs.deploy-backend == 'true'
 
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -243,56 +235,73 @@ jobs:
           working-directory: backend
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker gcr.io
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push Docker images
         working-directory: backend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          ENVIRONMENT: ${{ needs.plan-deployment.outputs.environment }}
         run: |
           echo "🐳 Building and pushing backend services..."
-          ENV="${{ needs.plan-deployment.outputs.environment }}"
           
-          # Build main API service
-          if [ -f "Dockerfile" ]; then
-            IMAGE_TAG="gcr.io/${{ env.GCP_PROJECT_ID }}/patient-price-api:${{ github.sha }}"
-            docker build -t $IMAGE_TAG .
-            docker push $IMAGE_TAG
-            echo "✅ Main API service built and pushed: $IMAGE_TAG"
-          fi
+          # Helper function to build and push
+          build_and_push() {
+            local service=$1
+            local dockerfile=$2
+            local repo_name="ohi-${ENVIRONMENT}-${service}"
+            local image="$ECR_REGISTRY/$repo_name:$IMAGE_TAG"
+            
+            echo "Building $service from $dockerfile..."
+            docker build -f "$dockerfile" -t "$image" .
+            docker tag "$image" "$ECR_REGISTRY/$repo_name:latest"
+            docker push "$image"
+            docker push "$ECR_REGISTRY/$repo_name:latest"
+            echo "✅ Pushed $image"
+          }
           
-          # Build additional services
-          for dockerfile in Dockerfile.*; do
-            if [ -f "$dockerfile" ] && [ "$dockerfile" != "Dockerfile" ]; then
-              SERVICE_NAME=$(echo $dockerfile | cut -d. -f2)
-              IMAGE_TAG="gcr.io/${{ env.GCP_PROJECT_ID }}/patient-price-$SERVICE_NAME:${{ github.sha }}"
-              docker build -f "$dockerfile" -t $IMAGE_TAG .
-              docker push $IMAGE_TAG
-              echo "✅ $SERVICE_NAME service built and pushed: $IMAGE_TAG"
-            fi
-          done
+          # Build all backend services
+          [ -f "Dockerfile" ] && build_and_push "api" "Dockerfile"
+          [ -f "Dockerfile.provider" ] && build_and_push "provider-api" "Dockerfile.provider"
+          [ -f "Dockerfile.graphql-server" ] && build_and_push "graphql" "Dockerfile.graphql-server"
+          [ -f "Dockerfile.sse-server" ] && build_and_push "sse" "Dockerfile.sse-server"
+          [ -f "Dockerfile.indexer" ] && build_and_push "reindexer" "Dockerfile.indexer"
+          [ -f "blnk.Dockerfile" ] && build_and_push "blnk-api" "blnk.Dockerfile"
+          
+          echo "✅ All backend images built and pushed"
 
-      - name: Deploy to Cloud Run
+      - name: Run database migrations
         run: |
-          echo "☁️ Deploying to Cloud Run..."
-          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          echo "🗄️ Running database migrations..."
+          chmod +x ./scripts/run-migrations.sh
+          ./scripts/run-migrations.sh ${{ needs.plan-deployment.outputs.environment }} up
+          echo "✅ Database migrations completed"
+
+      - name: Deploy to ECS
+        env:
+          ENVIRONMENT: ${{ needs.plan-deployment.outputs.environment }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "☁️ Deploying backend services to ECS..."
+          chmod +x ./scripts/deploy-ecs.sh
           
-          # Deploy main API service
-          gcloud run deploy patient-price-api-$ENV \
-            --image gcr.io/${{ env.GCP_PROJECT_ID }}/patient-price-api:${{ github.sha }} \
-            --platform managed \
-            --region us-central1 \
-            --allow-unauthenticated \
-            --set-env-vars "ENVIRONMENT=$ENV" \
-            --project ${{ env.GCP_PROJECT_ID }}
+          # Deploy each service
+          for service in api graphql sse provider-api reindexer; do
+            echo "Deploying $service..."
+            ./scripts/deploy-ecs.sh $ENVIRONMENT $service $IMAGE_TAG
+          done
           
-          echo "✅ Backend services deployed to Cloud Run"
+          echo "✅ All backend services deployed"
 
   # ==========================================
   # Phase 5: Frontend Deployment
@@ -302,10 +311,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [plan-deployment, approval, deploy-infrastructure, deploy-backend]
     if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && (needs.deploy-infrastructure.result == 'success' || needs.deploy-infrastructure.result == 'skipped') && needs.plan-deployment.outputs.deploy-frontend == 'true'
-
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
       - name: Checkout code
@@ -318,6 +323,31 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache-dependency-path: package-lock.json
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch frontend secrets
+        id: fetch-secrets
+        run: |
+          echo "🔐 Fetching secrets from AWS Secrets Manager..."
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          SECRET_NAME="ohi-$ENV-geolocation-api-key"
+          
+          # Fetch secret value (suppress output)
+          GEO_KEY=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --query SecretString --output text || echo "")
+          
+          if [ -z "$GEO_KEY" ]; then
+            echo "⚠️ Warning: Could not fetch $SECRET_NAME. Map features may not work."
+          else
+            echo "::add-mask::$GEO_KEY"
+            echo "VITE_GEOLOCATION_API_KEY=$GEO_KEY" >> $GITHUB_ENV
+            echo "✅ Fetched geolocation API key"
+          fi
+
       - name: Build frontend for production
         working-directory: .
         run: |
@@ -329,35 +359,26 @@ jobs:
             API_URL="https://api.${{ env.DOMAIN }}"
             FRONTEND_URL="https://${{ env.DOMAIN }}"
           else
-            API_URL="https://$ENV.api.${{ env.DOMAIN }}"
+            API_URL="https://api.$ENV.${{ env.DOMAIN }}"
             FRONTEND_URL="https://$ENV.${{ env.DOMAIN }}"
           fi
           
           export VITE_API_URL=$API_URL
           export VITE_ENVIRONMENT=$ENV
+          # VITE_GEOLOCATION_API_KEY is already in env from previous step
           
           npm run build
           echo "✅ Frontend built successfully"
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
-        with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-
-      - name: Deploy to Cloud Storage and CDN
+      - name: Deploy to S3 and Invalidate CloudFront
         working-directory: .
+        env:
+          ENVIRONMENT: ${{ needs.plan-deployment.outputs.environment }}
         run: |
-          echo "☁️ Deploying frontend to Cloud Storage..."
-          ENV="${{ needs.plan-deployment.outputs.environment }}"
-          
-          # Upload to Cloud Storage bucket
-          BUCKET_NAME="patient-price-frontend-$ENV"
-          gsutil -m rsync -r -d dist/ gs://$BUCKET_NAME/
-          
-          # Invalidate CDN cache if needed
-          echo "✅ Frontend deployed to Cloud Storage"
+          echo "☁️ Deploying frontend to S3 and CloudFront..."
+          chmod +x ./scripts/deploy-frontend.sh
+          ./scripts/deploy-frontend.sh $ENVIRONMENT
+          echo "✅ Frontend deployment completed"
 
   # ==========================================
   # Phase 6: Deployment Summary
@@ -384,7 +405,7 @@ jobs:
             echo "🔗 **API URL:** https://api.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
           else
             echo "🌐 **Frontend URL:** https://$ENV.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
-            echo "🔗 **API URL:** https://$ENV.api.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **API URL:** https://api.$ENV.${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -421,4 +442,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**GCP Project:** ${{ env.GCP_PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "**AWS Region:** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
