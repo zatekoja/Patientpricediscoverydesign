@@ -8,4 +8,4 @@ config:
   aws:region: eu-west-1
   ohi:projectName: open-health-initiative
   ohi:environment:
-    description: Environment name (dev, staging, prod)
+    value: dev

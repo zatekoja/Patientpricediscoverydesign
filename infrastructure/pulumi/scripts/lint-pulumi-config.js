@@ -20,6 +20,18 @@
  *
  *  R3 – All keys in stack config files must be namespaced (contain ':').
  *
+ *  R4 – In Pulumi.yaml, non-project namespaced config keys declared as
+ *       blocks must include a nested 'value:' attribute.
+ *
+ *  R5 – Pulumi.yaml must include a top-level runtime declaration.
+ *
+ *  R6 – Stack config files must include a top-level config block.
+ *
+ *  R7 – Stack config files must define ohi:environment matching stack name.
+ *
+ *  R8 – Stack config files must include required keys:
+ *       aws:region, ohi:projectName, ohi:environment.
+ *
  * Usage:
  *   node scripts/lint-pulumi-config.js          # from infrastructure/pulumi/
  *   npm run lint:config                          # via package.json script
@@ -32,6 +44,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const PROJECT_FILE = path.join(ROOT, 'Pulumi.yaml');
+const REQUIRED_STACK_KEYS = ['aws:region', 'ohi:projectName', 'ohi:environment'];
 
 let exitCode = 0;
 let warnings = 0;
@@ -67,6 +80,10 @@ if (!nameMatch) {
 const projectName = nameMatch[1].trim();
 console.log(`Project: ${projectName}\n`);
 
+if (!/^runtime:\s*(\S.*)?$/m.test(projectContent)) {
+  error(PROJECT_FILE, '"runtime" field is missing');
+}
+
 // ── 2.  R1: Detect schema attrs on non-project-namespaced keys ───────────────
 //
 // Per the docs:
@@ -80,6 +97,33 @@ console.log(`Project: ${projectName}\n`);
 let inConfig = false;
 let currentKey = null;
 let currentKeyIndent = 0;
+let currentKeyIsProjectKey = false;
+let currentKeyHasValueAttr = false;
+let currentKeyHasInlineValue = false;
+let currentKeyStartLine = 0;
+
+function finalizeCurrentKey(file) {
+  if (!currentKey) return;
+
+  // For non-project namespaced keys, Pulumi requires either:
+  // - inline scalar form:   aws:region: eu-west-1
+  // - nested value form:    aws:region: { value: eu-west-1 } / value: ...
+  if (!currentKeyIsProjectKey && !currentKeyHasInlineValue && !currentKeyHasValueAttr) {
+    error(
+      file,
+      `Line ${currentKeyStartLine}: Config key '${currentKey}' is a block declaration ` +
+        `without 'value:'. Non-project namespaced keys must use a direct value or nested ` +
+        `'value:' declaration.`
+    );
+  }
+
+  currentKey = null;
+  currentKeyIndent = 0;
+  currentKeyIsProjectKey = false;
+  currentKeyHasValueAttr = false;
+  currentKeyHasInlineValue = false;
+  currentKeyStartLine = 0;
+}
 
 for (let i = 0; i < lines.length; i++) {
   const line = lines[i];
@@ -95,8 +139,8 @@ for (let i = 0; i < lines.length; i++) {
 
   // Exit config block when we hit a top-level key
   if (/^\S/.test(line) && !/^config:/.test(line)) {
+    finalizeCurrentKey(PROJECT_FILE);
     inConfig = false;
-    currentKey = null;
     continue;
   }
 
@@ -104,11 +148,19 @@ for (let i = 0; i < lines.length; i++) {
   // A key can have an inline value ("  aws:region: us-east-1") or be a block ("  aws:region:\n")
   const keyMatch = line.match(/^(\s+)([a-zA-Z0-9_-]+:[a-zA-Z0-9_.-]+):\s*(.*)$/);
   if (keyMatch) {
+    finalizeCurrentKey(PROJECT_FILE);
+
     currentKey = keyMatch[2];
     currentKeyIndent = keyMatch[1].length;
+    currentKeyStartLine = lineNum;
+    currentKeyIsProjectKey = currentKey.split(':')[0] === projectName;
+    currentKeyHasValueAttr = false;
+    currentKeyHasInlineValue = false;
+
     // If there's an inline value, no sub-attributes to check — move on
     if (keyMatch[3].trim() !== '') {
-      currentKey = null;
+      currentKeyHasInlineValue = true;
+      finalizeCurrentKey(PROJECT_FILE);
     }
     continue;
   }
@@ -119,20 +171,23 @@ for (let i = 0; i < lines.length; i++) {
 
     // If we've returned to the same or lower indent, this key block is over
     if (indent <= currentKeyIndent && line.trim() !== '') {
-      currentKey = null;
+      finalizeCurrentKey(PROJECT_FILE);
       // Re-process this line as a potential new key
       i--;
       continue;
+    }
+
+    const genericAttrMatch = line.match(/^\s+([a-zA-Z0-9_-]+):\s*/);
+    if (genericAttrMatch && genericAttrMatch[1] === 'value') {
+      currentKeyHasValueAttr = true;
     }
 
     // Check if this sub-attribute is a schema attribute
     const attrMatch = line.match(/^\s+(type|default|items|secret):\s*/);
     if (attrMatch) {
       const attr = attrMatch[1];
-      const namespace = currentKey.split(':')[0];
-      const isProjectKey = namespace === projectName;
 
-      if (!isProjectKey && SCHEMA_ATTRS.includes(attr)) {
+      if (!currentKeyIsProjectKey && SCHEMA_ATTRS.includes(attr)) {
         error(
           PROJECT_FILE,
           `Line ${lineNum}: Config key '${currentKey}' is not namespaced by the project ` +
@@ -145,6 +200,11 @@ for (let i = 0; i < lines.length; i++) {
   }
 }
 
+// Finalize trailing config key block if file ends inside config section.
+if (inConfig) {
+  finalizeCurrentKey(PROJECT_FILE);
+}
+
 // ── 3.  Validate stack config files (R2 + R3) ────────────────────────────────
 const stackFiles = fs.readdirSync(ROOT).filter(f => /^Pulumi\..+\.yaml$/.test(f));
 
@@ -152,6 +212,37 @@ for (const stackFile of stackFiles) {
   const stackPath = path.join(ROOT, stackFile);
   const stackContent = fs.readFileSync(stackPath, 'utf8');
   const stackLines = stackContent.split('\n');
+  const stackName = stackFile.replace(/^Pulumi\./, '').replace(/\.yaml$/, '');
+
+  // R6: Stack files must define a top-level config block.
+  if (!/^config:\s*$/m.test(stackContent)) {
+    error(stackPath, `Missing top-level 'config:' block`);
+  }
+
+  // R8: Require foundational stack config keys.
+  for (const key of REQUIRED_STACK_KEYS) {
+    const keyRegex = new RegExp(`^\\s{2}${key.replace(':', '\\:')}:\\s`, 'm');
+    if (!keyRegex.test(stackContent)) {
+      error(stackPath, `Missing required config key '${key}'`);
+    }
+  }
+
+  // R7: Ensure ohi:environment exists and matches stack name.
+  const envMatch = stackContent.match(/^\s{2}ohi:environment:\s*(.+)\s*$/m);
+  if (!envMatch) {
+    error(stackPath, `Missing required config key 'ohi:environment'`);
+  } else {
+    const rawValue = envMatch[1].trim();
+    const normalizedValue = rawValue.replace(/^["']|["']$/g, '');
+    if (normalizedValue === '') {
+      error(stackPath, `Config key 'ohi:environment' is empty`);
+    } else if (normalizedValue !== stackName) {
+      error(
+        stackPath,
+        `'ohi:environment' is '${normalizedValue}' but stack file is '${stackName}'`
+      );
+    }
+  }
 
   // R3: Check for keys without namespace
   const configKeyRegex = /^\s{2}([a-zA-Z0-9_.-]+):\s/gm;
@@ -168,7 +259,7 @@ for (const stackFile of stackFiles) {
     const sLine = stackLines[i];
     const schemaMatch = sLine.match(/^\s+(type|default|items):\s/);
     if (schemaMatch) {
-      warn(
+      error(
         stackPath,
         `Line ${i + 1}: Stack config files should not contain '${schemaMatch[1]}:' ` +
           `— schema declarations belong in Pulumi.yaml only`
