@@ -127,6 +127,11 @@ export function applyDefaultTags(
   service?: string
 ): pulumi.ResourceTransformation {
   return (args: pulumi.ResourceTransformationArgs): pulumi.ResourceTransformationResult => {
+    // Skip provider resources — they don't accept top-level tags
+    if (args.type.startsWith('pulumi:providers:')) {
+      return { props: args.props, opts: args.opts };
+    }
+
     const tags = {
       ...requiredTags,
       Environment: environment,
