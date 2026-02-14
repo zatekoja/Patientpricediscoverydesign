@@ -208,8 +208,13 @@ jobs:
           # Login to S3 backend (uses AWS creds already configured)
           pulumi login "$PULUMI_BACKEND_URL"
 
-          # Select or create the stack
-          pulumi stack select ${{ needs.plan-deployment.outputs.environment }} --create 2>/dev/null || true
+          # Initialize or select the stack
+          ENV="${{ needs.plan-deployment.outputs.environment }}"
+          if pulumi stack ls 2>/dev/null | grep -q "^${ENV} \|^${ENV}\*"; then
+            pulumi stack select "$ENV"
+          else
+            pulumi stack init "$ENV"
+          fi
 
           pulumi up --yes --skip-preview
           echo "✅ Infrastructure deployment completed"
