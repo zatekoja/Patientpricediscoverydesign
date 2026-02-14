@@ -687,6 +687,7 @@ export function createZookeeperTaskDefinition(
       cpu: '256',
       memory: '512',
       executionRoleArn: taskExecutionRoleArn,
+      taskRoleArn: taskExecutionRoleArn,
       containerDefinitions: JSON.stringify([
         {
           name: 'zookeeper',
