@@ -200,22 +200,24 @@ log_info "Security Group: $SECURITY_GROUP_ID"
 echo ""
 
 # Build migration command based on direction
+# DATABASE_URL is constructed at runtime from the task definition environment variables
+DB_URL_EXPR='postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}/${DATABASE_NAME}?sslmode=require'
 case "$DIRECTION" in
     up)
-        MIGRATION_CMD="./migrate -path /migrations -database \"\${DATABASE_URL}\" up"
+        MIGRATION_CMD="./migrate -path /migrations -database ${DB_URL_EXPR} up"
         ;;
     down)
-        MIGRATION_CMD="./migrate -path /migrations -database \"\${DATABASE_URL}\" down 1"
+        MIGRATION_CMD="./migrate -path /migrations -database ${DB_URL_EXPR} down 1"
         ;;
     status)
-        MIGRATION_CMD="./migrate -path /migrations -database \"\${DATABASE_URL}\" version"
+        MIGRATION_CMD="./migrate -path /migrations -database ${DB_URL_EXPR} version"
         ;;
     force)
         log_error "Force requires a version number. Use: $0 $ENVIRONMENT force <version>"
         exit 1
         ;;
     version)
-        MIGRATION_CMD="./migrate -path /migrations -database \"\${DATABASE_URL}\" version"
+        MIGRATION_CMD="./migrate -path /migrations -database ${DB_URL_EXPR} version"
         ;;
 esac
 

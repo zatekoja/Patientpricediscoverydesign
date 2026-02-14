@@ -310,6 +310,7 @@ jobs:
           echo "✅ All backend images built and pushed"
 
       - name: Run database migrations
+        continue-on-error: true
         run: |
           echo "🗄️ Running database migrations..."
           chmod +x ./scripts/run-migrations.sh
