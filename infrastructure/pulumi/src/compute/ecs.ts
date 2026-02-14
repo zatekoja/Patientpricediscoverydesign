@@ -188,35 +188,37 @@ export function createTaskExecutionRole(config: EcsConfig): aws.iam.Role {
   // Additional policy for ECR and Secrets Manager
   const policy = new aws.iam.Policy(`ohi-${config.environment}-ecs-task-execution-additional`, {
     name: `ohi-${config.environment}-ecs-task-execution-additional`,
-    policy: JSON.stringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Effect: 'Allow',
-          Action: [
-            'ecr:GetAuthorizationToken',
-            'ecr:BatchCheckLayerAvailability',
-            'ecr:GetDownloadUrlForLayer',
-            'ecr:BatchGetImage',
-          ],
-          Resource: '*',
-        },
-        {
-          Effect: 'Allow',
-          Action: ['secretsmanager:GetSecretValue'],
-          Resource: [
-            config.databasePasswordSecretArn,
-            config.redisAuthTokenSecretArn,
-            config.blnkRedisAuthTokenSecretArn,
-          ],
-        },
-        {
-          Effect: 'Allow',
-          Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-          Resource: '*',
-        },
-      ],
-    }),
+    policy: pulumi.all([
+      config.databasePasswordSecretArn,
+      config.redisAuthTokenSecretArn,
+      config.blnkRedisAuthTokenSecretArn,
+    ]).apply(([dbArn, redisArn, blnkRedisArn]) =>
+      JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: [
+              'ecr:GetAuthorizationToken',
+              'ecr:BatchCheckLayerAvailability',
+              'ecr:GetDownloadUrlForLayer',
+              'ecr:BatchGetImage',
+            ],
+            Resource: '*',
+          },
+          {
+            Effect: 'Allow',
+            Action: ['secretsmanager:GetSecretValue'],
+            Resource: [dbArn, redisArn, blnkRedisArn],
+          },
+          {
+            Effect: 'Allow',
+            Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+            Resource: '*',
+          },
+        ],
+      })
+    ),
     tags: { ...getResourceTags(config.environment, 'ecs-task-execution-policy') },
   });
 
