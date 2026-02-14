@@ -356,6 +356,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 7200
 
       - name: Fetch frontend secrets
         id: fetch-secrets
@@ -384,13 +385,17 @@ jobs:
           ENV="${{ needs.plan-deployment.outputs.environment }}"
           if [ "$ENV" = "prod" ]; then
             API_URL="https://api.${{ env.DOMAIN }}"
-            FRONTEND_URL="https://${{ env.DOMAIN }}"
+            GRAPHQL_URL="https://graphql.${{ env.DOMAIN }}"
+            SSE_URL="https://sse.${{ env.DOMAIN }}"
           else
             API_URL="https://api.$ENV.${{ env.DOMAIN }}"
-            FRONTEND_URL="https://$ENV.${{ env.DOMAIN }}"
+            GRAPHQL_URL="https://graphql.$ENV.${{ env.DOMAIN }}"
+            SSE_URL="https://sse.$ENV.${{ env.DOMAIN }}"
           fi
           
           export VITE_API_URL=$API_URL
+          export VITE_GRAPHQL_URL=$GRAPHQL_URL
+          export VITE_SSE_URL=$SSE_URL
           export VITE_ENVIRONMENT=$ENV
           # VITE_GEOLOCATION_API_KEY is already in env from previous step
           
@@ -401,6 +406,7 @@ jobs:
         working-directory: .
         env:
           ENVIRONMENT: ${{ needs.plan-deployment.outputs.environment }}
+          SKIP_BUILD: 'true'
         run: |
           echo "☁️ Deploying frontend to S3 and CloudFront..."
           chmod +x ./scripts/deploy-frontend.sh

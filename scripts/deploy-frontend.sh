@@ -91,7 +91,7 @@ case "$ENVIRONMENT" in
 esac
 
 # S3 and CloudFront configuration
-BUCKET_NAME="ohi-${ENVIRONMENT}-frontend-hosting"
+BUCKET_NAME="ohi-${ENVIRONMENT}-frontend"
 
 log_info "Starting frontend deployment..."
 log_info "Environment: $ENVIRONMENT"
@@ -129,13 +129,13 @@ if [ "${SKIP_BUILD:-false}" != "true" ]; then
     
     # Set environment-specific variables
     if [ "$ENVIRONMENT" = "prod" ]; then
-        export VITE_API_URL="https://api.ateru.ng"
-        export VITE_GRAPHQL_URL="https://graphql.ateru.ng"
-        export VITE_SSE_URL="https://sse.ateru.ng"
+        export VITE_API_URL="https://api.ohealth-ng.com"
+        export VITE_GRAPHQL_URL="https://graphql.ohealth-ng.com"
+        export VITE_SSE_URL="https://sse.ohealth-ng.com"
     else
-        export VITE_API_URL="https://api.${ENVIRONMENT}.ateru.ng"
-        export VITE_GRAPHQL_URL="https://graphql.${ENVIRONMENT}.ateru.ng"
-        export VITE_SSE_URL="https://sse.${ENVIRONMENT}.ateru.ng"
+        export VITE_API_URL="https://api.${ENVIRONMENT}.ohealth-ng.com"
+        export VITE_GRAPHQL_URL="https://graphql.${ENVIRONMENT}.ohealth-ng.com"
+        export VITE_SSE_URL="https://sse.${ENVIRONMENT}.ohealth-ng.com"
     fi
     export VITE_ENVIRONMENT="$ENVIRONMENT"
     
@@ -208,7 +208,7 @@ if [ -z "$DISTRIBUTION_ID" ]; then
     log_info "Looking up CloudFront distribution..."
     DISTRIBUTION_ID=$(aws cloudfront list-distributions \
         --region us-east-1 \
-        --query "DistributionList.Items[?Comment=='ohi-${ENVIRONMENT}-frontend'].Id" \
+        --query "DistributionList.Items[?Comment=='OHI ${ENVIRONMENT} frontend distribution'].Id" \
         --output text)
     
     if [ -z "$DISTRIBUTION_ID" ] || [ "$DISTRIBUTION_ID" = "None" ]; then
@@ -290,9 +290,9 @@ echo "Environment: $ENVIRONMENT"
 echo "S3 Bucket: s3://$BUCKET_NAME"
 echo "CloudFront Distribution: $DISTRIBUTION_ID"
 if [ "$ENVIRONMENT" = "prod" ]; then
-    echo "Frontend URL: https://ateru.ng"
+    echo "Frontend URL: https://ohealth-ng.com"
 else
-    echo "Frontend URL: https://${ENVIRONMENT}.ateru.ng"
+    echo "Frontend URL: https://${ENVIRONMENT}.ohealth-ng.com"
 fi
 echo "=============================="
 echo ""
