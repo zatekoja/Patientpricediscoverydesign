@@ -4,8 +4,8 @@ import { getResourceTags } from '../tagging';
 
 export interface AcmConfig {
   environment: string;
-  domain: string; // e.g., *.ateru.ng
-  subjectAlternativeNames?: string[]; // e.g., ['ateru.ng']
+  domain: string; // e.g., *.ohealth-ng.com
+  subjectAlternativeNames?: string[]; // e.g., ['ohealth-ng.com']
   region?: string; // eu-west-1 for ALB, us-east-1 for CloudFront
   validationMethod?: 'DNS' | 'EMAIL';
   hostedZoneId?: string; // For automatic DNS validation
@@ -254,11 +254,11 @@ export function getCertificateConfig(environment: string): {
 function getDomainForEnvironment(environment: string): string {
   switch (environment) {
     case 'prod':
-      return 'ateru.ng';
+      return 'ohealth-ng.com';
     case 'staging':
-      return 'staging.ateru.ng';
+      return 'staging.ohealth-ng.com';
     case 'dev':
-      return 'dev.ateru.ng';
+      return 'dev.ohealth-ng.com';
     default:
       throw new Error(`Unknown environment: ${environment}`);
   }

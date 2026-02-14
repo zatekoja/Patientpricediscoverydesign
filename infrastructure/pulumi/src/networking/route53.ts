@@ -4,7 +4,7 @@ import { getResourceTags } from '../tagging';
 
 export interface Route53Config {
   environment: string;
-  domain: string; // e.g., ateru.ng
+  domain: string; // e.g., ohealth-ng.com
   createHostedZone: boolean; // false for prod (use existing), true for staging/dev
   albDnsName?: pulumi.Output<string>;
   albZoneId?: pulumi.Output<string>;
@@ -38,7 +38,7 @@ export function getOrCreateHostedZone(config: Route53Config): aws.route53.Zone {
     });
   } else {
     // For prod, reference existing zone (assumed to be created manually)
-    // This would be the root ateru.ng zone
+    // This would be the root ohealth-ng.com zone
     throw new Error('Production hosted zone should be referenced, not created. Use aws.route53.Zone.get()');
   }
 }
@@ -172,11 +172,11 @@ export function createNsRecord(
 export function getDomainForEnvironment(environment: string): string {
   switch (environment) {
     case 'prod':
-      return 'ateru.ng';
+      return 'ohealth-ng.com';
     case 'staging':
-      return 'staging.ateru.ng';
+      return 'staging.ohealth-ng.com';
     case 'dev':
-      return 'dev.ateru.ng';
+      return 'dev.ohealth-ng.com';
     default:
       throw new Error(`Unknown environment: ${environment}`);
   }

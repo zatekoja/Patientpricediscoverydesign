@@ -22,7 +22,7 @@ Implemented Application Load Balancer (ALB) and CloudFront CDN infrastructure fo
 - Target groups for 4 public services (API, GraphQL, SSE, Provider API)
 - HTTP → HTTPS redirect (301 permanent)
 - HTTPS listener with TLS 1.3 policy
-- Host-based routing rules (api.ateru.ng, graphql.ateru.ng, etc.)
+- Host-based routing rules (api.ohealth-ng.com, graphql.ohealth-ng.com, etc.)
 - Health checks every 30 seconds with 5-second timeout
 - Session stickiness (24-hour cookie duration)
 - 30-second deregistration delay (300s for SSE long-lived connections)
@@ -69,7 +69,7 @@ Implemented Application Load Balancer (ALB) and CloudFront CDN infrastructure fo
   - **Dev/Staging**: 5-minute default, 1-hour max
 - Gzip/Brotli compression enabled
 - IPv6 support
-- Custom domain support (ateru.ng, staging.ateru.ng, dev.ateru.ng)
+- Custom domain support (ohealth-ng.com, staging.ohealth-ng.com, dev.ohealth-ng.com)
 - Versioning enabled for prod
 - CORS configuration for API calls
 - Lifecycle rules (30-day expiration for dev/staging)
@@ -104,10 +104,10 @@ Internet (HTTPS)
   ALB (Port 443)
     ↓
 Host-based Routing:
-  - api.ateru.ng       → API Target Group       → ECS Service (api)       → Port 8080
-  - graphql.ateru.ng   → GraphQL Target Group   → ECS Service (graphql)   → Port 8080
-  - sse.ateru.ng       → SSE Target Group       → ECS Service (sse)       → Port 8080
-  - provider.ateru.ng  → Provider API TG        → ECS Service (provider)  → Port 8080
+  - api.ohealth-ng.com       → API Target Group       → ECS Service (api)       → Port 8080
+  - graphql.ohealth-ng.com   → GraphQL Target Group   → ECS Service (graphql)   → Port 8080
+  - sse.ohealth-ng.com       → SSE Target Group       → ECS Service (sse)       → Port 8080
+  - provider.ohealth-ng.com  → Provider API TG        → ECS Service (provider)  → Port 8080
 ```
 
 ### CloudFront Request Flow
@@ -115,7 +115,7 @@ Host-based Routing:
 ```
 Internet (HTTPS)
     ↓
-  CloudFront (d123abc.cloudfront.net or ateru.ng)
+  CloudFront (d123abc.cloudfront.net or ohealth-ng.com)
     ↓
   Origin Access Identity (OAI)
     ↓
@@ -126,37 +126,37 @@ Internet (HTTPS)
 
 ## Domain Configuration
 
-### Production (ateru.ng)
-- **Frontend**: `ateru.ng` → CloudFront → S3
-- **API**: `api.ateru.ng` → ALB → ECS
-- **GraphQL**: `graphql.ateru.ng` → ALB → ECS
-- **SSE**: `sse.ateru.ng` → ALB → ECS
-- **Provider**: `provider.ateru.ng` → ALB → ECS
+### Production (ohealth-ng.com)
+- **Frontend**: `ohealth-ng.com` → CloudFront → S3
+- **API**: `api.ohealth-ng.com` → ALB → ECS
+- **GraphQL**: `graphql.ohealth-ng.com` → ALB → ECS
+- **SSE**: `sse.ohealth-ng.com` → ALB → ECS
+- **Provider**: `provider.ohealth-ng.com` → ALB → ECS
 
-### Staging (staging.ateru.ng)
-- **Frontend**: `staging.ateru.ng` → CloudFront → S3
-- **API**: `api.staging.ateru.ng` → ALB → ECS
-- **GraphQL**: `graphql.staging.ateru.ng` → ALB → ECS
-- **SSE**: `sse.staging.ateru.ng` → ALB → ECS
-- **Provider**: `provider.staging.ateru.ng` → ALB → ECS
+### Staging (staging.ohealth-ng.com)
+- **Frontend**: `staging.ohealth-ng.com` → CloudFront → S3
+- **API**: `api.staging.ohealth-ng.com` → ALB → ECS
+- **GraphQL**: `graphql.staging.ohealth-ng.com` → ALB → ECS
+- **SSE**: `sse.staging.ohealth-ng.com` → ALB → ECS
+- **Provider**: `provider.staging.ohealth-ng.com` → ALB → ECS
 
-### Development (dev.ateru.ng)
-- **Frontend**: `dev.ateru.ng` → CloudFront → S3
-- **API**: `api.dev.ateru.ng` → ALB → ECS
-- **GraphQL**: `graphql.dev.ateru.ng` → ALB → ECS
-- **SSE**: `sse.dev.ateru.ng` → ALB → ECS
-- **Provider**: `provider.dev.ateru.ng` → ALB → ECS
+### Development (dev.ohealth-ng.com)
+- **Frontend**: `dev.ohealth-ng.com` → CloudFront → S3
+- **API**: `api.dev.ohealth-ng.com` → ALB → ECS
+- **GraphQL**: `graphql.dev.ohealth-ng.com` → ALB → ECS
+- **SSE**: `sse.dev.ohealth-ng.com` → ALB → ECS
+- **Provider**: `provider.dev.ohealth-ng.com` → ALB → ECS
 
 ## SSL/TLS Configuration
 
 ### Requirements
 1. **ALB Certificate** (eu-west-1):
-   - `*.ateru.ng` wildcard certificate
+   - `*.ohealth-ng.com` wildcard certificate
    - Must be in same region as ALB (eu-west-1)
    - Used for HTTPS listener on ALB
 
 2. **CloudFront Certificate** (us-east-1):
-   - `*.ateru.ng` wildcard certificate
+   - `*.ohealth-ng.com` wildcard certificate
    - **Must be in us-east-1** (CloudFront requirement)
    - Used for custom domain on CloudFront
 
@@ -165,15 +165,15 @@ Internet (HTTPS)
 ```bash
 # ALB Certificate (eu-west-1)
 aws acm request-certificate \
-  --domain-name "*.ateru.ng" \
-  --subject-alternative-names "ateru.ng" \
+  --domain-name "*.ohealth-ng.com" \
+  --subject-alternative-names "ohealth-ng.com" \
   --validation-method DNS \
   --region eu-west-1
 
 # CloudFront Certificate (us-east-1)
 aws acm request-certificate \
-  --domain-name "*.ateru.ng" \
-  --subject-alternative-names "ateru.ng" \
+  --domain-name "*.ohealth-ng.com" \
+  --subject-alternative-names "ohealth-ng.com" \
   --validation-method DNS \
   --region us-east-1
 ```
@@ -181,7 +181,7 @@ aws acm request-certificate \
 ### DNS Validation
 Add CNAME records to Squarespace DNS (provided by ACM):
 ```
-_acmvalidation.ateru.ng CNAME _abc123.acm-validations.aws
+_acmvalidation.ohealth-ng.com CNAME _abc123.acm-validations.aws
 ```
 
 ## Health Checks

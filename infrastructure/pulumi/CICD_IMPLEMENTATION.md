@@ -240,7 +240,7 @@ FORCE_YES=true ./scripts/run-migrations.sh prod up
 - `skip-approval` - Skip manual approval (dev only)
 
 **Updated Sections**:
-- Domain changed from `ohealth-ng.com` → `ateru.ng`
+- Domain changed from `ohealth-ng.com` → `ohealth-ng.com`
 - ECR repository naming: `ohi-{env}-{service}`
 - Backend deployment uses `./scripts/deploy-ecs.sh`
 - Frontend deployment uses `./scripts/deploy-frontend.sh`
@@ -253,7 +253,7 @@ env:
   GO_VERSION: '1.25.0'
   NODE_VERSION: '18'
   AWS_REGION: 'eu-west-1'
-  DOMAIN: 'ateru.ng'
+  DOMAIN: 'ohealth-ng.com'
 ```
 
 **Deployment Matrix**:
@@ -262,9 +262,9 @@ env:
 services: [api, graphql, sse, provider-api, reindexer]
 
 # Frontend URLs
-prod: https://ateru.ng
-staging: https://staging.ateru.ng
-dev: https://dev.ateru.ng
+prod: https://ohealth-ng.com
+staging: https://staging.ohealth-ng.com
+dev: https://dev.ohealth-ng.com
 ```
 
 ## Infrastructure Integration

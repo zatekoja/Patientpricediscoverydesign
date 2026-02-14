@@ -10,4 +10,4 @@ config:
   ohi:ecsTaskCpu: "512"
   ohi:ecsTaskMemory: "1024"
   ohi:enableSpotInstances: true
-  ohi:domainName: staging.ateru.ng
+  ohi:domainName: staging.ohealth-ng.com

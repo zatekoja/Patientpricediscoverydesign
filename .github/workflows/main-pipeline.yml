@@ -203,11 +203,11 @@ jobs:
             TARGET_ENV="${{ inputs.target-environment || 'dev' }}"
             echo "### 🌐 Deployment URLs" >> $GITHUB_STEP_SUMMARY
             if [ "$TARGET_ENV" = "prod" ]; then
-              echo "- **Frontend:** https://ateru.ng" >> $GITHUB_STEP_SUMMARY
-              echo "- **API:** https://api.ateru.ng" >> $GITHUB_STEP_SUMMARY
+              echo "- **Frontend:** https://ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
+              echo "- **API:** https://api.ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
             else
-              echo "- **Frontend:** https://$TARGET_ENV.ateru.ng" >> $GITHUB_STEP_SUMMARY
-              echo "- **API:** https://api.$TARGET_ENV.ateru.ng" >> $GITHUB_STEP_SUMMARY
+              echo "- **Frontend:** https://$TARGET_ENV.ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
+              echo "- **API:** https://api.$TARGET_ENV.ohealth-ng.com" >> $GITHUB_STEP_SUMMARY
             fi
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
@@ -225,4 +225,4 @@ jobs:
           
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**AWS Region:** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Domain:** ateru.ng" >> $GITHUB_STEP_SUMMARY
+          echo "**Domain:** ohealth-ng.com" >> $GITHUB_STEP_SUMMARY

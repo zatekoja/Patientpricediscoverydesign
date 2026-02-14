@@ -109,13 +109,13 @@ Last Updated: February 13, 2026
 
 **Components**:
 1. **Route 53 Hosted Zones** (3 zones: prod, staging, dev)
-   - `ateru.ng` (prod)
-   - `staging.ateru.ng` (staging)
-   - `dev.ateru.ng` (dev)
+   - `ohealth-ng.com` (prod)
+   - `staging.ohealth-ng.com` (staging)
+   - `dev.ohealth-ng.com` (dev)
 
 2. **DNS Records**:
-   - A records (alias) for ALB: `api.ateru.ng`, `graphql.ateru.ng`, etc.
-   - CNAME records for CloudFront: `ateru.ng`, `staging.ateru.ng`, etc.
+   - A records (alias) for ALB: `api.ohealth-ng.com`, `graphql.ohealth-ng.com`, etc.
+   - CNAME records for CloudFront: `ohealth-ng.com`, `staging.ohealth-ng.com`, etc.
    - NS record delegation to Squarespace
 
 3. **Secrets Consolidation**:
@@ -124,7 +124,7 @@ Last Updated: February 13, 2026
    - IAM policies for ECS task access
 
 4. **ACM Certificates**:
-   - Request `*.ateru.ng` wildcard certificates
+   - Request `*.ohealth-ng.com` wildcard certificates
    - One in `eu-west-1` (for ALB)
    - One in `us-east-1` (for CloudFront)
    - DNS validation records

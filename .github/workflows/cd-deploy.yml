@@ -61,7 +61,7 @@ permissions:
 
 env:
   GO_VERSION: '1.25.0'
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   AWS_REGION: 'eu-west-1'
   DOMAIN: 'ohealth-ng.com'
 
@@ -172,15 +172,42 @@ jobs:
         with:
           pulumi-version: '^3.0.0'
 
+      - name: Ensure Pulumi state bucket exists
+        run: |
+          BUCKET="ohi-pulumi-state-${{ vars.AWS_ACCOUNT_ID }}"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Creating Pulumi state bucket: $BUCKET"
+            aws s3api create-bucket \
+              --bucket "$BUCKET" \
+              --region ${{ env.AWS_REGION }} \
+              --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }}
+            aws s3api put-bucket-versioning \
+              --bucket "$BUCKET" \
+              --versioning-configuration Status=Enabled
+            aws s3api put-bucket-encryption \
+              --bucket "$BUCKET" \
+              --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+            aws s3api put-public-access-block \
+              --bucket "$BUCKET" \
+              --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          else
+            echo "Pulumi state bucket already exists: $BUCKET"
+          fi
+
       - name: Deploy Pulumi infrastructure
         working-directory: infrastructure/pulumi
         env:
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          PULUMI_BACKEND_URL: s3://ohi-pulumi-state-${{ vars.AWS_ACCOUNT_ID }}
         run: |
           echo "🏗️ Deploying infrastructure to ${{ needs.plan-deployment.outputs.environment }}..."
           npm ci
-          # Select stack based on environment
-          pulumi stack select ${{ needs.plan-deployment.outputs.environment }}
+
+          # Login to S3 backend (uses AWS creds already configured)
+          pulumi login "$PULUMI_BACKEND_URL"
+
+          # Select or create the stack
+          pulumi stack select ${{ needs.plan-deployment.outputs.environment }} --create 2>/dev/null || true
+
           pulumi up --yes --skip-preview
           echo "✅ Infrastructure deployment completed"
 

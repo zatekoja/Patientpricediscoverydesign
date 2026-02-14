@@ -47,11 +47,11 @@ Implemented DNS management via Route 53, SSL/TLS certificates via ACM, and conso
   hostedZoneName: pulumi.Output<string>;
   nameServers: pulumi.Output<string[]>;
   recordNames: {
-    frontend: pulumi.Output<string>;    // ateru.ng
-    api: pulumi.Output<string>;         // api.ateru.ng
-    graphql: pulumi.Output<string>;     // graphql.ateru.ng
-    sse: pulumi.Output<string>;         // sse.ateru.ng
-    provider: pulumi.Output<string>;    // provider.ateru.ng
+    frontend: pulumi.Output<string>;    // ohealth-ng.com
+    api: pulumi.Output<string>;         // api.ohealth-ng.com
+    graphql: pulumi.Output<string>;     // graphql.ohealth-ng.com
+    sse: pulumi.Output<string>;         // sse.ohealth-ng.com
+    provider: pulumi.Output<string>;    // provider.ohealth-ng.com
   };
 }
 ```
@@ -61,7 +61,7 @@ Implemented DNS management via Route 53, SSL/TLS certificates via ACM, and conso
 **Purpose**: SSL/TLS certificate management
 
 **Key Features**:
-- Wildcard certificate requests (`*.ateru.ng`)
+- Wildcard certificate requests (`*.ohealth-ng.com`)
 - DNS validation (automated via Route 53)
 - Region-specific certificates:
   - `eu-west-1` for ALB
@@ -139,46 +139,46 @@ Implemented DNS management via Route 53, SSL/TLS certificates via ACM, and conso
 
 ### Domain Structure
 
-**Production (`ateru.ng`)**:
+**Production (`ohealth-ng.com`)**:
 ```
-ateru.ng                    → CloudFront → S3 (Frontend)
-api.ateru.ng                → ALB → ECS (API Service)
-graphql.ateru.ng            → ALB → ECS (GraphQL Service)
-sse.ateru.ng                → ALB → ECS (SSE Service)
-provider.ateru.ng           → ALB → ECS (Provider API)
-```
-
-**Staging (`staging.ateru.ng`)**:
-```
-staging.ateru.ng            → CloudFront → S3 (Frontend)
-api.staging.ateru.ng        → ALB → ECS (API Service)
-graphql.staging.ateru.ng    → ALB → ECS (GraphQL Service)
-sse.staging.ateru.ng        → ALB → ECS (SSE Service)
-provider.staging.ateru.ng   → ALB → ECS (Provider API)
+ohealth-ng.com                    → CloudFront → S3 (Frontend)
+api.ohealth-ng.com                → ALB → ECS (API Service)
+graphql.ohealth-ng.com            → ALB → ECS (GraphQL Service)
+sse.ohealth-ng.com                → ALB → ECS (SSE Service)
+provider.ohealth-ng.com           → ALB → ECS (Provider API)
 ```
 
-**Development (`dev.ateru.ng`)**:
+**Staging (`staging.ohealth-ng.com`)**:
 ```
-dev.ateru.ng                → CloudFront → S3 (Frontend)
-api.dev.ateru.ng            → ALB → ECS (API Service)
-graphql.dev.ateru.ng        → ALB → ECS (GraphQL Service)
-sse.dev.ateru.ng            → ALB → ECS (SSE Service)
-provider.dev.ateru.ng       → ALB → ECS (Provider API)
+staging.ohealth-ng.com            → CloudFront → S3 (Frontend)
+api.staging.ohealth-ng.com        → ALB → ECS (API Service)
+graphql.staging.ohealth-ng.com    → ALB → ECS (GraphQL Service)
+sse.staging.ohealth-ng.com        → ALB → ECS (SSE Service)
+provider.staging.ohealth-ng.com   → ALB → ECS (Provider API)
+```
+
+**Development (`dev.ohealth-ng.com`)**:
+```
+dev.ohealth-ng.com                → CloudFront → S3 (Frontend)
+api.dev.ohealth-ng.com            → ALB → ECS (API Service)
+graphql.dev.ohealth-ng.com        → ALB → ECS (GraphQL Service)
+sse.dev.ohealth-ng.com            → ALB → ECS (SSE Service)
+provider.dev.ohealth-ng.com       → ALB → ECS (Provider API)
 ```
 
 ### Route 53 Hosted Zones
 
-1. **Production Zone** (ateru.ng):
+1. **Production Zone** (ohealth-ng.com):
    - Managed manually or via Pulumi
    - Contains A records for all prod subdomains
    - NS records for staging/dev delegation
 
-2. **Staging Zone** (staging.ateru.ng):
+2. **Staging Zone** (staging.ohealth-ng.com):
    - Created by Pulumi
    - Delegated from prod via NS records
    - Contains all staging subdomains
 
-3. **Development Zone** (dev.ateru.ng):
+3. **Development Zone** (dev.ohealth-ng.com):
    - Created by Pulumi
    - Delegated from prod via NS records
    - Contains all dev subdomains
@@ -189,19 +189,19 @@ Add these NS records in Squarespace DNS:
 
 ```
 # Main domain (if not already delegated)
-ateru.ng               NS   ns-123.awsdns-12.com
+ohealth-ng.com               NS   ns-123.awsdns-12.com
                        NS   ns-456.awsdns-34.org
                        NS   ns-789.awsdns-56.net
                        NS   ns-012.awsdns-78.co.uk
 
 # Staging subdomain delegation
-staging.ateru.ng       NS   ns-xxx.awsdns-xx.com
+staging.ohealth-ng.com       NS   ns-xxx.awsdns-xx.com
                        NS   ns-yyy.awsdns-yy.org
                        NS   ns-zzz.awsdns-zz.net
                        NS   ns-www.awsdns-ww.co.uk
 
 # Dev subdomain delegation
-dev.ateru.ng           NS   ns-aaa.awsdns-aa.com
+dev.ohealth-ng.com           NS   ns-aaa.awsdns-aa.com
                        NS   ns-bbb.awsdns-bb.org
                        NS   ns-ccc.awsdns-cc.net
                        NS   ns-ddd.awsdns-dd.co.uk
@@ -212,14 +212,14 @@ dev.ateru.ng           NS   ns-aaa.awsdns-aa.com
 ### Certificate Requirements
 
 1. **ALB Certificate** (eu-west-1):
-   - Domain: `*.ateru.ng`
-   - Subject Alternative Names: `ateru.ng`
+   - Domain: `*.ohealth-ng.com`
+   - Subject Alternative Names: `ohealth-ng.com`
    - Region: `eu-west-1` (same as ALB)
    - Usage: ALB HTTPS listeners
 
 2. **CloudFront Certificate** (us-east-1):
-   - Domain: `*.ateru.ng`
-   - Subject Alternative Names: `ateru.ng`
+   - Domain: `*.ohealth-ng.com`
+   - Subject Alternative Names: `ohealth-ng.com`
    - Region: `us-east-1` (CloudFront requirement)
    - Usage: CloudFront custom domains
 
@@ -235,7 +235,7 @@ pulumi stack output cloudfrontCertValidationRecords
 
 # 3. Add CNAME records to Route 53 (automated) or Squarespace (manual)
 # Example:
-_abc123.ateru.ng CNAME _xyz789.acm-validations.aws.
+_abc123.ohealth-ng.com CNAME _xyz789.acm-validations.aws.
 
 # 4. Wait for validation (5-30 minutes)
 aws acm describe-certificate --certificate-arn arn:aws:acm:eu-west-1:123:certificate/abc --region eu-west-1
@@ -251,13 +251,13 @@ If Pulumi doesn't automatically create validation records:
 
 ```typescript
 // Get validation instructions
-const cert = requestWildcardCertificate('prod', 'ateru.ng', 'eu-west-1');
+const cert = requestWildcardCertificate('prod', 'ohealth-ng.com', 'eu-west-1');
 const instructions = getValidationInstructions(cert);
 
 // Output will show:
-// Domain 1: *.ateru.ng
+// Domain 1: *.ohealth-ng.com
 //   Record Type: CNAME
-//   Record Name: _abc123.ateru.ng
+//   Record Name: _abc123.ohealth-ng.com
 //   Record Value: _xyz789.acm-validations.aws.
 ```
 
@@ -342,7 +342,7 @@ Automatic rotation enabled for prod:
 Route 53 health checks monitor endpoints:
 
 ```typescript
-createHealthCheck(config, 'api.ateru.ng', '/health');
+createHealthCheck(config, 'api.ohealth-ng.com', '/health');
 ```
 
 **Configuration**:
@@ -392,7 +392,7 @@ import { createAlbInfrastructure } from './compute/alb';
 import { createCloudFrontInfrastructure } from './compute/cloudfront';
 
 // 1. Create ACM certificates
-const certs = createAcmInfrastructure('prod', 'ateru.ng');
+const certs = createAcmInfrastructure('prod', 'ohealth-ng.com');
 
 // 2. Create ALB with certificate
 const albConfig: AlbConfig = {
@@ -410,14 +410,14 @@ const cloudfrontConfig: CloudFrontConfig = {
   s3BucketDomainName: bucketOutputs.domainName,
   s3BucketArn: bucketOutputs.arn,
   certificateArn: certs.cloudfrontCertificateArn,
-  domainAliases: ['ateru.ng'],
+  domainAliases: ['ohealth-ng.com'],
 };
 const cloudfrontOutputs = createCloudFrontInfrastructure(cloudfrontConfig);
 
 // 4. Create Route 53 DNS records
 const route53Config: Route53Config = {
   environment: 'prod',
-  domain: 'ateru.ng',
+  domain: 'ohealth-ng.com',
   createHostedZone: false, // Use existing
   albDnsName: albOutputs.albDnsName,
   albZoneId: albOutputs.albZoneId,
@@ -449,28 +449,28 @@ export const masterSecretArn = secretsOutputs.masterSecretArn;
 
 ```bash
 # Test DNS resolution
-dig ateru.ng
-dig api.ateru.ng
-dig graphql.ateru.ng
+dig ohealth-ng.com
+dig api.ohealth-ng.com
+dig graphql.ohealth-ng.com
 
 # Test with specific nameserver
-dig @ns-123.awsdns-12.com ateru.ng
+dig @ns-123.awsdns-12.com ohealth-ng.com
 
 # Check TTL values
-dig ateru.ng +noall +answer +ttlid
+dig ohealth-ng.com +noall +answer +ttlid
 ```
 
 ### SSL/TLS Testing
 
 ```bash
 # Test certificate validity
-openssl s_client -connect api.ateru.ng:443 -servername api.ateru.ng
+openssl s_client -connect api.ohealth-ng.com:443 -servername api.ohealth-ng.com
 
 # Check certificate details
-curl -vvI https://api.ateru.ng
+curl -vvI https://api.ohealth-ng.com
 
 # Verify certificate chain
-ssl-cert-check -c api.ateru.ng
+ssl-cert-check -c api.ohealth-ng.com
 ```
 
 ### Secrets Testing
@@ -500,12 +500,12 @@ aws secretsmanager get-secret-value \
 
 **Problem**: Domain not resolving
 - **Check**: NS records in Squarespace match Route 53 nameservers
-- **Command**: `dig NS ateru.ng`
+- **Command**: `dig NS ohealth-ng.com`
 - **Fix**: Update Squarespace DNS with correct NS records
 
 **Problem**: Stale DNS cache
 - **Check**: TTL values
-- **Command**: `dig ateru.ng +ttlid`
+- **Command**: `dig ohealth-ng.com +ttlid`
 - **Fix**: Wait for TTL to expire or flush DNS cache
 
 ### Certificate Issues

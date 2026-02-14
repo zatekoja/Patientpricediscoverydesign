@@ -114,7 +114,7 @@ cd ..
   - A records (alias) for ALB and CloudFront
   - Subdomain delegation
 - **ACM**: SSL/TLS certificates
-  - Wildcard certificates (*.ateru.ng)
+  - Wildcard certificates (*.ohealth-ng.com)
   - Dual-region (ALB + CloudFront)
   - DNS validation
 
@@ -248,42 +248,42 @@ Minimal resources, Fargate Spot: **~$350/month**
 
 ### DNS Structure
 ```
-ateru.ng (prod)
-├── api.ateru.ng          → ALB → ECS (API)
-├── graphql.ateru.ng      → ALB → ECS (GraphQL)
-├── sse.ateru.ng          → ALB → ECS (SSE)
-├── provider.ateru.ng     → ALB → ECS (Provider API)
-└── www.ateru.ng          → CloudFront → S3
+ohealth-ng.com (prod)
+├── api.ohealth-ng.com          → ALB → ECS (API)
+├── graphql.ohealth-ng.com      → ALB → ECS (GraphQL)
+├── sse.ohealth-ng.com          → ALB → ECS (SSE)
+├── provider.ohealth-ng.com     → ALB → ECS (Provider API)
+└── www.ohealth-ng.com          → CloudFront → S3
 
-staging.ateru.ng
-├── api.staging.ateru.ng
-├── graphql.staging.ateru.ng
-├── sse.staging.ateru.ng
-├── provider.staging.ateru.ng
-└── www.staging.ateru.ng
+staging.ohealth-ng.com
+├── api.staging.ohealth-ng.com
+├── graphql.staging.ohealth-ng.com
+├── sse.staging.ohealth-ng.com
+├── provider.staging.ohealth-ng.com
+└── www.staging.ohealth-ng.com
 
-dev.ateru.ng
-├── api.dev.ateru.ng
-├── graphql.dev.ateru.ng
-├── sse.dev.ateru.ng
-├── provider.dev.ateru.ng
-└── www.dev.ateru.ng
+dev.ohealth-ng.com
+├── api.dev.ohealth-ng.com
+├── graphql.dev.ohealth-ng.com
+├── sse.dev.ohealth-ng.com
+├── provider.dev.ohealth-ng.com
+└── www.dev.ohealth-ng.com
 ```
 
 ### Required DNS Records (Squarespace)
 ```
 # Main domain delegation (if using Route 53)
-ateru.ng               NS   ns-123.awsdns-12.com
-ateru.ng               NS   ns-456.awsdns-34.org
-ateru.ng               NS   ns-789.awsdns-56.net
-ateru.ng               NS   ns-012.awsdns-78.co.uk
+ohealth-ng.com               NS   ns-123.awsdns-12.com
+ohealth-ng.com               NS   ns-456.awsdns-34.org
+ohealth-ng.com               NS   ns-789.awsdns-56.net
+ohealth-ng.com               NS   ns-012.awsdns-78.co.uk
 
 # Subdomain delegation
-staging.ateru.ng       NS   ns-xxx.awsdns-xx.com (Route 53)
-dev.ateru.ng           NS   ns-yyy.awsdns-yy.com (Route 53)
+staging.ohealth-ng.com       NS   ns-xxx.awsdns-xx.com (Route 53)
+dev.ohealth-ng.com           NS   ns-yyy.awsdns-yy.com (Route 53)
 
 # ACM Certificate Validation (auto-created by Pulumi)
-_abc123.ateru.ng       CNAME _xyz789.acm-validations.aws.
+_abc123.ohealth-ng.com       CNAME _xyz789.acm-validations.aws.
 ```
 
 ## Deployment Workflow
@@ -494,7 +494,7 @@ aws elbv2 describe-target-health \
   --target-group-arn arn:aws:elasticloadbalancing:...
 
 # Test health endpoint
-curl -v http://api.ateru.ng/health
+curl -v http://api.ohealth-ng.com/health
 ```
 
 #### "CloudFront 502 errors"

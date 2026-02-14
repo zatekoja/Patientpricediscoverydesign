@@ -182,10 +182,10 @@ export function createAlbInfrastructure(config: AlbConfig): AlbOutputs {
   // Determine domain names based on environment
   const baseDomain =
     config.environment === 'prod'
-      ? 'ateru.ng'
+      ? 'ohealth-ng.com'
       : config.environment === 'staging'
-        ? 'staging.ateru.ng'
-        : 'dev.ateru.ng';
+        ? 'staging.ohealth-ng.com'
+        : 'dev.ohealth-ng.com';
 
   const outputs: AlbOutputs = {
     albArn: alb.arn,
