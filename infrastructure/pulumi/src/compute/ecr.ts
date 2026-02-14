@@ -102,11 +102,12 @@ export function createLifecyclePolicy(
     rules: [
       {
         rulePriority: 1,
-        description: `Keep last ${maxImages} images`,
+        description: 'Remove untagged images after 1 day',
         selection: {
-          tagStatus: 'any',
-          countType: 'imageCountMoreThan',
-          countNumber: maxImages,
+          tagStatus: 'untagged',
+          countType: 'sinceImagePushed',
+          countUnit: 'days',
+          countNumber: 1,
         },
         action: {
           type: 'expire',
@@ -114,12 +115,11 @@ export function createLifecyclePolicy(
       },
       {
         rulePriority: 2,
-        description: 'Remove untagged images after 1 day',
+        description: `Keep last ${maxImages} images`,
         selection: {
-          tagStatus: 'untagged',
-          countType: 'sinceImagePushed',
-          countUnit: 'days',
-          countNumber: 1,
+          tagStatus: 'any',
+          countType: 'imageCountMoreThan',
+          countNumber: maxImages,
         },
         action: {
           type: 'expire',
