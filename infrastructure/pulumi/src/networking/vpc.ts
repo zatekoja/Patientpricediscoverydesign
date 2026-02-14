@@ -463,9 +463,50 @@ export function createInterfaceEndpoints(
       vpcEndpointType: 'Interface',
       subnetIds,
       privateDnsEnabled: true,
-      tags: getResourceTags(environment, 'vpc', {
+      tags: getResourceTags(environment, name, {
         Name: name,
       }),
     });
   });
 }
+
+/**
+ * Create Route Table Associations
+ */
+export function createRouteTableAssociations(
+  environment: string,
+  publicSubnets: aws.ec2.Subnet[],
+  privateSubnets: aws.ec2.Subnet[],
+  databaseSubnets: aws.ec2.Subnet[],
+  publicRouteTable: aws.ec2.RouteTable,
+  privateRouteTables: aws.ec2.RouteTable[],
+  databaseRouteTable: aws.ec2.RouteTable
+): void {
+  // Public Associations
+  publicSubnets.forEach((subnet, index) => {
+    const name = generateResourceName(environment, 'public', `rta-${index}`);
+    new aws.ec2.RouteTableAssociation(name, {
+      subnetId: subnet.id,
+      routeTableId: publicRouteTable.id,
+    });
+  });
+
+  // Private Associations
+  privateSubnets.forEach((subnet, index) => {
+    const name = generateResourceName(environment, 'private', `rta-${index}`);
+    new aws.ec2.RouteTableAssociation(name, {
+      subnetId: subnet.id,
+      routeTableId: privateRouteTables[index].id,
+    });
+  });
+
+  // Database Associations
+  databaseSubnets.forEach((subnet, index) => {
+    const name = generateResourceName(environment, 'database', `rta-${index}`);
+    new aws.ec2.RouteTableAssociation(name, {
+      subnetId: subnet.id,
+      routeTableId: databaseRouteTable.id,
+    });
+  });
+}
+

@@ -4,8 +4,8 @@ import { getResourceTags } from '../tagging';
 
 export interface CloudFrontConfig {
   environment: string;
-  s3BucketDomainName: pulumi.Output<string>;
-  s3BucketArn: pulumi.Output<string>;
+  s3BucketDomainName?: pulumi.Output<string>;
+  s3BucketArn?: pulumi.Output<string>;
   certificateArn?: pulumi.Output<string>; // ACM certificate in us-east-1
   domainAliases?: string[];
 }
@@ -15,6 +15,7 @@ export interface CloudFrontOutputs {
   distributionArn: pulumi.Output<string>;
   distributionDomainName: pulumi.Output<string>;
   distributionHostedZoneId: pulumi.Output<string>;
+  frontendBucketName: pulumi.Output<string>;
 }
 
 /**
@@ -34,7 +35,11 @@ export function createS3BucketPolicy(
   bucketId: pulumi.Output<string>,
   oai: aws.cloudfront.OriginAccessIdentity
 ): aws.s3.BucketPolicy {
-  const policy = pulumi.all([config.s3BucketArn, oai.iamArn]).apply(([bucketArn, iamArn]) =>
+  // We need to ensure we have the ARN, either from config or passed in (but logic below relies on fullConfig having it)
+  // For the policy, we need the ARN.
+  const bucketArn = config.s3BucketArn!;
+
+  const policy = pulumi.all([bucketArn, oai.iamArn]).apply(([bArn, iamArn]) =>
     JSON.stringify({
       Version: '2012-10-17',
       Statement: [
@@ -45,7 +50,7 @@ export function createS3BucketPolicy(
             AWS: iamArn,
           },
           Action: 's3:GetObject',
-          Resource: `${bucketArn}/*`,
+          Resource: `${bArn}/*`,
         },
       ],
     })
@@ -89,6 +94,7 @@ export function createCloudFrontDistribution(
   oai: aws.cloudfront.OriginAccessIdentity
 ): aws.cloudfront.Distribution {
   const cacheConfig = getCachePolicyConfig(config.environment);
+  const originDomainName = config.s3BucketDomainName!;
 
   const distributionConfig: aws.cloudfront.DistributionArgs = {
     enabled: true,
@@ -100,7 +106,7 @@ export function createCloudFrontDistribution(
     origins: [
       {
         originId: 's3-frontend',
-        domainName: config.s3BucketDomainName,
+        domainName: originDomainName,
         s3OriginConfig: {
           originAccessIdentity: oai.cloudfrontAccessIdentityPath,
         },
@@ -232,6 +238,7 @@ export function createCloudFrontInfrastructure(config: CloudFrontConfig): CloudF
     distributionArn: distribution.arn,
     distributionDomainName: distribution.domainName,
     distributionHostedZoneId: distribution.hostedZoneId,
+    frontendBucketName: bucket.bucket,
   };
 }
 

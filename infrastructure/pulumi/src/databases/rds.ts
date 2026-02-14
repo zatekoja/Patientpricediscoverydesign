@@ -131,7 +131,10 @@ export function getRdsSecretName(environment: string): string {
 /**
  * Create RDS master password secret
  */
-export function createRdsPasswordSecret(environment: string): aws.secretsmanager.Secret {
+export function createRdsPasswordSecret(environment: string): { 
+  secret: aws.secretsmanager.Secret, 
+  password: pulumi.Output<string> 
+} {
   const name = getRdsSecretName(environment);
 
   const secret = new aws.secretsmanager.Secret(name, {
@@ -155,7 +158,7 @@ export function createRdsPasswordSecret(environment: string): aws.secretsmanager
     secretString: password.result,
   });
 
-  return secret;
+  return { secret, password: password.result };
 }
 
 /**
@@ -232,18 +235,11 @@ export function createRdsPrimaryInstance(
   environment: string,
   dbSubnetGroupName: pulumi.Input<string>,
   securityGroupId: pulumi.Input<string>,
-  parameterGroupName: pulumi.Input<string>
+  parameterGroupName: pulumi.Input<string>,
+  password: pulumi.Output<string>
 ): aws.rds.Instance {
   const identifier = getRdsIdentifier(environment, 'primary');
-  const secret = createRdsPasswordSecret(environment);
   const monitoringRole = createMonitoringRole(environment);
-
-  // Generate password using random provider
-  const password = new random.RandomPassword(`${identifier}-password`, {
-    length: 32,
-    special: true,
-    overrideSpecial: '!#$%&*()-_=+[]{}<>:?',
-  });
 
   return new aws.rds.Instance(identifier, {
     identifier,
@@ -257,7 +253,7 @@ export function createRdsPrimaryInstance(
     // Database configuration
     dbName: 'ohealth',
     username: 'ohiadmin',
-    password: password.result,
+    password: password,
     
     // High availability
     multiAz: shouldEnableMultiAz(environment),

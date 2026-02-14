@@ -61,42 +61,7 @@ jobs:
         id: changes
         run: |
           echo "Detecting changes..."
-          
-          # Check for backend Go changes
-          if git diff --name-only HEAD~1 HEAD | grep -q '^backend/.*\.go\|^backend/go\.mod\|^backend/go\.sum\|^backend/cmd/\|^backend/internal/\|^backend/pkg/'; then
-            echo "backend=true" >> $GITHUB_OUTPUT
-            echo "✅ Backend Go changes detected"
-          else
-            echo "backend=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No backend Go changes"
-          fi
-          
-          # Check for TypeScript provider changes
-          if git diff --name-only HEAD~1 HEAD | grep -q '^backend/.*\.ts\|^backend/package\.json\|^backend/tsconfig\.json\|^backend/api/\|^backend/providers/\|^backend/types/\|^backend/interfaces/'; then
-            echo "typescript-provider=true" >> $GITHUB_OUTPUT
-            echo "✅ TypeScript provider changes detected"
-          else
-            echo "typescript-provider=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No TypeScript provider changes"
-          fi
-          
-          # Check for frontend changes
-          if git diff --name-only HEAD~1 HEAD | grep -q '^Frontend/\|^package\.json\|^package-lock\.json\|^tsconfig\.json\|^tsconfig\.node\.json\|^vite\.config\|^\.eslintrc\|^\.prettierrc'; then
-            echo "frontend=true" >> $GITHUB_OUTPUT
-            echo "✅ Frontend changes detected"
-          else
-            echo "frontend=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No frontend changes"
-          fi
-          
-          # Check for infrastructure changes
-          if git diff --name-only HEAD~1 HEAD | grep -q '^infrastructure/\|^terraform/'; then
-            echo "infrastructure=true" >> $GITHUB_OUTPUT
-            echo "✅ Infrastructure changes detected"
-          else
-            echo "infrastructure=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No infrastructure changes"
-          fi
+          bash ./scripts/detect-main-pipeline-changes.sh
 
       - name: Decide on deployment
         id: deploy-decision
@@ -149,12 +114,24 @@ jobs:
     secrets: inherit
 
   # ==========================================
+  # Infrastructure CI (Pulumi)
+  # ==========================================
+  infra-ci:
+    name: Infrastructure CI
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.infrastructure-changed == 'true'
+    uses: ./.github/workflows/infra-ci.yml
+    with:
+      enable-summary: false
+    secrets: inherit
+
+  # ==========================================
   # Deployment (only on main branch or forced)
   # ==========================================
   deploy:
     name: Deploy to AWS
-    needs: [detect-changes, backend-ci, typescript-provider-ci, frontend-ci]
-    if: always() && needs.detect-changes.outputs.should-deploy == 'true' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.typescript-provider-ci.result == 'success' || needs.typescript-provider-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped')
+    needs: [detect-changes, backend-ci, typescript-provider-ci, frontend-ci, infra-ci]
+    if: always() && needs.detect-changes.outputs.should-deploy == 'true' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.typescript-provider-ci.result == 'success' || needs.typescript-provider-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.infra-ci.result == 'success' || needs.infra-ci.result == 'skipped')
     uses: ./.github/workflows/cd-deploy.yml
     with:
       environment: ${{ inputs.target-environment || 'dev' }}
@@ -168,7 +145,7 @@ jobs:
   pipeline-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [detect-changes, backend-ci, typescript-provider-ci, frontend-ci, deploy]
+    needs: [detect-changes, backend-ci, typescript-provider-ci, frontend-ci, infra-ci, deploy]
     if: always()
 
     steps:
@@ -202,6 +179,7 @@ jobs:
           BACKEND_CI="${{ needs.backend-ci.result }}"
           TS_PROVIDER_CI="${{ needs.typescript-provider-ci.result }}"
           FRONTEND_CI="${{ needs.frontend-ci.result }}"
+          INFRA_CI="${{ needs.infra-ci.result }}"
           DEPLOY_RESULT="${{ needs.deploy.result }}"
           
           display_status() {
@@ -216,6 +194,7 @@ jobs:
           display_status "$BACKEND_CI" "Backend CI (Go)" >> $GITHUB_STEP_SUMMARY
           display_status "$TS_PROVIDER_CI" "TypeScript Provider CI" >> $GITHUB_STEP_SUMMARY
           display_status "$FRONTEND_CI" "Frontend CI (React)" >> $GITHUB_STEP_SUMMARY
+          display_status "$INFRA_CI" "Infrastructure CI (Pulumi)" >> $GITHUB_STEP_SUMMARY
           display_status "$DEPLOY_RESULT" "Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -234,7 +213,7 @@ jobs:
           fi
           
           # Overall status
-          if [[ "$BACKEND_CI" == "failure" ]] || [[ "$TS_PROVIDER_CI" == "failure" ]] || [[ "$FRONTEND_CI" == "failure" ]] || [[ "$DEPLOY_RESULT" == "failure" ]]; then
+          if [[ "$BACKEND_CI" == "failure" ]] || [[ "$TS_PROVIDER_CI" == "failure" ]] || [[ "$FRONTEND_CI" == "failure" ]] || [[ "$INFRA_CI" == "failure" ]] || [[ "$DEPLOY_RESULT" == "failure" ]]; then
             echo "### ❌ PIPELINE: FAILED" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.detect-changes.outputs.should-deploy }}" = "true" ] && [ "$DEPLOY_RESULT" = "success" ]; then
             echo "### ✅ PIPELINE: SUCCESS (DEPLOYED)" >> $GITHUB_STEP_SUMMARY

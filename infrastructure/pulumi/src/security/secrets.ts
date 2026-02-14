@@ -6,8 +6,11 @@ import { getResourceTags } from '../tagging';
 export interface SecretsConfig {
   environment: string;
   databasePassword?: pulumi.Output<string>;
+  databasePasswordSecretArn?: pulumi.Output<string>;
   redisAuthToken?: pulumi.Output<string>;
+  redisAuthTokenSecretArn?: pulumi.Output<string>;
   blnkRedisAuthToken?: pulumi.Output<string>;
+  blnkRedisAuthTokenSecretArn?: pulumi.Output<string>;
   jwtSecret?: pulumi.Output<string>;
   apiKeys?: Record<string, string>;
 }
@@ -15,9 +18,9 @@ export interface SecretsConfig {
 export interface SecretsOutputs {
   masterSecretArn: pulumi.Output<string>;
   masterSecretName: pulumi.Output<string>;
-  databasePasswordArn: pulumi.Output<string>;
-  redisAuthTokenArn: pulumi.Output<string>;
-  blnkRedisAuthTokenArn: pulumi.Output<string>;
+  databasePasswordArn?: pulumi.Output<string>;
+  redisAuthTokenArn?: pulumi.Output<string>;
+  blnkRedisAuthTokenArn?: pulumi.Output<string>;
   jwtSecretArn?: pulumi.Output<string>;
 }
 
@@ -71,28 +74,6 @@ export function createMasterSecretVersion(
     secretId: secret.id,
     secretString: secretData,
   });
-}
-
-/**
- * Create individual secret for database password
- */
-export function createDatabasePasswordSecret(
-  environment: string,
-  password: pulumi.Output<string>
-): aws.secretsmanager.Secret {
-  const secret = new aws.secretsmanager.Secret(`ohi-${environment}-db-password`, {
-    name: `ohi-${environment}-db-password`,
-    description: `Database password for OHI ${environment}`,
-    recoveryWindowInDays: environment === 'prod' ? 30 : 7,
-    tags: { ...getResourceTags(environment, 'db-password-secret') },
-  });
-
-  new aws.secretsmanager.SecretVersion(`ohi-${environment}-db-password-version`, {
-    secretId: secret.id,
-    secretString: password,
-  });
-
-  return secret;
 }
 
 /**
@@ -154,78 +135,9 @@ export function createJwtSecret(
 }
 
 /**
- * Create IAM policy for ECS task to access secrets
- */
-export function createSecretsAccessPolicy(
-  environment: string,
-  secretArns: pulumi.Output<string>[]
-): aws.iam.Policy {
-  const policyDocument = pulumi.all(secretArns).apply((arns) =>
-    JSON.stringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Effect: 'Allow',
-          Action: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-          Resource: arns,
-        },
-        {
-          Effect: 'Allow',
-          Action: ['kms:Decrypt'],
-          Resource: '*', // KMS key for Secrets Manager encryption
-          Condition: {
-            StringEquals: {
-              'kms:ViaService': `secretsmanager.eu-west-1.amazonaws.com`,
-            },
-          },
-        },
-      ],
-    })
-  );
-
-  return new aws.iam.Policy(`ohi-${environment}-secrets-access`, {
-    name: `ohi-${environment}-secrets-access`,
-    description: `Policy for ECS tasks to access secrets in ${environment}`,
-    policy: policyDocument,
-    tags: { ...getResourceTags(environment, 'secrets-access-policy') },
-  });
-}
-
-/**
- * Attach secrets policy to ECS task execution role
- */
-export function attachSecretsPolicyToRole(
-  environment: string,
-  roleName: pulumi.Output<string>,
-  policy: aws.iam.Policy
-): aws.iam.RolePolicyAttachment {
-  return new aws.iam.RolePolicyAttachment(`ohi-${environment}-secrets-policy-attachment`, {
-    role: roleName,
-    policyArn: policy.arn,
-  });
-}
-
-/**
  * Create complete secrets infrastructure
  */
 export function createSecretsInfrastructure(config: SecretsConfig): SecretsOutputs {
-  // Create individual secrets
-  const dbPasswordSecret = createDatabasePasswordSecret(
-    config.environment,
-    config.databasePassword || pulumi.output('')
-  );
-
-  const redisTokenSecret = createRedisAuthTokenSecret(
-    config.environment,
-    config.redisAuthToken || pulumi.output('')
-  );
-
-  const blnkRedisTokenSecret = createRedisAuthTokenSecret(
-    config.environment,
-    config.blnkRedisAuthToken || pulumi.output(''),
-    true
-  );
-
   // Create JWT secret if not provided
   let jwtSecretArn: pulumi.Output<string> | undefined;
   if (config.jwtSecret) {
@@ -240,9 +152,9 @@ export function createSecretsInfrastructure(config: SecretsConfig): SecretsOutpu
   return {
     masterSecretArn: masterSecret.arn,
     masterSecretName: masterSecret.name,
-    databasePasswordArn: dbPasswordSecret.arn,
-    redisAuthTokenArn: redisTokenSecret.arn,
-    blnkRedisAuthTokenArn: blnkRedisTokenSecret.arn,
+    databasePasswordArn: config.databasePasswordSecretArn,
+    redisAuthTokenArn: config.redisAuthTokenSecretArn,
+    blnkRedisAuthTokenArn: config.blnkRedisAuthTokenSecretArn,
     jwtSecretArn,
   };
 }

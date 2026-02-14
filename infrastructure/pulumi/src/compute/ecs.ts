@@ -328,7 +328,8 @@ export function createTaskDefinition(
   containerPort?: number
 ): aws.ecs.TaskDefinition {
   const resources = SERVICE_RESOURCES[config.environment][serviceName];
-  const imageUri = `${aws.getCallerIdentity().then((id) => id.accountId)}.dkr.ecr.eu-west-1.amazonaws.com/ohi-${serviceName}:${config.environment}`;
+  const accountId = aws.getCallerIdentityOutput().accountId;
+  const imageUri = pulumi.interpolate`${accountId}.dkr.ecr.eu-west-1.amazonaws.com/ohi-${serviceName}:${config.environment}`;
 
   const portMappings: { containerPort: number; protocol: string }[] = containerPort
     ? [
@@ -347,7 +348,7 @@ export function createTaskDefinition(
     requiresCompatibilities: ['FARGATE'],
     executionRoleArn: executionRole.arn,
     taskRoleArn: executionRole.arn,
-    containerDefinitions: JSON.stringify([
+    containerDefinitions: pulumi.jsonStringify([
       {
         name: serviceName,
         image: imageUri,
@@ -525,6 +526,7 @@ export interface EcsOutputs {
   serviceArns: Record<string, pulumi.Output<string>>;
   taskDefinitionArns: Record<string, pulumi.Output<string>>;
   serviceDiscoveryNamespaceId: pulumi.Output<string>;
+  taskExecutionRoleArn: pulumi.Output<string>;
 }
 
 export function createEcsInfrastructure(config: EcsConfig): EcsOutputs {
@@ -662,6 +664,7 @@ export function createEcsInfrastructure(config: EcsConfig): EcsOutputs {
       blnkWorker: taskDefinitions['blnk-worker'].arn,
     },
     serviceDiscoveryNamespaceId: namespace.id,
+    taskExecutionRoleArn: executionRole.arn,
   };
 }
 

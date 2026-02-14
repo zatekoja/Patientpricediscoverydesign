@@ -35,6 +35,7 @@ import {
   createPublicRouteTable,
   createPrivateRouteTables,
   createDatabaseRouteTable,
+  createRouteTableAssociations,
   createVpcFlowLogs,
   createS3Endpoint,
   createInterfaceEndpoints,
@@ -72,6 +73,7 @@ import {
   createRdsParameterGroup,
   createRdsPrimaryInstance,
   createRdsReadReplicas,
+  createRdsPasswordSecret,
 } from './databases/rds';
 
 import {
@@ -79,6 +81,7 @@ import {
   createElastiCacheParameterGroup,
   createApplicationCacheCluster,
   createBlnkCacheCluster,
+  createElastiCacheAuthTokenSecret,
 } from './databases/elasticache';
 
 // ─── Compute ─────────────────────────────────────────────────────────────────
@@ -123,6 +126,16 @@ const privateRouteTables = createPrivateRouteTables(
   natGateways.map(ng => ng.id)
 );
 const databaseRouteTable = createDatabaseRouteTable(config.environment, vpc.id);
+
+createRouteTableAssociations(
+  config.environment,
+  publicSubnets,
+  privateSubnets,
+  databaseSubnets,
+  publicRouteTable,
+  privateRouteTables,
+  databaseRouteTable
+);
 
 createVpcFlowLogs(config.environment, vpc.id);
 
@@ -180,10 +193,24 @@ const signozQuerySg = createSigNozQuerySecurityGroup(config.environment, vpc.id,
 const certs = createAcmInfrastructure(config.environment, config.domainName);
 
 // =============================================================================
-// 4. Secrets Manager
+// 4. Credentials & Secrets Generation
 // =============================================================================
+// Create RDS password secret
+const rdsSecretData = createRdsPasswordSecret(config.environment);
+
+// Create Redis auth tokens
+const redisAuthData = createElastiCacheAuthTokenSecret(config.environment);
+const blnkRedisAuthData = createElastiCacheAuthTokenSecret(config.environment, 'blnk');
+
+// Create consolidated Secrets Infrastructure (Master Secret)
 const secrets = createSecretsInfrastructure({
   environment: config.environment,
+  databasePassword: rdsSecretData.password,
+  databasePasswordSecretArn: rdsSecretData.secret.arn,
+  redisAuthToken: redisAuthData.token,
+  redisAuthTokenSecretArn: redisAuthData.secret.arn,
+  blnkRedisAuthToken: blnkRedisAuthData.token,
+  blnkRedisAuthTokenSecretArn: blnkRedisAuthData.secret.arn,
 });
 
 // =============================================================================
@@ -195,7 +222,8 @@ const rdsPrimary = createRdsPrimaryInstance(
   config.environment,
   dbSubnetGroup.name,
   rdsSg.id,
-  rdsParamGroup.name
+  rdsParamGroup.name,
+  rdsSecretData.password
 );
 const rdsReplicas = createRdsReadReplicas(
   config.environment,
@@ -212,13 +240,15 @@ const appCache = createApplicationCacheCluster(
   config.environment,
   cacheSubnetGroup.name,
   elastiCacheSg.id,
-  cacheParamGroup.name
+  cacheParamGroup.name,
+  redisAuthData.token
 );
 const blnkCache = createBlnkCacheCluster(
   config.environment,
   cacheSubnetGroup.name,
   elastiCacheSg.id,
-  cacheParamGroup.name
+  cacheParamGroup.name,
+  blnkRedisAuthData.token
 );
 
 // =============================================================================
@@ -260,34 +290,18 @@ const ecs = createEcsInfrastructure({
   },
   albTargetGroupArns: alb.targetGroupArns,
   databaseEndpoint: rdsPrimary.endpoint,
-  databasePasswordSecretArn: secrets.databasePasswordArn,
+  databasePasswordSecretArn: rdsSecretData.secret.arn, // Direct ARN reference
   redisEndpoint: appCache.primaryEndpointAddress,
-  redisAuthTokenSecretArn: secrets.redisAuthTokenArn,
+  redisAuthTokenSecretArn: redisAuthData.secret.arn, // Direct ARN reference
   blnkRedisEndpoint: blnkCache.primaryEndpointAddress,
-  blnkRedisAuthTokenSecretArn: secrets.blnkRedisAuthTokenArn,
+  blnkRedisAuthTokenSecretArn: blnkRedisAuthData.secret.arn, // Direct ARN reference
 });
 
 // =============================================================================
 // 10. CloudFront + S3 (frontend SPA)
 // =============================================================================
-// Create S3 bucket for frontend
-const frontendBucket = new aws.s3.Bucket(`ohi-${config.environment}-frontend`, {
-  acl: 'private',
-  forceDestroy: config.environment !== 'prod',
-  website: {
-    indexDocument: 'index.html',
-    errorDocument: 'index.html', // SPA fallback
-  },
-  tags: {
-    Name: `ohi-${config.environment}-frontend`,
-    Service: 'frontend',
-  },
-});
-
 const cloudfront = createCloudFrontInfrastructure({
   environment: config.environment,
-  s3BucketDomainName: frontendBucket.bucketRegionalDomainName,
-  s3BucketArn: frontendBucket.arn,
   certificateArn: certs.cloudfrontCertificateArn,
   domainAliases: config.environment === 'prod'
     ? [config.domainName, `www.${config.domainName}`]
@@ -317,7 +331,8 @@ const observability = createObservabilityInfrastructure({
   vpcId: vpc.id,
   privateSubnetIds,
   ecsClusterId: ecs.clusterId,
-  taskExecutionRoleArn: pulumi.output(''), // Created inside ECS module
+  serviceDiscoveryNamespaceId: ecs.serviceDiscoveryNamespaceId,
+  taskExecutionRoleArn: ecs.taskExecutionRoleArn,
   clickhouseSecurityGroupId: clickhouseSg.id,
   zookeeperSecurityGroupId: zookeeperSg.id,
 });
@@ -365,7 +380,7 @@ export const cloudfrontDistributionId = cloudfront.distributionId;
 export const cloudfrontDomainName = cloudfront.distributionDomainName;
 
 // Frontend S3 Bucket
-export const frontendBucketName = frontendBucket.bucket;
+export const frontendBucketName = cloudfront.frontendBucketName;
 
 // Observability
 export const clickhouseInstanceId = observability.clickhouseInstanceId;
