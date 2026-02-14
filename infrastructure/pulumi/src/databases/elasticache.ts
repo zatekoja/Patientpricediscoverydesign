@@ -91,12 +91,16 @@ export function getCacheSubnetGroupName(environment: string): string {
 /**
  * Create ElastiCache auth token secret
  */
-export function createElastiCacheAuthTokenSecret(environment: string): aws.secretsmanager.Secret {
-  const name = `ohi-${environment}-elasticache-auth-token`;
+export function createElastiCacheAuthTokenSecret(environment: string, purpose: string = ''): {
+  secret: aws.secretsmanager.Secret,
+  token: pulumi.Output<string>
+} {
+  const suffix = purpose ? `-${purpose}` : '';
+  const name = `ohi-${environment}-elasticache-auth-token${suffix}`;
 
   const secret = new aws.secretsmanager.Secret(name, {
     name,
-    description: 'Auth token for ElastiCache Redis',
+    description: `Auth token for ElastiCache Redis${purpose ? ` (${purpose})` : ''}`,
     tags: getResourceTags(environment, 'elasticache', {
       Name: name,
     }),
@@ -114,7 +118,7 @@ export function createElastiCacheAuthTokenSecret(environment: string): aws.secre
     secretString: token.result,
   });
 
-  return secret;
+  return { secret, token: token.result };
 }
 
 /**
@@ -160,17 +164,11 @@ export function createApplicationCacheCluster(
   environment: string,
   subnetGroupName: pulumi.Input<string>,
   securityGroupId: pulumi.Input<string>,
-  parameterGroupName: pulumi.Input<string>
+  parameterGroupName: pulumi.Input<string>,
+  authToken: pulumi.Output<string>
 ): aws.elasticache.ReplicationGroup {
   const identifier = getCacheClusterIdentifier(environment, 'app');
-  const authToken = createElastiCacheAuthTokenSecret(environment);
   const numNodes = getNumCacheNodes(environment);
-
-  // Generate auth token using random provider
-  const token = new random.RandomPassword(`${identifier}-token`, {
-    length: 64,
-    special: false,
-  });
 
   return new aws.elasticache.ReplicationGroup(identifier, {
     replicationGroupId: identifier,
@@ -194,7 +192,7 @@ export function createApplicationCacheCluster(
     // Security
     atRestEncryptionEnabled: ELASTICACHE_CONFIG.atRestEncryptionEnabled,
     transitEncryptionEnabled: ELASTICACHE_CONFIG.transitEncryptionEnabled,
-    authToken: token.result,
+    authToken: authToken,
     
     // Backup
     snapshotRetentionLimit: ELASTICACHE_CONFIG.snapshotRetentionLimit,
@@ -223,17 +221,11 @@ export function createBlnkCacheCluster(
   environment: string,
   subnetGroupName: pulumi.Input<string>,
   securityGroupId: pulumi.Input<string>,
-  parameterGroupName: pulumi.Input<string>
+  parameterGroupName: pulumi.Input<string>,
+  authToken: pulumi.Output<string>
 ): aws.elasticache.ReplicationGroup {
   const identifier = getCacheClusterIdentifier(environment, 'blnk');
-  const authToken = createElastiCacheAuthTokenSecret(`${environment}-blnk`);
   const numNodes = getNumCacheNodes(environment);
-
-  // Generate auth token using random provider
-  const token = new random.RandomPassword(`${identifier}-token`, {
-    length: 64,
-    special: false,
-  });
 
   return new aws.elasticache.ReplicationGroup(identifier, {
     replicationGroupId: identifier,
@@ -257,7 +249,7 @@ export function createBlnkCacheCluster(
     // Security
     atRestEncryptionEnabled: ELASTICACHE_CONFIG.atRestEncryptionEnabled,
     transitEncryptionEnabled: ELASTICACHE_CONFIG.transitEncryptionEnabled,
-    authToken: token.result,
+    authToken: authToken,
     
     // Backup
     snapshotRetentionLimit: ELASTICACHE_CONFIG.snapshotRetentionLimit,

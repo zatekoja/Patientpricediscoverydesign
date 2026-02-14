@@ -96,51 +96,7 @@ jobs:
           echo "environment=$ENV" >> $GITHUB_OUTPUT
 
           # Determine what to deploy
-          DEPLOY_TYPE="${{ inputs.deployment-type }}"
-          if [ "$DEPLOY_TYPE" = "auto" ]; then
-            # Auto-detect changes
-            if git diff --name-only HEAD~1 | grep -q '^backend/'; then
-              echo "deploy-backend=true" >> $GITHUB_OUTPUT
-            else
-              echo "deploy-backend=false" >> $GITHUB_OUTPUT
-            fi
-            
-            if git diff --name-only HEAD~1 | grep -q '^Frontend/\|^package\.json\|^tsconfig\.json'; then
-              echo "deploy-frontend=true" >> $GITHUB_OUTPUT
-            else
-              echo "deploy-frontend=false" >> $GITHUB_OUTPUT
-            fi
-            
-            if git diff --name-only HEAD~1 | grep -q '^infrastructure/\|^terraform/'; then
-              echo "deploy-infrastructure=true" >> $GITHUB_OUTPUT
-            else
-              echo "deploy-infrastructure=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            # Manual deployment type selection
-            case "$DEPLOY_TYPE" in
-              "backend-only")
-                echo "deploy-backend=true" >> $GITHUB_OUTPUT
-                echo "deploy-frontend=false" >> $GITHUB_OUTPUT
-                echo "deploy-infrastructure=false" >> $GITHUB_OUTPUT
-                ;;
-              "frontend-only")
-                echo "deploy-backend=false" >> $GITHUB_OUTPUT
-                echo "deploy-frontend=true" >> $GITHUB_OUTPUT
-                echo "deploy-infrastructure=false" >> $GITHUB_OUTPUT
-                ;;
-              "infrastructure-only")
-                echo "deploy-backend=false" >> $GITHUB_OUTPUT
-                echo "deploy-frontend=false" >> $GITHUB_OUTPUT
-                echo "deploy-infrastructure=true" >> $GITHUB_OUTPUT
-                ;;
-              "full")
-                echo "deploy-backend=true" >> $GITHUB_OUTPUT
-                echo "deploy-frontend=true" >> $GITHUB_OUTPUT
-                echo "deploy-infrastructure=true" >> $GITHUB_OUTPUT
-                ;;
-            esac
-          fi
+          bash ./scripts/detect-deployment-targets.sh "${{ inputs.deployment-type }}"
 
           # Determine if approval is needed
           if [ "$ENV" = "dev" ] && [ "${{ inputs.skip-approval }}" = "true" ]; then

@@ -5,11 +5,7 @@ runtime:
   options:
     typescript: true
 config:
-  aws:region:
-    description: AWS region for deployment
-    default: eu-west-1
-  ohi:projectName:
-    description: Project name for tagging
-    default: open-health-initiative
+  aws:region: eu-west-1
+  ohi:projectName: open-health-initiative
   ohi:environment:
     description: Environment name (dev, staging, prod)

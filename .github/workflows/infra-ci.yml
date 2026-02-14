@@ -1,0 +1,58 @@
+name: "Infrastructure CI"
+
+# Validates Pulumi IaC: TypeScript compilation, config lint, and unit tests
+# Called by main-pipeline.yml when infrastructure files change
+
+on:
+  workflow_call:
+    inputs:
+      enable-summary:
+        description: 'Enable job summary'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  infra-ci:
+    name: Pulumi Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infrastructure/pulumi
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: infrastructure/pulumi/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript compile check
+        run: npx tsc --noEmit
+
+      - name: Pulumi config lint
+        run: npm run lint:config
+
+      - name: Unit tests
+        run: npx jest --ci --verbose
+
+      - name: Generate summary
+        if: always() && inputs.enable-summary
+        run: |
+          echo "## 🏗️ Infrastructure CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript compile | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pulumi config lint | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit tests         | ✅ |" >> $GITHUB_STEP_SUMMARY

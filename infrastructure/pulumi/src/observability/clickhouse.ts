@@ -1,15 +1,7 @@
-/**
- * Observability Module - ClickHouse + Zookeeper + Fluent Bit
- * 
- * Provides observability infrastructure for SigNoz:
- * - ClickHouse EC2 instances for telemetry storage
- * - Zookeeper ECS services for ClickHouse coordination  
- * - Fluent Bit configuration for log aggregation
- */
-
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { getResourceTags } from '../tagging';
+import { createZookeeperTaskDefinition, createZookeeperService } from '../compute/ecs';
 
 export type Environment = 'dev' | 'staging' | 'prod';
 
@@ -21,6 +13,7 @@ export interface ObservabilityConfig {
   vpcId: pulumi.Input<string>;
   privateSubnetIds: pulumi.Input<string>[];
   ecsClusterId: pulumi.Input<string>;
+  serviceDiscoveryNamespaceId: pulumi.Input<string>;
   taskExecutionRoleArn: pulumi.Input<string>;
   clickhouseSecurityGroupId: pulumi.Input<string>;
   zookeeperSecurityGroupId: pulumi.Input<string>;
@@ -445,20 +438,41 @@ export function createObservabilityInfrastructure(
     );
   }
 
-  // Zookeeper service discovery endpoint (will be created by ECS module)
-  const zookeeperEndpoint = pulumi.output(
-    `zookeeper.ohi-${environment}.local:2181`
-  );
+  // Create Zookeeper infrastructure
+  const zookeeperCount = environment === 'prod' ? 3 : 1;
+  const zookeeperServiceArns: pulumi.Output<string>[] = [];
 
-  // Placeholder outputs for Zookeeper (actual service created in ECS module)
-  const zookeeperServiceArn = pulumi.output(`arn:aws:ecs:eu-west-1:123:service/ohi-${environment}/zookeeper`);
+  for (let i = 0; i < zookeeperCount; i++) {
+    const taskDef = createZookeeperTaskDefinition(
+      environment,
+      config.taskExecutionRoleArn,
+      i
+    );
+
+    const service = createZookeeperService(
+      environment,
+      config.ecsClusterId,
+      taskDef.arn,
+      config.privateSubnetIds,
+      config.zookeeperSecurityGroupId,
+      config.serviceDiscoveryNamespaceId,
+      i
+    );
+
+    zookeeperServiceArns.push(service.id);
+  }
+
+  // Zookeeper service discovery endpoint
+  const zookeeperEndpoint = pulumi.output(
+    `zookeeper-0.ohi-${environment}.local:2181`
+  );
 
   return {
     clickhouseInstanceId: clickhouseInstance.id,
     clickhousePrivateIp: clickhouseInstance.privateIp,
     clickhousePublicIp: clickhouseInstance.publicIp,
     dataVolumeId: dataVolume?.id,
-    zookeeperServiceArn,
+    zookeeperServiceArn: zookeeperServiceArns[0], // Return the first one as representative
     zookeeperServiceDiscoveryEndpoint: zookeeperEndpoint,
     securityGroupId: pulumi.output(config.clickhouseSecurityGroupId),
   };
