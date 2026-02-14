@@ -48,6 +48,11 @@ if [ "$DEPLOY_TYPE" = "auto" ]; then
         deploy_frontend="true"
     fi
 
+    # Scripts changes should trigger backend deploy
+    if echo "$CHANGED_FILES" | grep -q '^scripts/'; then
+        deploy_backend="true"
+    fi
+
     # Workflow file changes should trigger backend + frontend deploy
     if echo "$CHANGED_FILES" | grep -q '^\.github/workflows/cd-deploy\.yml'; then
         deploy_backend="true"
