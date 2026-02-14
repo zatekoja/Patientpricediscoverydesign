@@ -146,7 +146,7 @@ fi
 # Get VPC configuration for task
 log_info "Fetching VPC configuration..."
 VPC_ID=$(aws ec2 describe-vpcs \
-    --filters "Name=tag:Environment,Values=$ENVIRONMENT" "Name=tag:Name,Values=ohi-${ENVIRONMENT}-vpc" \
+    --filters "Name=tag:Environment,Values=$ENVIRONMENT" \
     --query 'Vpcs[0].VpcId' \
     --output text \
     --region "$AWS_REGION")
@@ -159,7 +159,7 @@ fi
 
 # Get private subnets
 SUBNET_IDS=$(aws ec2 describe-subnets \
-    --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Type,Values=Private" \
+    --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Type,Values=private" \
     --query 'Subnets[*].SubnetId' \
     --output text \
     --region "$AWS_REGION")
