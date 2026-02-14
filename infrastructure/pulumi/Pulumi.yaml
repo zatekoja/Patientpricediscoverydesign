@@ -1,0 +1,15 @@
+name: ohi-infrastructure
+description: Open Health Initiative AWS Infrastructure
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+config:
+  aws:region:
+    description: AWS region for deployment
+    default: eu-west-1
+  ohi:projectName:
+    description: Project name for tagging
+    default: open-health-initiative
+  ohi:environment:
+    description: Environment name (dev, staging, prod)

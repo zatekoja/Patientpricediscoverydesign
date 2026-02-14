@@ -1,5 +1,7 @@
 # Patient Price Discovery Backend
 
+For consolidated project documentation and archived historical notes, see `docs/README.md` at the repository root.
+
 This backend includes two aligned subsystems:
 
 1. **Core Backend (Go)** - Domain-driven API, repositories, adapters, infrastructure.
@@ -586,7 +588,7 @@ scheduler.scheduleJob({
 For CSV/DOCX price lists (local or downloaded from Drive), you can use the file provider.
 
 ```bash
-PRICE_LIST_FILES=/app/fixtures/price_lists/MEGALEK NEW PRICE LIST 2026.csv,/app/fixtures/price_lists/PRICE_LIST_FOR_OFFICE_USE[1].docx
+PRICE_LIST_FILES=/app/internal/providers/data/MEGALEK NEW PRICE LIST 2026.csv,/app/internal/providers/data/PRICE_LIST_FOR_OFFICE_USE[1].docx
 PRICE_LIST_CURRENCY=NGN
 PRICE_LIST_EFFECTIVE_DATE=2026-01-01
 ```

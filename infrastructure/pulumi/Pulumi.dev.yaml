@@ -1,0 +1,13 @@
+config:
+  aws:region: eu-west-1
+  ohi:environment: dev
+  ohi:projectName: open-health-initiative
+  ohi:vpcCidr: 10.0.0.0/16
+  ohi:enableDeletionProtection: false
+  ohi:rdsInstanceClass: db.t4g.micro
+  ohi:rdsAllocatedStorage: "20"
+  ohi:redisNodeType: cache.t4g.micro
+  ohi:ecsTaskCpu: "256"
+  ohi:ecsTaskMemory: "512"
+  ohi:enableSpotInstances: true
+  ohi:domainName: dev.ohealth-ng.com

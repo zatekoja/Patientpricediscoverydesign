@@ -29,8 +29,8 @@ const fixtures: FixtureExpectation[] = [
 
 function resolveFixturePath(fileName: string): string {
   const candidates = [
-    path.join(process.cwd(), 'backend', 'fixtures', 'price_lists', fileName),
-    path.join(process.cwd(), 'fixtures', 'price_lists', fileName),
+    path.join(process.cwd(), 'backend', 'internal', 'providers', 'data', fileName),
+    path.join(process.cwd(), 'internal', 'providers', 'data', fileName),
   ];
   for (const candidate of candidates) {
     try {
