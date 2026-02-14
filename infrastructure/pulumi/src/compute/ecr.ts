@@ -7,8 +7,9 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import { getResourceTags } from '../foundation/tagging.js';
-import { Environment } from '../types.js';
+import { getResourceTags } from '../tagging';
+
+export type Environment = 'dev' | 'staging' | 'prod';
 
 /**
  * Configuration for ECR repository creation

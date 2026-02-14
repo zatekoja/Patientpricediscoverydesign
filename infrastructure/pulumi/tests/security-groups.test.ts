@@ -16,11 +16,12 @@
  * 9. RDS Security Group
  * 10. ElastiCache Security Group
  * 11. ClickHouse Security Group
- * 12. OTEL Collector Security Group
- * 13. SigNoz Query Service Security Group
- * 14. SigNoz Frontend Security Group
- * 15. ECS Tasks Security Group (general)
- * 16. VPC Endpoints Security Group
+ * 12. Zookeeper Security Group
+ * 13. OTEL Collector Security Group
+ * 14. SigNoz Query Service Security Group
+ * 15. SigNoz Frontend Security Group
+ * 16. ECS Tasks Security Group (general)
+ * 17. VPC Endpoints Security Group
  */
 
 import * as pulumi from '@pulumi/pulumi';
@@ -189,6 +190,33 @@ describe('Security Groups', () => {
       expect(OBSERVABILITY_PORTS.clickhouse).toBe(9000);
     });
 
+    it('should have ClickHouse HTTP port configured as 8123', () => {
+      const { OBSERVABILITY_PORTS } = require('../src/networking/security-groups');
+      
+      expect(OBSERVABILITY_PORTS.clickhouseHttp).toBe(8123);
+    });
+
+    it('should have ClickHouse interserver port configured as 9009', () => {
+      const { OBSERVABILITY_PORTS } = require('../src/networking/security-groups');
+      
+      expect(OBSERVABILITY_PORTS.clickhouseInterserver).toBe(9009);
+    });
+
+    it('should create Zookeeper security group', () => {
+      const { createZookeeperSecurityGroup } = require('../src/networking/security-groups');
+      
+      const sg = createZookeeperSecurityGroup('prod', 'vpc-123', 'sg-clickhouse-123');
+      expect(sg).toBeDefined();
+    });
+
+    it('should have Zookeeper ports configured (client 2181, follower 2888, election 3888)', () => {
+      const { OBSERVABILITY_PORTS } = require('../src/networking/security-groups');
+      
+      expect(OBSERVABILITY_PORTS.zookeeperClient).toBe(2181);
+      expect(OBSERVABILITY_PORTS.zookeeperFollower).toBe(2888);
+      expect(OBSERVABILITY_PORTS.zookeeperElection).toBe(3888);
+    });
+
     it('should create OTEL Collector security group', () => {
       const { createOtelCollectorSecurityGroup } = require('../src/networking/security-groups');
       
@@ -274,7 +302,7 @@ describe('Security Groups', () => {
   });
 
   describe('Service Communication Matrix', () => {
-    it('should create all 16 security groups', () => {
+    it('should create all 17 security groups', () => {
       const {
         createAlbSecurityGroup,
         createApiSecurityGroup,
@@ -287,6 +315,7 @@ describe('Security Groups', () => {
         createRdsSecurityGroup,
         createElastiCacheSecurityGroup,
         createClickHouseSecurityGroup,
+        createZookeeperSecurityGroup,
         createOtelCollectorSecurityGroup,
         createSigNozQuerySecurityGroup,
         createSigNozFrontendSecurityGroup,
@@ -306,6 +335,7 @@ describe('Security Groups', () => {
       expect(createRdsSecurityGroup).toBeDefined();
       expect(createElastiCacheSecurityGroup).toBeDefined();
       expect(createClickHouseSecurityGroup).toBeDefined();
+      expect(createZookeeperSecurityGroup).toBeDefined();
       expect(createOtelCollectorSecurityGroup).toBeDefined();
       expect(createSigNozQuerySecurityGroup).toBeDefined();
       expect(createSigNozFrontendSecurityGroup).toBeDefined();

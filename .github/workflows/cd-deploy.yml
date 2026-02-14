@@ -63,7 +63,7 @@ env:
   GO_VERSION: '1.25.0'
   NODE_VERSION: '18'
   AWS_REGION: 'eu-west-1'
-  DOMAIN: 'ateru.ng'
+  DOMAIN: 'ohealth-ng.com'
 
 jobs:
   # ==========================================
@@ -186,6 +186,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [plan-deployment, approval]
     if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && needs.plan-deployment.outputs.deploy-infrastructure == 'true'
+    environment:
+      name: ${{ needs.plan-deployment.outputs.environment }}
 
     steps:
       - name: Checkout code
@@ -196,10 +198,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Validate deploy role configuration
+        run: |
+          if [ -z "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            echo "::error::Missing AWS_DEPLOY_ROLE_ARN in GitHub environment '${{ needs.plan-deployment.outputs.environment }}'."
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Pulumi
@@ -227,6 +236,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [plan-deployment, approval, deploy-infrastructure]
     if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && (needs.deploy-infrastructure.result == 'success' || needs.deploy-infrastructure.result == 'skipped') && needs.plan-deployment.outputs.deploy-backend == 'true'
+    environment:
+      name: ${{ needs.plan-deployment.outputs.environment }}
 
     steps:
       - name: Checkout code
@@ -238,10 +249,17 @@ jobs:
           working-directory: backend
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Validate deploy role configuration
+        run: |
+          if [ -z "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            echo "::error::Missing AWS_DEPLOY_ROLE_ARN in GitHub environment '${{ needs.plan-deployment.outputs.environment }}'."
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -313,6 +331,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [plan-deployment, approval, deploy-infrastructure, deploy-backend]
     if: always() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') && (needs.deploy-infrastructure.result == 'success' || needs.deploy-infrastructure.result == 'skipped') && needs.plan-deployment.outputs.deploy-frontend == 'true'
+    environment:
+      name: ${{ needs.plan-deployment.outputs.environment }}
 
     steps:
       - name: Checkout code
@@ -325,10 +345,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache-dependency-path: package-lock.json
 
+      - name: Validate deploy role configuration
+        run: |
+          if [ -z "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            echo "::error::Missing AWS_DEPLOY_ROLE_ARN in GitHub environment '${{ needs.plan-deployment.outputs.environment }}'."
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Fetch frontend secrets
