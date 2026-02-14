@@ -21,6 +21,7 @@ export interface AlbOutputs {
     providerApi: pulumi.Output<string>;
   };
   httpsListenerArn?: pulumi.Output<string>;
+  httpsListenerResource?: aws.lb.Listener;
   httpListenerArn: pulumi.Output<string>;
 }
 
@@ -204,6 +205,7 @@ export function createAlbInfrastructure(config: AlbConfig): AlbOutputs {
   if (config.certificateArn) {
     const httpsListener = createHttpsListener(config, alb, apiTargetGroup);
     outputs.httpsListenerArn = httpsListener.arn;
+    outputs.httpsListenerResource = httpsListener;
 
     // Create host-based routing rules
     createListenerRule(config, httpsListener, apiTargetGroup, `api.${baseDomain}`, 100);

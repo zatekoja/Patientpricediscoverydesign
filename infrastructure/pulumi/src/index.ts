@@ -312,6 +312,7 @@ const ecs = createEcsInfrastructure({
     signoz: signozFrontendSg.id,
   },
   albTargetGroupArns: alb.targetGroupArns,
+  albListenerDependency: alb.httpsListenerResource,
   databaseEndpoint: rdsPrimary.endpoint,
   databasePasswordSecretArn: rdsSecretData.secret.arn, // Direct ARN reference
   redisEndpoint: appCache.primaryEndpointAddress,

@@ -30,6 +30,7 @@ export interface EcsConfig {
   redisAuthTokenSecretArn: pulumi.Output<string>;
   blnkRedisEndpoint: pulumi.Output<string>;
   blnkRedisAuthTokenSecretArn: pulumi.Output<string>;
+  albListenerDependency?: pulumi.Resource; // HTTPS listener — ECS services must wait for it
 }
 
 interface ServiceResources {
@@ -439,7 +440,15 @@ export function createEcsService(
     ];
   }
 
-  return new aws.ecs.Service(`ohi-${config.environment}-${serviceName}`, serviceConfig);
+  // ECS services that reference a target group must wait until the ALB
+  // HTTPS listener (and its rules) have been created, otherwise AWS rejects
+  // the service with "target group does not have an associated load balancer".
+  const opts: pulumi.CustomResourceOptions = {};
+  if (targetGroupArn && config.albListenerDependency) {
+    opts.dependsOn = [config.albListenerDependency];
+  }
+
+  return new aws.ecs.Service(`ohi-${config.environment}-${serviceName}`, serviceConfig, opts);
 }
 
 function getContainerPort(serviceName: string): number {
