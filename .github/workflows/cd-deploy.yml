@@ -173,8 +173,11 @@ jobs:
           pulumi-version: '^3.0.0'
 
       - name: Ensure Pulumi state bucket exists
+        id: pulumi-state
         run: |
-          BUCKET="ohi-pulumi-state-${{ vars.AWS_ACCOUNT_ID }}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="ohi-pulumi-state-${ACCOUNT_ID}"
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
           if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             echo "Creating Pulumi state bucket: $BUCKET"
             aws s3api create-bucket \
@@ -197,7 +200,7 @@ jobs:
       - name: Deploy Pulumi infrastructure
         working-directory: infrastructure/pulumi
         env:
-          PULUMI_BACKEND_URL: s3://ohi-pulumi-state-${{ vars.AWS_ACCOUNT_ID }}
+          PULUMI_BACKEND_URL: s3://${{ steps.pulumi-state.outputs.bucket }}
         run: |
           echo "🏗️ Deploying infrastructure to ${{ needs.plan-deployment.outputs.environment }}..."
           npm ci
