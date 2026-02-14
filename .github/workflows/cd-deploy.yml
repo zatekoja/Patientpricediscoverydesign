@@ -222,7 +222,7 @@ jobs:
           pulumi cancel --yes 2>/dev/null || true
 
           # Refresh state to clear pending operations from interrupted deploys
-          pulumi refresh --yes --skip-preview 2>/dev/null || true
+          pulumi refresh --yes --skip-preview --clear-pending-creates 2>/dev/null || true
 
           pulumi up --yes --skip-preview
           echo "✅ Infrastructure deployment completed"
