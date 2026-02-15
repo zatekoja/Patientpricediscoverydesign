@@ -392,7 +392,13 @@ function getEnvironmentVariables(
         { name: 'PROVIDER_MONGO_DB', value: config.mongoDbName || 'provider_data' },
         { name: 'PROVIDER_MONGO_COLLECTION', value: 'price_records' },
         { name: 'PROVIDER_LLM_API_ENDPOINT', value: 'https://api.openai.com/v1/chat/completions' },
-        { name: 'PROVIDER_PRICE_LIST_CURRENCY', value: 'NGN' },
+        { name: 'PRICE_LIST_CURRENCY', value: 'NGN' },
+        { name: 'PRICE_LIST_FILES', value: [
+          '/app/internal/providers/data/MEGALEK NEW PRICE LIST 2026.csv',
+          '/app/internal/providers/data/NEW LASUTH PRICE LIST (SERVICES).csv',
+          '/app/internal/providers/data/PRICE LIST FOR RANDLE GENERAL HOSPITAL JANUARY 2026.csv',
+        ].join(',') },
+        { name: 'PROVIDER_RUN_INITIAL_SYNC', value: 'true' },
         { name: 'PROVIDER_BLNK_LEDGER_PORT', value: '5001' },
         { name: 'PROVIDER_BLNK_LEDGER_URL', value: `http://blnk-api.ohi-${config.environment}.local` },
       ];

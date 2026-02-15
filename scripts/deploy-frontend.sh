@@ -129,20 +129,17 @@ if [ "${SKIP_BUILD:-false}" != "true" ]; then
     
     # Set environment-specific variables
     if [ "$ENVIRONMENT" = "prod" ]; then
-        export VITE_API_URL="https://api.ohealth-ng.com"
-        export VITE_GRAPHQL_URL="https://graphql.ohealth-ng.com"
-        export VITE_SSE_URL="https://sse.ohealth-ng.com"
+        export VITE_API_BASE_URL="https://api.ohealth-ng.com/api"
+        export VITE_SSE_BASE_URL="https://sse.ohealth-ng.com/api"
     else
-        export VITE_API_URL="https://api.${ENVIRONMENT}.ohealth-ng.com"
-        export VITE_GRAPHQL_URL="https://graphql.${ENVIRONMENT}.ohealth-ng.com"
-        export VITE_SSE_URL="https://sse.${ENVIRONMENT}.ohealth-ng.com"
+        export VITE_API_BASE_URL="https://api.${ENVIRONMENT}.ohealth-ng.com/api"
+        export VITE_SSE_BASE_URL="https://sse.${ENVIRONMENT}.ohealth-ng.com/api"
     fi
     export VITE_ENVIRONMENT="$ENVIRONMENT"
     
     log_info "Building with:"
-    log_info "  VITE_API_URL=$VITE_API_URL"
-    log_info "  VITE_GRAPHQL_URL=$VITE_GRAPHQL_URL"
-    log_info "  VITE_SSE_URL=$VITE_SSE_URL"
+    log_info "  VITE_API_BASE_URL=$VITE_API_BASE_URL"
+    log_info "  VITE_SSE_BASE_URL=$VITE_SSE_BASE_URL"
     log_info "  VITE_ENVIRONMENT=$VITE_ENVIRONMENT"
     
     npm run build

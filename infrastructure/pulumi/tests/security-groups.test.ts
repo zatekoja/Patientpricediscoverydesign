@@ -83,10 +83,10 @@ describe('Security Groups', () => {
       expect(sg).toBeDefined();
     });
 
-    it('should have GraphQL port configured as 8081', () => {
+    it('should have GraphQL port configured as 8080', () => {
       const { SERVICE_PORTS } = require('../src/networking/security-groups');
       
-      expect(SERVICE_PORTS.graphql).toBe(8081);
+      expect(SERVICE_PORTS.graphql).toBe(8080);
     });
 
     it('should create SSE security group', () => {
@@ -96,10 +96,10 @@ describe('Security Groups', () => {
       expect(sg).toBeDefined();
     });
 
-    it('should have SSE port configured as 8082', () => {
+    it('should have SSE port configured as 8080', () => {
       const { SERVICE_PORTS } = require('../src/networking/security-groups');
       
-      expect(SERVICE_PORTS.sse).toBe(8082);
+      expect(SERVICE_PORTS.sse).toBe(8080);
     });
 
     it('should create Provider API security group', () => {
@@ -109,10 +109,10 @@ describe('Security Groups', () => {
       expect(sg).toBeDefined();
     });
 
-    it('should have Provider API port configured as 3000', () => {
+    it('should have Provider API port configured as 8080', () => {
       const { SERVICE_PORTS } = require('../src/networking/security-groups');
       
-      expect(SERVICE_PORTS.providerApi).toBe(3000);
+      expect(SERVICE_PORTS.providerApi).toBe(8080);
     });
   });
 

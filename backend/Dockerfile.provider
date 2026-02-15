@@ -26,6 +26,9 @@ RUN npm install --omit=dev
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
 
+# Copy CSV/DOCX price list data files needed by the file provider
+COPY --from=builder /app/internal/providers/data ./internal/providers/data
+
 ENV NODE_ENV=production
 ENV PORT=8080
 
