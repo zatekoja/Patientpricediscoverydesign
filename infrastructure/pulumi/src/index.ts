@@ -180,10 +180,10 @@ const ecsTasksSg = createEcsTasksSecurityGroup(config.environment, vpc.id);
 
 // Database security groups
 const rdsSg = createRdsSecurityGroup(config.environment, vpc.id, [
-  apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id,
+  apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id, reindexerSg.id, providerApiSg.id,
 ]);
 const elastiCacheSg = createElastiCacheSecurityGroup(config.environment, vpc.id, [
-  apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id,
+  apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id, reindexerSg.id,
 ]);
 
 // Observability security groups
