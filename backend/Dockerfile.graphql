@@ -24,8 +24,8 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/ppd-graphql .
 
-# Expose port
-EXPOSE 8081
+# Expose port (must match ALB target group)
+EXPOSE 8080
 
 # Run the application
 CMD ["./ppd-graphql"]

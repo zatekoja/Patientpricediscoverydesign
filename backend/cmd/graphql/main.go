@@ -107,9 +107,10 @@ func main() {
 	// Initialize Typesense client
 	typesenseClient, err := typesense.NewClient(&cfg.Typesense)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to initialize Typesense client")
+		log.Warn().Err(err).Msg("Failed to initialize Typesense client — search will be unavailable")
+	} else {
+		log.Info().Msg("Typesense client initialized successfully")
 	}
-	log.Info().Msg("Typesense client initialized successfully")
 
 	// Initialize Provider API client
 	var providerClient providerapi.Client
@@ -141,7 +142,12 @@ func main() {
 	insuranceDBAdapter := database.NewInsuranceAdapter(pgClient)
 
 	// Create search adapter (Typesense)
-	searchAdapter := search.NewTypesenseAdapter(typesenseClient)
+	var searchAdapter *search.TypesenseAdapter
+	if typesenseClient != nil {
+		searchAdapter = search.NewTypesenseAdapter(typesenseClient)
+	} else {
+		log.Warn().Msg("GraphQL: Search adapter unavailable (Typesense not connected)")
+	}
 
 	// Initialize cache adapter with QueryCacheProvider wrapper
 	var queryCacheProvider adapters.QueryCacheAdapter
@@ -234,11 +240,11 @@ func main() {
 	// Playground endpoint (dev only)
 	if os.Getenv("ENV") != "production" {
 		mux.Handle("/playground", playground.Handler("GraphQL Playground", "/graphql"))
-		log.Info().Msg("GraphQL Playground available at http://localhost:8081/playground")
+		log.Info().Msgf("GraphQL Playground available at http://localhost:%d/playground", cfg.Server.Port)
 	}
 
-	// Create HTTP server
-	port := 8081
+	// Create HTTP server (port must match ALB target group health check)
+	port := cfg.Server.Port
 	serverAddr := fmt.Sprintf(":%d", port)
 	server := &http.Server{
 		Addr:         serverAddr,

@@ -28,6 +28,9 @@ SECRETS=(
   "flutterwave-webhook-secret|Flutterwave Webhook Secret|false"
   "redis-auth-token|Main Redis Auth Token|true"
   "blnk-redis-auth-token|Blnk Redis Auth Token|true"
+  "provider-mongo-uri|MongoDB Atlas Connection String (provider-api)|false"
+  "provider-llm-api-key|LLM API Key for Provider Document Parsing|false"
+  "jwt-secret|JWT Signing Secret|true"
 )
 
 # Helper function to generate random string
