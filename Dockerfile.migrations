@@ -1,0 +1,22 @@
+# Minimal image for running database migrations via psql
+FROM postgres:16-alpine
+
+WORKDIR /migrations
+
+# Copy all migration SQL files
+COPY backend/migrations/*.sql ./
+
+# Create a script that runs all migrations in order
+RUN echo '#!/bin/sh' > /run-migrations.sh && \
+    echo 'set -e' >> /run-migrations.sh && \
+    echo 'echo "Starting migrations against $DB_HOST:$DB_PORT/$DB_NAME"' >> /run-migrations.sh && \
+    echo 'export PGPASSWORD="$DB_PASSWORD"' >> /run-migrations.sh && \
+    echo 'for f in /migrations/*.sql; do' >> /run-migrations.sh && \
+    echo '  echo "Running: $(basename $f)"' >> /run-migrations.sh && \
+    echo '  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$f" -v ON_ERROR_STOP=0 2>&1' >> /run-migrations.sh && \
+    echo '  echo "Done: $(basename $f)"' >> /run-migrations.sh && \
+    echo 'done' >> /run-migrations.sh && \
+    echo 'echo "All migrations complete"' >> /run-migrations.sh && \
+    chmod +x /run-migrations.sh
+
+CMD ["/run-migrations.sh"]
