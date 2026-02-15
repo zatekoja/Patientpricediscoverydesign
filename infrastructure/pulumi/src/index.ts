@@ -72,7 +72,7 @@ import {
 
 // ─── Security ────────────────────────────────────────────────────────────────
 import { createAcmInfrastructure } from './security/acm';
-import { createSecretsInfrastructure } from './security/secrets';
+import { createSecretsInfrastructure, getSecretArn } from './security/secrets';
 
 // ─── Databases ───────────────────────────────────────────────────────────────
 import {
@@ -238,6 +238,21 @@ const secrets = createSecretsInfrastructure({
   blnkRedisAuthTokenSecretArn: blnkRedisAuthData.secret.arn,
 });
 
+// Externally-provisioned secrets (created by backend/scripts/setup-secrets.sh)
+// Look up by name so ECS task definitions can reference their ARNs.
+const externalSecretArns = {
+  typesenseApiKey: getSecretArn(`ohi-${config.environment}-typesense-api-key`),
+  openaiApiKey: getSecretArn(`ohi-${config.environment}-openai-api-key`),
+  geolocationApiKey: getSecretArn(`ohi-${config.environment}-geolocation-api-key`),
+  calendlyApiKey: getSecretArn(`ohi-${config.environment}-calendly-api-key`),
+  calendlyWebhookSecret: getSecretArn(`ohi-${config.environment}-calendly-webhook-secret`),
+  whatsappAccessToken: getSecretArn(`ohi-${config.environment}-whatsapp-access-token`),
+  flutterwaveSecretKey: getSecretArn(`ohi-${config.environment}-flutterwave-secret-key`),
+  flutterwaveWebhookSecret: getSecretArn(`ohi-${config.environment}-flutterwave-webhook-secret`),
+  providerMongoUri: getSecretArn(`ohi-${config.environment}-provider-mongo-uri`),
+  providerLlmApiKey: getSecretArn(`ohi-${config.environment}-provider-llm-api-key`),
+};
+
 // =============================================================================
 // 5. RDS PostgreSQL 15
 // =============================================================================
@@ -315,12 +330,35 @@ const ecs = createEcsInfrastructure({
   },
   albTargetGroupArns: alb.targetGroupArns,
   albListenerDependency: alb.httpsListenerResource,
+
+  // Database & cache endpoints
   databaseEndpoint: rdsPrimary.endpoint,
-  databasePasswordSecretArn: rdsSecretData.secret.arn, // Direct ARN reference
+  databasePasswordSecretArn: rdsSecretData.secret.arn,
   redisEndpoint: appCache.primaryEndpointAddress,
-  redisAuthTokenSecretArn: redisAuthData.secret.arn, // Direct ARN reference
+  redisAuthTokenSecretArn: redisAuthData.secret.arn,
   blnkRedisEndpoint: blnkCache.primaryEndpointAddress,
-  blnkRedisAuthTokenSecretArn: blnkRedisAuthData.secret.arn, // Direct ARN reference
+  blnkRedisAuthTokenSecretArn: blnkRedisAuthData.secret.arn,
+
+  // Application config (non-secret)
+  domainName: config.domainName,
+  typesenseUrl: pulumi.getStack() === 'prod'
+    ? 'https://yu0gb19aodc5ml7sp-1.a2.typesense.net'
+    : 'https://yu0gb19aodc5ml7sp-1.a2.typesense.net',
+  otelCollectorEndpoint: `http://otel.ohi-${config.environment}.local:4318`,
+  providerApiInternalUrl: `http://provider-api.ohi-${config.environment}.local:8080/api/v1`,
+  mongoDbName: 'provider_data',
+
+  // Externally-provisioned secret ARNs (from setup-secrets.sh)
+  typesenseApiKeySecretArn: externalSecretArns.typesenseApiKey,
+  openaiApiKeySecretArn: externalSecretArns.openaiApiKey,
+  geolocationApiKeySecretArn: externalSecretArns.geolocationApiKey,
+  calendlyApiKeySecretArn: externalSecretArns.calendlyApiKey,
+  calendlyWebhookSecretArn: externalSecretArns.calendlyWebhookSecret,
+  whatsappAccessTokenSecretArn: externalSecretArns.whatsappAccessToken,
+  flutterwaveSecretKeySecretArn: externalSecretArns.flutterwaveSecretKey,
+  flutterwaveWebhookSecretArn: externalSecretArns.flutterwaveWebhookSecret,
+  providerMongoUriSecretArn: externalSecretArns.providerMongoUri,
+  providerLlmApiKeySecretArn: externalSecretArns.providerLlmApiKey,
 });
 
 // =============================================================================
