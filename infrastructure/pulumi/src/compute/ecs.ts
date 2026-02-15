@@ -96,7 +96,7 @@ const SERVICE_RESOURCES: Record<string, Record<string, ServiceResources>> = {
     api: { cpu: 256, memory: 512 },
     graphql: { cpu: 256, memory: 512 },
     sse: { cpu: 256, memory: 512 },
-    'provider-api': { cpu: 256, memory: 512 },
+    'provider-api': { cpu: 1024, memory: 2048 },
     reindexer: { cpu: 256, memory: 512 },
     'blnk-api': { cpu: 256, memory: 512 },
     'blnk-worker': { cpu: 256, memory: 512 },

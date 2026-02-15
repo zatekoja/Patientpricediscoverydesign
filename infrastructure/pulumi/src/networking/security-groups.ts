@@ -23,9 +23,9 @@ export const ALB_PORTS = {
 
 export const SERVICE_PORTS = {
   api: 8080,
-  graphql: 8081,
-  sse: 8082,
-  providerApi: 3000,
+  graphql: 8080,
+  sse: 8080,
+  providerApi: 8080,
   blnkApi: 5001,
 };
 
@@ -137,7 +137,7 @@ export function createApiSecurityGroup(
 
 /**
  * Create GraphQL Security Group
- * Allows traffic from ALB on port 8081
+ * Allows traffic from ALB on port 8080
  */
 export function createGraphqlSecurityGroup(
   environment: string,
@@ -167,7 +167,7 @@ export function createGraphqlSecurityGroup(
 
 /**
  * Create SSE Security Group
- * Allows traffic from ALB on port 8082
+ * Allows traffic from ALB on port 8080
  */
 export function createSseSecurityGroup(
   environment: string,
@@ -197,7 +197,7 @@ export function createSseSecurityGroup(
 
 /**
  * Create Provider API Security Group
- * Allows traffic from ALB on port 3000
+ * Allows traffic from ALB on port 8080
  */
 export function createProviderApiSecurityGroup(
   environment: string,
