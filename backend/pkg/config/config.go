@@ -36,10 +36,11 @@ type DatabaseConfig struct {
 
 // RedisConfig holds Redis configuration
 type RedisConfig struct {
-	Host     string
-	Port     int
-	Password string
-	DB       int
+	Host      string
+	Port      int
+	Password  string
+	DB        int
+	TLSEnable bool
 }
 
 // TypesenseConfig holds Typesense configuration
@@ -92,10 +93,11 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		Redis: RedisConfig{
-			Host:     getEnv("REDIS_HOST", "localhost"),
-			Port:     getEnvAsInt("REDIS_PORT", 6379),
-			Password: getEnv("REDIS_PASSWORD", ""),
-			DB:       getEnvAsInt("REDIS_DB", 0),
+			Host:      getEnv("REDIS_HOST", "localhost"),
+			Port:      getEnvAsInt("REDIS_PORT", 6379),
+			Password:  getEnv("REDIS_PASSWORD", ""),
+			DB:        getEnvAsInt("REDIS_DB", 0),
+			TLSEnable: getEnvAsBool("REDIS_TLS", false),
 		},
 		Typesense: TypesenseConfig{
 			URL:    getEnv("TYPESENSE_URL", "http://localhost:8108"),

@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"time"
@@ -18,11 +19,17 @@ type Client struct {
 
 // NewClient creates a new Redis client with exponential backoff retry
 func NewClient(cfg *config.RedisConfig) (*Client, error) {
-	client := redis.NewClient(&redis.Options{
+	opts := &redis.Options{
 		Addr:     cfg.RedisAddr(),
 		Password: cfg.Password,
 		DB:       cfg.DB,
-	})
+	}
+	if cfg.TLSEnable {
+		opts.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	client := redis.NewClient(opts)
 
 	// Test the connection with retry
 	retryConfig := retry.DefaultConfig()

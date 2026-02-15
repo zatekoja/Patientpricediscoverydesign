@@ -31,6 +31,26 @@ export interface EcsConfig {
   blnkRedisEndpoint: pulumi.Output<string>;
   blnkRedisAuthTokenSecretArn: pulumi.Output<string>;
   albListenerDependency?: pulumi.Resource; // HTTPS listener — ECS services must wait for it
+
+  // ── Application config (non-secret) ──────────────────────────────────
+  domainName: string;                       // e.g. ohealth-ng.com
+  typesenseUrl: string;                     // Typesense Cloud URL
+  otelCollectorEndpoint: string;            // OTEL collector internal URL
+  providerApiInternalUrl: string;           // provider-api service-discovery URL
+  mongoDbName?: string;                     // MongoDB database name
+
+  // ── Additional Secrets Manager ARNs ─────────────────────────────────
+  typesenseApiKeySecretArn: pulumi.Output<string>;
+  openaiApiKeySecretArn: pulumi.Output<string>;
+  geolocationApiKeySecretArn: pulumi.Output<string>;
+  calendlyApiKeySecretArn: pulumi.Output<string>;
+  calendlyWebhookSecretArn: pulumi.Output<string>;
+  whatsappAccessTokenSecretArn: pulumi.Output<string>;
+  flutterwaveSecretKeySecretArn: pulumi.Output<string>;
+  flutterwaveWebhookSecretArn: pulumi.Output<string>;
+  providerMongoUriSecretArn: pulumi.Output<string>;
+  providerLlmApiKeySecretArn: pulumi.Output<string>;
+  jwtSecretArn?: pulumi.Output<string>;
 }
 
 interface ServiceResources {
@@ -187,13 +207,14 @@ export function createTaskExecutionRole(config: EcsConfig): aws.iam.Role {
   });
 
   // Additional policy for ECR and Secrets Manager
+  //
+  // All application secrets follow the naming convention ohi-{env}-*
+  // so we grant access to that prefix rather than listing individual ARNs.
+  // This avoids hitting IAM policy size limits as the secret count grows.
+  const accountId = aws.getCallerIdentityOutput().accountId;
   const policy = new aws.iam.Policy(`ohi-${config.environment}-ecs-task-execution-additional`, {
     name: `ohi-${config.environment}-ecs-task-execution-additional`,
-    policy: pulumi.all([
-      config.databasePasswordSecretArn,
-      config.redisAuthTokenSecretArn,
-      config.blnkRedisAuthTokenSecretArn,
-    ]).apply(([dbArn, redisArn, blnkRedisArn]) =>
+    policy: pulumi.interpolate`${accountId}`.apply((acctId) =>
       JSON.stringify({
         Version: '2012-10-17',
         Statement: [
@@ -208,9 +229,10 @@ export function createTaskExecutionRole(config: EcsConfig): aws.iam.Role {
             Resource: '*',
           },
           {
+            Sid: 'AllowOhiSecrets',
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue'],
-            Resource: [dbArn, redisArn, blnkRedisArn],
+            Resource: `arn:aws:secretsmanager:eu-west-1:${acctId}:secret:ohi-${config.environment}-*`,
           },
           {
             Effect: 'Allow',
@@ -276,51 +298,192 @@ function getEnvironmentVariables(
   config: EcsConfig,
   serviceName: string
 ): { name: string; value: string }[] {
+  // ── Shared vars (every container) ──────────────────────────────────
   const commonEnvVars: { name: string; value: string }[] = [
     { name: 'ENVIRONMENT', value: config.environment },
+    { name: 'ENV', value: config.environment === 'prod' ? 'production' : config.environment },
     { name: 'LOG_LEVEL', value: config.environment === 'prod' ? 'info' : 'debug' },
-    { name: 'DATABASE_HOST', value: pulumi.interpolate`${config.databaseEndpoint}` as any },
-    { name: 'DATABASE_PORT', value: '5432' },
-    { name: 'DATABASE_NAME', value: 'ohi' },
-    { name: 'DATABASE_USER', value: 'ohi_admin' },
-    { name: 'REDIS_HOST', value: pulumi.interpolate`${config.redisEndpoint}` as any },
-    { name: 'REDIS_PORT', value: '6379' },
   ];
 
-  if (serviceName === 'blnk-api' || serviceName === 'blnk-worker') {
-    return [
-      ...commonEnvVars,
-      { name: 'BLNK_REDIS_HOST', value: pulumi.interpolate`${config.blnkRedisEndpoint}` as any },
-      { name: 'BLNK_REDIS_PORT', value: '6379' },
-    ];
-  }
+  // ── Go services: api, graphql, sse, reindexer ─────────────────────
+  // Go config.Load() reads DB_HOST, DB_PASSWORD, REDIS_PASSWORD, etc.
+  const goDbVars: { name: string; value: string }[] = [
+    { name: 'DB_HOST', value: pulumi.interpolate`${config.databaseEndpoint}` as any },
+    { name: 'DB_PORT', value: '5432' },
+    { name: 'DB_NAME', value: 'ohi' },
+    { name: 'DB_USER', value: 'ohiadmin' },
+    { name: 'DB_SSLMODE', value: 'require' },
+    { name: 'REDIS_HOST', value: pulumi.interpolate`${config.redisEndpoint}` as any },
+    { name: 'REDIS_PORT', value: '6379' },
+    { name: 'REDIS_DB', value: '0' },
+  ];
 
-  return commonEnvVars;
+  // Typesense config (api, graphql, reindexer)
+  const typesenseVars: { name: string; value: string }[] = [
+    { name: 'TYPESENSE_URL', value: config.typesenseUrl },
+  ];
+
+  // OTEL config
+  const otelVars: { name: string; value: string }[] = [
+    { name: 'OTEL_ENABLED', value: 'true' },
+    { name: 'OTEL_ENDPOINT', value: config.otelCollectorEndpoint },
+  ];
+
+  // Provider-API internal URL (for Go api & graphql to call provider-api)
+  const providerApiUrlVars: { name: string; value: string }[] = [
+    { name: 'PROVIDER_API_BASE_URL', value: config.providerApiInternalUrl },
+  ];
+
+  switch (serviceName) {
+    case 'api':
+      return [
+        ...commonEnvVars,
+        ...goDbVars,
+        ...typesenseVars,
+        ...otelVars,
+        ...providerApiUrlVars,
+        { name: 'SERVER_HOST', value: '0.0.0.0' },
+        { name: 'SERVER_PORT', value: '8080' },
+        { name: 'OTEL_SERVICE_NAME', value: 'ohi-api' },
+        { name: 'GEOLOCATION_PROVIDER', value: 'google' },
+      ];
+
+    case 'graphql':
+      return [
+        ...commonEnvVars,
+        ...goDbVars,
+        ...typesenseVars,
+        ...otelVars,
+        ...providerApiUrlVars,
+        { name: 'SERVER_HOST', value: '0.0.0.0' },
+        { name: 'SERVER_PORT', value: '8080' },
+        { name: 'OTEL_SERVICE_NAME', value: 'ohi-graphql' },
+        { name: 'GEOLOCATION_PROVIDER', value: 'google' },
+      ];
+
+    case 'sse':
+      return [
+        ...commonEnvVars,
+        ...goDbVars,
+        ...otelVars,
+        { name: 'SERVER_HOST', value: '0.0.0.0' },
+        { name: 'SERVER_PORT', value: '8080' },
+        { name: 'OTEL_SERVICE_NAME', value: 'ohi-sse' },
+      ];
+
+    case 'reindexer':
+      return [
+        ...commonEnvVars,
+        ...goDbVars,
+        ...typesenseVars,
+        ...otelVars,
+        { name: 'OTEL_SERVICE_NAME', value: 'ohi-reindexer' },
+      ];
+
+    case 'provider-api':
+      // Node.js service — uses PROVIDER_MONGO_URI, PORT, etc.
+      return [
+        ...commonEnvVars,
+        ...otelVars,
+        { name: 'PORT', value: '8080' },
+        { name: 'OTEL_SERVICE_NAME', value: 'ohi-provider-api' },
+        { name: 'REDIS_HOST', value: pulumi.interpolate`${config.redisEndpoint}` as any },
+        { name: 'REDIS_PORT', value: '6379' },
+        { name: 'PROVIDER_MONGO_DB', value: config.mongoDbName || 'provider_data' },
+        { name: 'PROVIDER_MONGO_COLLECTION', value: 'price_records' },
+        { name: 'PROVIDER_LLM_API_ENDPOINT', value: 'https://api.openai.com/v1/chat/completions' },
+        { name: 'PROVIDER_PRICE_LIST_CURRENCY', value: 'NGN' },
+        { name: 'PROVIDER_BLNK_LEDGER_PORT', value: '5001' },
+        { name: 'PROVIDER_BLNK_LEDGER_URL', value: `http://blnk-api.ohi-${config.environment}.local` },
+      ];
+
+    case 'blnk-api':
+    case 'blnk-worker':
+      return [
+        ...commonEnvVars,
+        ...goDbVars,
+        ...otelVars,
+        { name: 'OTEL_SERVICE_NAME', value: `ohi-${serviceName}` },
+        { name: 'BLNK_REDIS_HOST', value: pulumi.interpolate`${config.blnkRedisEndpoint}` as any },
+        { name: 'BLNK_REDIS_PORT', value: '6379' },
+      ];
+
+    default:
+      return commonEnvVars;
+  }
 }
 
 function getSecrets(
   config: EcsConfig,
   serviceName: string
 ): { name: string; valueFrom: string }[] {
-  const secrets: { name: string; valueFrom: string }[] = [
-    {
-      name: 'DATABASE_PASSWORD',
-      valueFrom: pulumi.interpolate`${config.databasePasswordSecretArn}` as any,
-    },
-    {
-      name: 'REDIS_AUTH_TOKEN',
-      valueFrom: pulumi.interpolate`${config.redisAuthTokenSecretArn}` as any,
-    },
-  ];
+  // Helper to build a secret entry
+  const s = (name: string, arn: pulumi.Output<string>) => ({
+    name,
+    valueFrom: pulumi.interpolate`${arn}` as any,
+  });
 
-  if (serviceName === 'blnk-api' || serviceName === 'blnk-worker') {
-    secrets.push({
-      name: 'BLNK_REDIS_AUTH_TOKEN',
-      valueFrom: pulumi.interpolate`${config.blnkRedisAuthTokenSecretArn}` as any,
-    });
+  switch (serviceName) {
+    // ── Go API service ──────────────────────────────────────────────
+    case 'api':
+      return [
+        s('DB_PASSWORD', config.databasePasswordSecretArn),
+        s('REDIS_PASSWORD', config.redisAuthTokenSecretArn),
+        s('TYPESENSE_API_KEY', config.typesenseApiKeySecretArn),
+        s('OPENAI_API_KEY', config.openaiApiKeySecretArn),
+        s('GEOLOCATION_API_KEY', config.geolocationApiKeySecretArn),
+        s('CALENDLY_API_KEY', config.calendlyApiKeySecretArn),
+        s('CALENDLY_WEBHOOK_SECRET', config.calendlyWebhookSecretArn),
+        s('WHATSAPP_ACCESS_TOKEN', config.whatsappAccessTokenSecretArn),
+      ];
+
+    // ── Go GraphQL service ──────────────────────────────────────────
+    case 'graphql':
+      return [
+        s('DB_PASSWORD', config.databasePasswordSecretArn),
+        s('REDIS_PASSWORD', config.redisAuthTokenSecretArn),
+        s('TYPESENSE_API_KEY', config.typesenseApiKeySecretArn),
+        s('OPENAI_API_KEY', config.openaiApiKeySecretArn),
+        s('GEOLOCATION_API_KEY', config.geolocationApiKeySecretArn),
+      ];
+
+    // ── Go SSE service ──────────────────────────────────────────────
+    case 'sse':
+      return [
+        s('DB_PASSWORD', config.databasePasswordSecretArn),
+        s('REDIS_PASSWORD', config.redisAuthTokenSecretArn),
+      ];
+
+    // ── Go Reindexer service ────────────────────────────────────────
+    case 'reindexer':
+      return [
+        s('DB_PASSWORD', config.databasePasswordSecretArn),
+        s('REDIS_PASSWORD', config.redisAuthTokenSecretArn),
+        s('TYPESENSE_API_KEY', config.typesenseApiKeySecretArn),
+      ];
+
+    // ── Node.js Provider API ────────────────────────────────────────
+    case 'provider-api':
+      return [
+        s('PROVIDER_MONGO_URI', config.providerMongoUriSecretArn),
+        s('PROVIDER_LLM_API_KEY', config.providerLlmApiKeySecretArn),
+        s('FLUTTERWAVE_SECRET_KEY', config.flutterwaveSecretKeySecretArn),
+        s('FLUTTERWAVE_WEBHOOK_SECRET', config.flutterwaveWebhookSecretArn),
+        s('WHATSAPP_ACCESS_TOKEN', config.whatsappAccessTokenSecretArn),
+      ];
+
+    // ── Blnk services ───────────────────────────────────────────────
+    case 'blnk-api':
+    case 'blnk-worker':
+      return [
+        s('DB_PASSWORD', config.databasePasswordSecretArn),
+        s('REDIS_PASSWORD', config.redisAuthTokenSecretArn),
+        s('BLNK_REDIS_AUTH_TOKEN', config.blnkRedisAuthTokenSecretArn),
+      ];
+
+    default:
+      return [];
   }
-
-  return secrets;
 }
 
 export function createTaskDefinition(
