@@ -172,7 +172,7 @@ const albSg = createAlbSecurityGroup(config.environment, vpc.id);
 const apiSg = createApiSecurityGroup(config.environment, vpc.id, albSg.id);
 const graphqlSg = createGraphqlSecurityGroup(config.environment, vpc.id, albSg.id);
 const sseSg = createSseSecurityGroup(config.environment, vpc.id, albSg.id);
-const providerApiSg = createProviderApiSecurityGroup(config.environment, vpc.id, albSg.id);
+const providerApiSg = createProviderApiSecurityGroup(config.environment, vpc.id, albSg.id, [apiSg.id, graphqlSg.id]);
 const reindexerSg = createReindexerSecurityGroup(config.environment, vpc.id);
 const blnkApiSg = createBlnkApiSecurityGroup(config.environment, vpc.id, [apiSg.id, graphqlSg.id]);
 const blnkWorkerSg = createBlnkWorkerSecurityGroup(config.environment, vpc.id);
@@ -331,8 +331,8 @@ const ecs = createEcsInfrastructure({
   albTargetGroupArns: alb.targetGroupArns,
   albListenerDependency: alb.httpsListenerResource,
 
-  // Database & cache endpoints
-  databaseEndpoint: rdsPrimary.endpoint,
+  // Database & cache endpoints (address = hostname only, endpoint = hostname:port)
+  databaseEndpoint: rdsPrimary.address,
   databasePasswordSecretArn: rdsSecretData.secret.arn,
   redisEndpoint: appCache.primaryEndpointAddress,
   redisAuthTokenSecretArn: redisAuthData.secret.arn,
@@ -370,6 +370,7 @@ const cloudfront = createCloudFrontInfrastructure({
   domainAliases: config.environment === 'prod'
     ? [config.domainName, `www.${config.domainName}`]
     : [`${config.environment}.${config.domainName}`],
+  albDnsName: alb.albDnsName,
 });
 
 // =============================================================================

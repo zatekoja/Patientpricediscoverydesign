@@ -137,10 +137,22 @@ if [ "${SKIP_BUILD:-false}" != "true" ]; then
     fi
     export VITE_ENVIRONMENT="$ENVIRONMENT"
     
+    # Fetch geolocation API key from AWS Secrets Manager
+    SECRET_NAME="ohi-${ENVIRONMENT}-geolocation-api-key"
+    log_info "Fetching geolocation API key from Secrets Manager ($SECRET_NAME)..."
+    GEO_KEY=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --query SecretString --output text 2>/dev/null || echo "")
+    if [ -n "$GEO_KEY" ]; then
+        export VITE_GEOLOCATION_API_KEY="$GEO_KEY"
+        log_success "Fetched geolocation API key"
+    else
+        log_warning "Could not fetch $SECRET_NAME. Map features may not work."
+    fi
+    
     log_info "Building with:"
     log_info "  VITE_API_BASE_URL=$VITE_API_BASE_URL"
     log_info "  VITE_SSE_BASE_URL=$VITE_SSE_BASE_URL"
     log_info "  VITE_ENVIRONMENT=$VITE_ENVIRONMENT"
+    log_info "  VITE_GEOLOCATION_API_KEY=${VITE_GEOLOCATION_API_KEY:+set (hidden)}"
     
     npm run build
     log_success "Frontend built successfully"

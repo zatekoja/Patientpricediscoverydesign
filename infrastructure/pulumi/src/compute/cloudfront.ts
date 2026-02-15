@@ -8,6 +8,7 @@ export interface CloudFrontConfig {
   s3BucketArn?: pulumi.Output<string>;
   certificateArn?: pulumi.Output<string>; // ACM certificate in us-east-1
   domainAliases?: string[];
+  albDnsName?: pulumi.Output<string>; // ALB DNS for /api/* routing
 }
 
 export interface CloudFrontOutputs {
@@ -111,7 +112,46 @@ export function createCloudFrontDistribution(
           originAccessIdentity: oai.cloudfrontAccessIdentityPath,
         },
       },
+      // ALB origin for API routing (if provided)
+      ...(config.albDnsName
+        ? [
+            {
+              originId: 'alb-api',
+              domainName: config.albDnsName,
+              customOriginConfig: {
+                httpPort: 80,
+                httpsPort: 443,
+                originProtocolPolicy: 'https-only',
+                originSslProtocols: ['TLSv1.2'],
+              },
+            },
+          ]
+        : []),
     ],
+
+    // API cache behavior: forward /api/* to ALB with no caching
+    orderedCacheBehaviors: config.albDnsName
+      ? [
+          {
+            pathPattern: '/api/*',
+            targetOriginId: 'alb-api',
+            viewerProtocolPolicy: 'redirect-to-https',
+            allowedMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
+            cachedMethods: ['GET', 'HEAD'],
+            compress: true,
+            minTtl: 0,
+            defaultTtl: 0,
+            maxTtl: 0,
+            forwardedValues: {
+              queryString: true,
+              headers: ['Authorization', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
+              cookies: {
+                forward: 'all',
+              },
+            },
+          },
+        ]
+      : [],
 
     defaultCacheBehavior: {
       targetOriginId: 's3-frontend',

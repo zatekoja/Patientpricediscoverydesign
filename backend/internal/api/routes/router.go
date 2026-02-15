@@ -193,9 +193,9 @@ func (r *Router) SetupRoutes() http.Handler {
 	}
 
 	// Apply middleware in reverse order (last middleware wraps first)
+	// CORS must be outermost so cached responses also get CORS headers.
 
 	var handler http.Handler = r.mux
-	handler = middleware.CORSMiddleware(handler)
 	handler = middleware.LoggingMiddleware(handler)
 
 	// Apply cache middleware if available
@@ -207,6 +207,9 @@ func (r *Router) SetupRoutes() http.Handler {
 
 	// Apply HTTP performance optimizations (compression, ETag, cache headers)
 	handler = middleware.ResponseOptimization(handler)
+
+	// CORS wraps everything so headers are set even on cache HITs
+	handler = middleware.CORSMiddleware(handler)
 
 	return handler
 }

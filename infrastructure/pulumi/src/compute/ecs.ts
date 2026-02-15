@@ -315,6 +315,7 @@ function getEnvironmentVariables(
     { name: 'DB_SSLMODE', value: 'require' },
     { name: 'REDIS_HOST', value: pulumi.interpolate`${config.redisEndpoint}` as any },
     { name: 'REDIS_PORT', value: '6379' },
+    { name: 'REDIS_TLS', value: 'true' },
     { name: 'REDIS_DB', value: '0' },
   ];
 
@@ -346,6 +347,9 @@ function getEnvironmentVariables(
         { name: 'SERVER_PORT', value: '8080' },
         { name: 'OTEL_SERVICE_NAME', value: 'ohi-api' },
         { name: 'GEOLOCATION_PROVIDER', value: 'google' },
+        { name: 'PROVIDER_INGEST_ON_START', value: 'true' },
+        { name: 'PROVIDER_INGEST_PROVIDER_ID', value: 'file_price_list' },
+        { name: 'PROVIDER_INGEST_INTERVAL_MINUTES', value: '60' },
       ];
 
     case 'graphql':

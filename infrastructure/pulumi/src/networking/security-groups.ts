@@ -197,12 +197,13 @@ export function createSseSecurityGroup(
 
 /**
  * Create Provider API Security Group
- * Allows traffic from ALB on port 8080
+ * Allows traffic from ALB and internal services (api, graphql) on port 8080
  */
 export function createProviderApiSecurityGroup(
   environment: string,
   vpcId: pulumi.Input<string>,
-  albSecurityGroupId: pulumi.Input<string>
+  albSecurityGroupId: pulumi.Input<string>,
+  internalCallerSgIds: pulumi.Input<string>[] = []
 ): aws.ec2.SecurityGroup {
   const name = getSecurityGroupName(environment, 'provider-api');
 
@@ -214,8 +215,8 @@ export function createProviderApiSecurityGroup(
         fromPort: SERVICE_PORTS.providerApi,
         toPort: SERVICE_PORTS.providerApi,
         protocol: 'tcp',
-        securityGroups: [albSecurityGroupId],
-        description: 'Allow traffic from ALB',
+        securityGroups: [albSecurityGroupId, ...internalCallerSgIds],
+        description: 'Allow traffic from ALB and internal services',
       },
     ],
     egress: ALLOW_ALL_EGRESS,
