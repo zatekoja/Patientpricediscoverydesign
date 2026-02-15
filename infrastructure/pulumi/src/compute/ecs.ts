@@ -389,6 +389,7 @@ function getEnvironmentVariables(
         { name: 'OTEL_SERVICE_NAME', value: 'ohi-provider-api' },
         { name: 'REDIS_HOST', value: pulumi.interpolate`${config.redisEndpoint}` as any },
         { name: 'REDIS_PORT', value: '6379' },
+        { name: 'REDIS_TLS', value: 'true' },
         { name: 'PROVIDER_MONGO_DB', value: config.mongoDbName || 'provider_data' },
         { name: 'PROVIDER_MONGO_COLLECTION', value: 'price_records' },
         { name: 'PROVIDER_LLM_API_ENDPOINT', value: 'https://api.openai.com/v1/chat/completions' },
@@ -470,8 +471,7 @@ function getSecrets(
 
     // ── Node.js Provider API ────────────────────────────────────────
     case 'provider-api':
-      return [
-        s('PROVIDER_MONGO_URI', config.providerMongoUriSecretArn),
+      return [        s('REDIS_PASSWORD', config.redisAuthTokenSecretArn),        s('PROVIDER_MONGO_URI', config.providerMongoUriSecretArn),
         s('PROVIDER_LLM_API_KEY', config.providerLlmApiKeySecretArn),
         s('FLUTTERWAVE_SECRET_KEY', config.flutterwaveSecretKeySecretArn),
         s('FLUTTERWAVE_WEBHOOK_SECRET', config.flutterwaveWebhookSecretArn),

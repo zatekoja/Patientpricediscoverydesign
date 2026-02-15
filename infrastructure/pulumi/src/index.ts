@@ -183,7 +183,7 @@ const rdsSg = createRdsSecurityGroup(config.environment, vpc.id, [
   apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id, reindexerSg.id, providerApiSg.id,
 ]);
 const elastiCacheSg = createElastiCacheSecurityGroup(config.environment, vpc.id, [
-  apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id, reindexerSg.id,
+  apiSg.id, graphqlSg.id, sseSg.id, blnkApiSg.id, reindexerSg.id, providerApiSg.id,
 ]);
 
 // Observability security groups

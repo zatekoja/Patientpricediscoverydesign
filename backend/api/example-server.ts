@@ -89,11 +89,33 @@ async function startServer() {
   let flutterwaveService;
 
   if (process.env.REDIS_HOST) {
-    const redisUrl = `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`;
+    const useTls = process.env.REDIS_TLS === 'true';
+    const redisScheme = useTls ? 'rediss' : 'redis';
+    const redisPassword = process.env.REDIS_PASSWORD;
+    const redisHost = process.env.REDIS_HOST;
+    const redisPort = process.env.REDIS_PORT || '6379';
+    const authPart = redisPassword ? `:${encodeURIComponent(redisPassword)}@` : '';
+    const redisUrl = `${redisScheme}://${authPart}${redisHost}:${redisPort}`;
+    const redisLogUrl = `${redisScheme}://${redisPassword ? '***@' : ''}${redisHost}:${redisPort}`;
     try {
-      redisClient = createClient({ url: redisUrl });
+      redisClient = createClient({
+        url: redisUrl,
+        ...(useTls
+          ? {
+              socket: {
+                tls: true as const,
+                rejectUnauthorized: true,
+                connectTimeout: 10_000,
+              },
+            }
+          : {
+              socket: {
+                connectTimeout: 10_000,
+              },
+            }),
+      });
       await redisClient.connect();
-      console.log(`✓ Redis connected for Capacity Service (${redisUrl})`);
+      console.log(`✓ Redis connected for Capacity Service (${redisLogUrl})`);
       capacityService = new CapacityService(redisClient);
     } catch (e) {
       console.error('✗ Redis connection failed:', e);
