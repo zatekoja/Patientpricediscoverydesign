@@ -310,7 +310,7 @@ function getEnvironmentVariables(
   const goDbVars: { name: string; value: string }[] = [
     { name: 'DB_HOST', value: pulumi.interpolate`${config.databaseEndpoint}` as any },
     { name: 'DB_PORT', value: '5432' },
-    { name: 'DB_NAME', value: 'ohi' },
+    { name: 'DB_NAME', value: 'ohealth' },
     { name: 'DB_USER', value: 'ohiadmin' },
     { name: 'DB_SSLMODE', value: 'require' },
     { name: 'REDIS_HOST', value: pulumi.interpolate`${config.redisEndpoint}` as any },
